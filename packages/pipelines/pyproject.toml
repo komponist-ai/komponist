@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "komponist-pipelines"
+version = "0.1.0"
+description = "LangGraph extraction and compiler graphs for Komponist"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.0.20",
+    "langchain>=0.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]

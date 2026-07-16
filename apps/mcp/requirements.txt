@@ -1,0 +1,4 @@
+fastmcp>=0.2.0
+httpx>=0.25.0
+
+# Core and pipelines packages are installed separately in Docker

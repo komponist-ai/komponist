@@ -1,0 +1,178 @@
+version: '3.8'
+
+# Komponist - The open-source company brain for AI agents
+# Run with: docker compose up
+
+services:
+  # =============================================================================
+  # Infrastructure
+  # =============================================================================
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: komponist-neo4j
+    ports:
+      - "7474:7474"  # HTTP Browser
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-komponist}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_security_procedures_allowlist=apoc.*
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-komponist} 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - komponist
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: komponist-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=komponist
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-komponist}
+      - POSTGRES_DB=komponist
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U komponist"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - komponist
+
+  # =============================================================================
+  # Application Services
+  # =============================================================================
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: komponist-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      - DATABASE_URL=postgresql+asyncpg://komponist:${POSTGRES_PASSWORD:-komponist}@postgres:5432/komponist
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-komponist}
+      # AI Providers
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - KOMPONIST_LLM_PROVIDER=${KOMPONIST_LLM_PROVIDER:-anthropic}
+      - KOMPONIST_LLM_MODEL=${KOMPONIST_LLM_MODEL:-claude-sonnet-4-20250514}
+      - KOMPONIST_EMBEDDING_PROVIDER=${KOMPONIST_EMBEDDING_PROVIDER:-openai}
+      - KOMPONIST_EMBEDDING_MODEL=${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      # Connectors
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_WATCHED_CHANNELS=${SLACK_WATCHED_CHANNELS}
+      - NOTION_CLIENT_ID=${NOTION_CLIENT_ID}
+      - NOTION_CLIENT_SECRET=${NOTION_CLIENT_SECRET}
+      - NOTION_REDIRECT_URI=${NOTION_REDIRECT_URI:-http://localhost:8000/auth/notion/callback}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
+      # Local Documents
+      - KOMPONIST_LOCAL_DOCS_PATH=${KOMPONIST_LOCAL_DOCS_PATH:-/data/docs}
+      # CORS
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+    volumes:
+      - ${KOMPONIST_LOCAL_DOCS_PATH:-./docs}:/data/docs:ro
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - komponist
+
+  mcp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
+    container_name: komponist-mcp
+    ports:
+      - "8080:8080"
+    environment:
+      # Database
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-komponist}
+      # AI Providers
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - KOMPONIST_LLM_PROVIDER=${KOMPONIST_LLM_PROVIDER:-anthropic}
+      - KOMPONIST_LLM_MODEL=${KOMPONIST_LLM_MODEL:-claude-sonnet-4-20250514}
+      - KOMPONIST_EMBEDDING_PROVIDER=${KOMPONIST_EMBEDDING_PROVIDER:-openai}
+      - KOMPONIST_EMBEDDING_MODEL=${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      # Slack (for approvals)
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_APPROVAL_CHANNEL=${SLACK_APPROVAL_CHANNEL}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    networks:
+      - komponist
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: komponist-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    networks:
+      - komponist
+
+  # =============================================================================
+  # Optional: Local LLM with Ollama
+  # =============================================================================
+
+  # Uncomment to use local models instead of API providers
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: komponist-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   networks:
+  #     - komponist
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_plugins:
+  postgres_data:
+  # ollama_data:
+
+networks:
+  komponist:
+    driver: bridge

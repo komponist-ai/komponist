@@ -1,0 +1,40 @@
+# Komponist MCP Server Dockerfile
+# FastMCP server exposing tools to AI agents
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy package definitions first for better caching
+COPY packages/core/pyproject.toml packages/core/
+COPY packages/pipelines/pyproject.toml packages/pipelines/
+
+# Copy package source code
+COPY packages/core/ packages/core/
+COPY packages/pipelines/ packages/pipelines/
+
+# Install packages in editable mode
+RUN pip install --no-cache-dir -e packages/core
+RUN pip install --no-cache-dir -e packages/pipelines
+
+# Copy MCP requirements and install
+COPY apps/mcp/requirements.txt apps/mcp/
+RUN pip install --no-cache-dir -r apps/mcp/requirements.txt
+
+# Copy MCP source code
+COPY apps/mcp/ apps/mcp/
+
+# Set working directory to MCP
+WORKDIR /app/apps/mcp
+
+# Expose port
+EXPOSE 8080
+
+# Run the MCP server
+# Note: fastmcp uses stdio by default, but we expose HTTP for Docker networking
+CMD ["python", "-m", "fastmcp", "run", "server:mcp", "--transport", "sse", "--port", "8080"]

@@ -1,0 +1,621 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   Komponist Design System - Global Styles
+   ============================================ */
+
+body {
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+
+/* Typography */
+h1 {
+  font-family: var(--font-display);
+  font-size: var(--text-h1);
+  font-weight: 700;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+h3 {
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+/* ============================================
+   Layout Components
+   ============================================ */
+
+.container {
+  width: min(
+    calc(100% - (2 * var(--gutter-mobile))),
+    var(--container-max)
+  );
+  margin-inline: auto;
+}
+
+@media (min-width: 768px) {
+  .container {
+    width: min(
+      calc(100% - (2 * var(--gutter-tablet))),
+      var(--container-max)
+    );
+  }
+}
+
+@media (min-width: 1280px) {
+  .container {
+    width: min(
+      calc(100% - (2 * var(--gutter-desktop))),
+      var(--container-max)
+    );
+  }
+}
+
+.section {
+  padding-block: var(--space-24);
+  border-top: 1px solid var(--color-line);
+}
+
+@media (min-width: 768px) {
+  .section {
+    padding-block: var(--space-32);
+  }
+}
+
+/* ============================================
+   Text Components
+   ============================================ */
+
+.eyebrow {
+  margin: 0 0 var(--space-4);
+  color: var(--color-ink-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.display {
+  max-width: 12ch;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.prose-lead {
+  max-width: 62ch;
+  color: var(--color-ink-secondary);
+  font-size: var(--text-lead);
+  line-height: 1.6;
+}
+
+/* ============================================
+   Grid Components
+   ============================================ */
+
+.rule-grid {
+  display: grid;
+  border-top: 1px solid var(--color-line);
+  border-left: 1px solid var(--color-line);
+}
+
+.rule-grid > * {
+  border-right: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+}
+
+/* ============================================
+   Card Component
+   ============================================ */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+
+.card-interactive {
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              background var(--duration-fast) var(--ease-standard);
+}
+
+.card-interactive:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-surface-raised);
+}
+
+.card-interactive:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   Button Components
+   ============================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-small);
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-standard);
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-ink);
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.btn-primary:active {
+  background: var(--color-accent-pressed);
+}
+
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid var(--color-ink);
+  color: var(--color-ink);
+}
+
+.btn-secondary:hover {
+  background: var(--color-surface-subtle);
+}
+
+.btn-inverse {
+  background: var(--color-surface-inverse);
+  color: var(--color-ink-inverse);
+  border-color: var(--color-surface-inverse);
+}
+
+.btn-inverse:hover {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-ink);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: white;
+  border-color: var(--color-danger);
+}
+
+.btn-danger:hover {
+  background: #c74538;
+}
+
+/* ============================================
+   Badge Component
+   ============================================ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  font-weight: 500;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-ink-secondary);
+}
+
+.badge-accent {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-ink);
+}
+
+.badge-success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.badge-warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.badge-danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.badge-info {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+  border-color: var(--color-info);
+}
+
+/* Entity type badges */
+.type-goal {
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent);
+  border-color: var(--color-accent);
+}
+
+.type-decision {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+  border-color: var(--color-info);
+}
+
+.type-constraint {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.type-customerrequest {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.type-project {
+  background: var(--color-surface-subtle);
+  color: var(--color-ink-secondary);
+  border-color: var(--color-line-strong);
+}
+
+/* ============================================
+   Evidence Chip
+   ============================================ */
+
+.evidence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--color-ink-secondary);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-subtle);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  text-decoration: none;
+}
+
+.evidence-chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.evidence-chip:hover {
+  background: var(--color-surface);
+  border-color: var(--color-line-strong);
+}
+
+/* ============================================
+   Input Component
+   ============================================ */
+
+.input {
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-body);
+  color: var(--color-ink);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.input::placeholder {
+  color: var(--color-ink-muted);
+}
+
+.input:hover {
+  border-color: var(--color-ink-secondary);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 2px rgba(49, 95, 213, 0.2);
+}
+
+/* ============================================
+   Code Panel
+   ============================================ */
+
+.code-panel {
+  background: var(--color-code-bg);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.code-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-code-surface);
+  border-bottom: 1px solid var(--color-line-inverse);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--color-code-muted);
+}
+
+.code-panel-content {
+  padding: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  color: var(--color-code-text);
+  line-height: 1.65;
+  overflow-x: auto;
+}
+
+.code-panel-content code {
+  font-family: inherit;
+}
+
+/* ============================================
+   Table Component
+   ============================================ */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-small);
+}
+
+.table th {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-ink-secondary);
+  border-bottom: 1px solid var(--color-line-strong);
+  background: var(--color-surface);
+}
+
+.table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  vertical-align: top;
+}
+
+.table tr:hover td {
+  background: var(--color-surface-raised);
+}
+
+/* ============================================
+   Keyboard Hint
+   ============================================ */
+
+.kbd-hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  padding: 2px 6px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-muted);
+}
+
+/* ============================================
+   Source Initials (connectors)
+   ============================================ */
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  color: var(--color-ink-secondary);
+  border: 1px solid var(--color-line);
+}
+
+.source-badge-notion {
+  background: #f3f2ee;
+  color: #37352f;
+}
+
+.source-badge-slack {
+  background: #f0f0f0;
+  color: #611f69;
+}
+
+.source-badge-google {
+  background: #f1f8e9;
+  color: #2e7d32;
+}
+
+.source-badge-github {
+  background: #f6f8fa;
+  color: #24292f;
+}
+
+/* ============================================
+   Progress Bar
+   ============================================ */
+
+.progress {
+  height: 8px;
+  background: var(--color-surface-subtle);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--duration-slow) var(--ease-standard);
+}
+
+/* ============================================
+   Responsive Utilities
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================
+   Chat Interface
+   ============================================ */
+
+.chat-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-16) 0;
+  min-height: 0;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 var(--space-16);
+}
+
+.chat-message {
+  display: flex;
+  gap: var(--space-12);
+  align-items: flex-start;
+}
+
+.chat-message-user {
+  flex-direction: row-reverse;
+}
+
+.chat-message-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  background: var(--color-paper-3);
+  flex-shrink: 0;
+}
+
+.chat-message-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-message-text {
+  background: var(--color-paper-2);
+  border-radius: 12px;
+  padding: var(--space-12) var(--space-16);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.chat-message-user .chat-message-text {
+  background: var(--color-accent);
+  color: white;
+}
+
+.chat-message-sources {
+  margin-top: var(--space-8);
+  padding: var(--space-8);
+  background: var(--color-paper-3);
+  border-radius: 8px;
+}
+
+.chat-cursor {
+  animation: blink 1s infinite;
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.chat-input-container {
+  display: flex;
+  gap: var(--space-8);
+  padding: var(--space-16);
+  border-top: 1px solid var(--color-line);
+  background: var(--color-paper);
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.chat-input {
+  flex: 1;
+  resize: none;
+  font-family: inherit;
+}
+
+.chat-empty-state {
+  text-align: center;
+  padding: var(--space-32);
+  max-width: 600px;
+  margin: auto;
+}
+
+.chat-example-queries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin-top: var(--space-16);
+  align-items: center;
+}
+

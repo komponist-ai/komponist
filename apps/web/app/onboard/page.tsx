@@ -1,0 +1,451 @@
+'use client'
+
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import AppLayout from '../../components/AppLayout'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+type SourceType = 'notion' | 'slack' | 'google' | 'local'
+type ConnectorStatus = 'idle' | 'connecting' | 'connected' | 'error'
+
+function OnboardContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  const [selectedSource, setSelectedSource] = useState<SourceType | null>(null)
+  const [status, setStatus] = useState<ConnectorStatus>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  // Form fields
+  const [notionToken, setNotionToken] = useState('')
+  const [localDocsPath, setLocalDocsPath] = useState('./docs')
+
+  // Org ID from localStorage or default
+  const [orgId, setOrgId] = useState('default-org')
+
+  useEffect(() => {
+    const savedOrgId = localStorage.getItem('komponist_org_id')
+    if (savedOrgId) {
+      setOrgId(savedOrgId)
+    }
+  }, [])
+
+  // Handle OAuth callback
+  useEffect(() => {
+    const source = searchParams.get('source')
+    const callbackStatus = searchParams.get('status')
+
+    if (source && callbackStatus === 'connected') {
+      // OAuth callback succeeded
+      router.push('/sources')
+    }
+  }, [searchParams, router])
+
+  const handleConnectNotion = async () => {
+    if (!notionToken.trim()) {
+      setError('Please enter your Notion integration token')
+      return
+    }
+
+    setStatus('connecting')
+    setError(null)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/auth/notion/token?org_id=${orgId}&token=${encodeURIComponent(notionToken)}`,
+        { method: 'POST' }
+      )
+      const data = await response.json()
+
+      if (response.ok && data.status === 'connected') {
+        setStatus('connected')
+        // Redirect to sources page after short delay
+        setTimeout(() => router.push('/sources'), 1000)
+      } else {
+        throw new Error(data.detail || data.error || 'Failed to validate token')
+      }
+    } catch (err: any) {
+      console.error('Notion connection error:', err)
+      setError(err.message || 'Failed to connect. Check your token.')
+      setStatus('error')
+    }
+  }
+
+  const handleConnectSlack = async () => {
+    setStatus('connecting')
+    setError(null)
+
+    try {
+      const response = await fetch(`${API_URL}/auth/slack?org=${orgId}`)
+      const data = await response.json()
+
+      if (data.auth_url) {
+        window.location.href = data.auth_url
+      } else if (data.error) {
+        throw new Error(data.error)
+      }
+    } catch (err: any) {
+      setError('Slack OAuth not configured. Add SLACK_CLIENT_ID to .env')
+      setStatus('error')
+    }
+  }
+
+  const handleConnectGoogle = async () => {
+    setStatus('connecting')
+    setError(null)
+
+    try {
+      const response = await fetch(`${API_URL}/auth/google?org=${orgId}`)
+      const data = await response.json()
+
+      if (data.auth_url) {
+        window.location.href = data.auth_url
+      } else if (data.error) {
+        throw new Error(data.error)
+      }
+    } catch (err: any) {
+      setError('Google OAuth not configured. Add GOOGLE_CLIENT_ID to .env')
+      setStatus('error')
+    }
+  }
+
+  const handleConnectLocalDocs = async () => {
+    if (!localDocsPath.trim()) {
+      setError('Please enter a path')
+      return
+    }
+
+    setStatus('connecting')
+    setError(null)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/connectors/local-docs/scan?org_id=${orgId}&path=${encodeURIComponent(localDocsPath)}`,
+        { method: 'POST' }
+      )
+      const data = await response.json()
+
+      if (response.ok) {
+        setStatus('connected')
+        setTimeout(() => router.push('/sources'), 1000)
+      } else {
+        throw new Error(data.detail || 'Failed to scan documents')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to scan local documents')
+      setStatus('error')
+    }
+  }
+
+  // Source picker view
+  if (!selectedSource) {
+    return (
+      <AppLayout>
+        <div className="page-header">
+          <h1 className="page-title">Add Source</h1>
+        </div>
+
+        <div className="page-body">
+          <p className="text-muted mb-6">
+            Choose a source to connect to your company brain.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+            {/* Notion */}
+            <button
+              onClick={() => setSelectedSource('notion')}
+              className="card hover:shadow-card transition-shadow text-left"
+            >
+              <div className="flex items-center gap-4">
+                <span className="source-badge source-badge-notion text-lg">NO</span>
+                <div>
+                  <h3 className="text-h3">Notion</h3>
+                  <p className="text-small text-muted">
+                    Pages, databases, docs
+                  </p>
+                </div>
+              </div>
+            </button>
+
+            {/* Slack */}
+            <button
+              onClick={() => setSelectedSource('slack')}
+              className="card hover:shadow-card transition-shadow text-left"
+            >
+              <div className="flex items-center gap-4">
+                <span className="source-badge source-badge-slack text-lg">SL</span>
+                <div>
+                  <h3 className="text-h3">Slack</h3>
+                  <p className="text-small text-muted">
+                    Channels, threads, decisions
+                  </p>
+                </div>
+              </div>
+            </button>
+
+            {/* Google */}
+            <button
+              onClick={() => setSelectedSource('google')}
+              className="card hover:shadow-card transition-shadow text-left"
+            >
+              <div className="flex items-center gap-4">
+                <span className="source-badge source-badge-google text-lg">GD</span>
+                <div>
+                  <h3 className="text-h3">Google Workspace</h3>
+                  <p className="text-small text-muted">
+                    Docs, Sheets, Drive
+                  </p>
+                </div>
+              </div>
+            </button>
+
+            {/* Local Docs */}
+            <button
+              onClick={() => setSelectedSource('local')}
+              className="card hover:shadow-card transition-shadow text-left"
+            >
+              <div className="flex items-center gap-4">
+                <span className="text-2xl">📁</span>
+                <div>
+                  <h3 className="text-h3">Local Documents</h3>
+                  <p className="text-small text-muted">
+                    Markdown, text, YAML files
+                  </p>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
+
+  // Connection form view
+  return (
+    <AppLayout>
+      <div className="page-header">
+        <div>
+          <button
+            onClick={() => {
+              setSelectedSource(null)
+              setStatus('idle')
+              setError(null)
+            }}
+            className="text-small text-muted hover:text-ink mb-2 flex items-center gap-1"
+          >
+            ← Back to sources
+          </button>
+          <h1 className="page-title">
+            Connect {selectedSource === 'notion' ? 'Notion' :
+                     selectedSource === 'slack' ? 'Slack' :
+                     selectedSource === 'google' ? 'Google Workspace' : 'Local Documents'}
+          </h1>
+        </div>
+      </div>
+
+      <div className="page-body">
+        <div className="max-w-xl">
+          {/* Error message */}
+          {error && (
+            <div className="card mb-6" style={{ background: 'var(--color-danger-soft)', borderColor: 'var(--color-danger)' }}>
+              <p className="text-small" style={{ color: 'var(--color-danger)' }}>
+                ⚠ {error}
+              </p>
+            </div>
+          )}
+
+          {/* Success message */}
+          {status === 'connected' && (
+            <div className="card mb-6" style={{ background: 'var(--color-success-soft)', borderColor: 'var(--color-success)' }}>
+              <p className="text-small" style={{ color: 'var(--color-success)' }}>
+                ✓ Connected! Redirecting...
+              </p>
+            </div>
+          )}
+
+          {/* Notion form */}
+          {selectedSource === 'notion' && (
+            <div className="card">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="source-badge source-badge-notion">NO</span>
+                <h2 className="text-h3">Notion Integration</h2>
+              </div>
+
+              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
+                <p className="text-small font-medium mb-2">Quick setup (2 minutes):</p>
+                <ol className="text-small text-muted space-y-2">
+                  <li>1. Go to <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener" className="text-teal underline">notion.so/my-integrations</a></li>
+                  <li>2. Click "New integration" → name it "Komponist"</li>
+                  <li>3. Copy the "Internal Integration Secret"</li>
+                  <li>4. Paste it below</li>
+                </ol>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-small font-medium mb-2">
+                  Integration Token
+                </label>
+                <input
+                  type="password"
+                  value={notionToken}
+                  onChange={(e) => setNotionToken(e.target.value)}
+                  placeholder="secret_..."
+                  className="input font-mono"
+                  disabled={status === 'connecting'}
+                />
+                <p className="text-caption text-faint mt-2">
+                  Starts with "secret_" or "ntn_"
+                </p>
+              </div>
+
+              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
+                <p className="text-small font-medium mb-2">After connecting:</p>
+                <p className="text-small text-muted">
+                  Share pages with your integration by clicking ••• → Connections → Komponist on each page you want to sync.
+                </p>
+              </div>
+
+              <button
+                onClick={handleConnectNotion}
+                className="btn btn-primary"
+                disabled={status === 'connecting' || status === 'connected'}
+              >
+                {status === 'connecting' ? 'Connecting...' :
+                 status === 'connected' ? 'Connected ✓' : 'Connect Notion'}
+              </button>
+            </div>
+          )}
+
+          {/* Slack form */}
+          {selectedSource === 'slack' && (
+            <div className="card">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="source-badge source-badge-slack">SL</span>
+                <h2 className="text-h3">Slack Integration</h2>
+              </div>
+
+              <p className="text-muted mb-6">
+                Connect your Slack workspace to extract decisions and context from channels.
+              </p>
+
+              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
+                <p className="text-small font-medium mb-2">Requirements:</p>
+                <p className="text-small text-muted">
+                  Slack OAuth requires SLACK_CLIENT_ID and SLACK_CLIENT_SECRET in your .env file.
+                  Create an app at <a href="https://api.slack.com/apps" target="_blank" rel="noopener" className="text-teal underline">api.slack.com/apps</a>
+                </p>
+              </div>
+
+              <button
+                onClick={handleConnectSlack}
+                className="btn btn-primary"
+                disabled={status === 'connecting'}
+              >
+                {status === 'connecting' ? 'Redirecting...' : 'Connect Slack'}
+              </button>
+            </div>
+          )}
+
+          {/* Google form */}
+          {selectedSource === 'google' && (
+            <div className="card">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="source-badge source-badge-google">GD</span>
+                <h2 className="text-h3">Google Workspace</h2>
+              </div>
+
+              <p className="text-muted mb-6">
+                Connect Google Drive to sync Docs, Sheets, and other files.
+              </p>
+
+              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
+                <p className="text-small font-medium mb-2">Requirements:</p>
+                <p className="text-small text-muted">
+                  Google OAuth requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file.
+                  Create credentials at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-teal underline">Google Cloud Console</a>
+                </p>
+              </div>
+
+              <button
+                onClick={handleConnectGoogle}
+                className="btn btn-primary"
+                disabled={status === 'connecting'}
+              >
+                {status === 'connecting' ? 'Redirecting...' : 'Connect Google'}
+              </button>
+            </div>
+          )}
+
+          {/* Local docs form */}
+          {selectedSource === 'local' && (
+            <div className="card">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-2xl">📁</span>
+                <h2 className="text-h3">Local Documents</h2>
+              </div>
+
+              <p className="text-muted mb-6">
+                Point to a folder of markdown, text, or YAML files to extract facts.
+              </p>
+
+              <div className="mb-6">
+                <label className="block text-small font-medium mb-2">
+                  Documents path
+                </label>
+                <input
+                  type="text"
+                  value={localDocsPath}
+                  onChange={(e) => setLocalDocsPath(e.target.value)}
+                  placeholder="./docs or /absolute/path"
+                  className="input font-mono"
+                  disabled={status === 'connecting'}
+                />
+                <p className="text-caption text-faint mt-2">
+                  Relative to the API container, or an absolute path
+                </p>
+              </div>
+
+              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
+                <p className="text-small font-medium mb-2">Supported files:</p>
+                <ul className="text-small text-muted space-y-1">
+                  <li>• Markdown (.md)</li>
+                  <li>• Text files (.txt)</li>
+                  <li>• YAML configs (.yaml, .yml)</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={handleConnectLocalDocs}
+                className="btn btn-primary"
+                disabled={status === 'connecting' || status === 'connected'}
+              >
+                {status === 'connecting' ? 'Scanning...' :
+                 status === 'connected' ? 'Added ✓' : 'Add Documents'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </AppLayout>
+  )
+}
+
+export default function OnboardPage() {
+  return (
+    <Suspense fallback={
+      <AppLayout>
+        <div className="page-header">
+          <h1 className="page-title">Add Source</h1>
+        </div>
+        <div className="page-body">
+          <div className="card">
+            <p className="text-muted">Loading...</p>
+          </div>
+        </div>
+      </AppLayout>
+    }>
+      <OnboardContent />
+    </Suspense>
+  )
+}
