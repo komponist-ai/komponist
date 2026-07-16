@@ -1,36 +1,40 @@
 'use client'
 
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
+import {
+  Braces, CircleDot, Database, Download, KeyRound, MessageSquareText,
+  Network, Plus, Settings, Sparkles, UsersRound,
+} from 'lucide-react'
 import { useAuth } from './AuthProvider'
+import BrandMark from './BrandMark'
 
 const navigation = [
   {
     title: 'Brain',
     items: [
-      { name: 'Chat', href: '/', icon: '💬' },
-      { name: 'Graph', href: '/graph', icon: '◉' },
-      { name: 'Review Queue', href: '/queue', icon: '↳' },
-      { name: 'Entities', href: '/entities', icon: '{ }' },
+      { name: 'Chat', href: '/studio', icon: MessageSquareText },
+      { name: 'Graph', href: '/graph', icon: Network },
+      { name: 'Review Queue', href: '/queue', icon: CircleDot },
+      { name: 'Entities', href: '/entities', icon: Braces },
     ],
   },
   {
     title: 'Sources',
     items: [
-      { name: 'Connected', href: '/sources', icon: '↗' },
-      { name: 'Add Source', href: '/onboard', icon: '+' },
+      { name: 'Connected', href: '/sources', icon: Database },
+      { name: 'Add Source', href: '/onboard', icon: Plus },
     ],
   },
   {
     title: 'Settings',
     items: [
-      { name: 'General', href: '/settings', icon: '⚙' },
-      { name: 'AI Provider', href: '/settings/ai', icon: '✦' },
-      { name: 'Team & roles', href: '/settings/team', icon: '◎' },
-      { name: 'API & MCP', href: '/settings/api', icon: '⌘' },
-      { name: 'Export', href: '/settings/export', icon: '↓' },
+      { name: 'General', href: '/settings', icon: Settings },
+      { name: 'AI Provider', href: '/settings/ai', icon: Sparkles },
+      { name: 'Team & roles', href: '/settings/team', icon: UsersRound },
+      { name: 'API & MCP', href: '/settings/api', icon: KeyRound },
+      { name: 'Export', href: '/settings/export', icon: Download },
     ],
   },
 ]
@@ -53,15 +57,8 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <Link href="/" className="sidebar-brand flex items-center gap-2">
-          <Image
-            src="/komponist-logo.png"
-            alt="K"
-            width={32}
-            height={32}
-            unoptimized
-            className="rounded"
-          />
+        <Link href="/studio" className="sidebar-brand flex items-center gap-2">
+          <BrandMark className="size-8 rounded-md shadow-[2px_2px_0_#201c15]" />
           Komponist
         </Link>
         <label className="org-switcher-label" htmlFor="organization-switcher">
@@ -86,16 +83,19 @@ export default function Sidebar() {
         {navigation.map((section) => (
           <div key={section.title} className="nav-section">
             <div className="nav-section-title">{section.title}</div>
-            {section.items.map((item) => (
+            {section.items.map((item) => {
+              const Icon = item.icon
+              return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={`nav-item ${pathname === item.href ? 'active' : ''}`}
               >
-                <span className="nav-item-icon">{item.icon}</span>
+                <span className="nav-item-icon"><Icon size={16} strokeWidth={2} /></span>
                 {item.name}
               </Link>
-            ))}
+              )
+            })}
           </div>
         ))}
       </nav>

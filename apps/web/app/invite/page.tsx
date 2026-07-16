@@ -51,7 +51,7 @@ function InviteContent() {
           {error && <div className="team-alert" role="alert">{error}</div>}
           {!token && !joined && <div className="team-alert" role="alert">This invitation link is incomplete.</div>}
           {joined ? (
-            <Link href="/" className="btn btn-primary">Open workspace</Link>
+            <Link href="/studio" className="btn btn-primary">Open workspace</Link>
           ) : (
             <button className="btn btn-primary" onClick={acceptInvitation} disabled={!token || joining}>
               {joining ? 'Joining…' : 'Accept invitation'}
