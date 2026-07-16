@@ -6,6 +6,7 @@ LangGraph state machine: SourceItem -> proposed entities in the graph.
 Pipeline: classify -> extract -> embed -> dedup -> link -> persist
 """
 
+import hashlib
 import sys
 sys.path.append("../../packages")
 
@@ -41,6 +42,28 @@ class ExtractionState(TypedDict):
 # Dedup similarity thresholds
 DEDUP_EXACT_THRESHOLD = 0.92  # Above this: don't create, attach evidence
 DEDUP_POSSIBLE_THRESHOLD = 0.80  # Above this: create with RELATES_TO edge
+
+
+def source_fact_fingerprint(source_item: SourceItem, fact: Dict[str, Any]) -> str:
+    """Build a stable identity for one fact extracted from one source location."""
+    source = (
+        source_item.source.value
+        if hasattr(source_item.source, "value")
+        else str(source_item.source)
+    )
+    parts = (
+        source_item.org_id,
+        source,
+        source_item.reference.strip().casefold(),
+        str(fact.get("type", "")).strip().casefold(),
+        " ".join(str(fact.get("excerpt", "")).split()).casefold(),
+    )
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def evidence_id_for(source_item: SourceItem, fact: Dict[str, Any]) -> str:
+    """Return a deterministic Evidence ID so retries cannot create duplicates."""
+    return f"ev-{source_fact_fingerprint(source_item, fact)}"
 
 
 async def classify_node(state: ExtractionState) -> ExtractionState:
@@ -221,6 +244,53 @@ async def dedup_node(state: ExtractionState) -> ExtractionState:
     dedupe_results = []
 
     for fact in state["extracted_facts"]:
+        fingerprint = source_fact_fingerprint(source_item, fact)
+        fact["source_fingerprint"] = fingerprint
+
+        # A source fingerprint is the authoritative retry/idempotency key. The
+        # evidence fallback also upgrades entities created before fingerprints
+        # were introduced.
+        try:
+            existing = await GraphClient.run_query(
+                """
+                MATCH (e:Entity {
+                    org_id: $org_id,
+                    entity_type: $entity_type
+                })
+                WHERE e.status IN ['proposed', 'confirmed']
+                OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
+                WITH e, collect(ev) AS evidence
+                WHERE e.source_fingerprint = $fingerprint
+                   OR any(item IN evidence WHERE
+                        item.reference = $reference AND item.excerpt = $excerpt)
+                SET e.source_fingerprint = $fingerprint
+                RETURN e.id AS id, e.status AS status
+                ORDER BY CASE e.status WHEN 'confirmed' THEN 0 ELSE 1 END
+                LIMIT 1
+                """,
+                {
+                    "org_id": source_item.org_id,
+                    "entity_type": fact["type"],
+                    "fingerprint": fingerprint,
+                    "reference": source_item.reference,
+                    "excerpt": fact.get("excerpt", ""),
+                },
+            )
+        except Exception as error:
+            print(f"[Dedup] Fingerprint lookup failed: {error}")
+            existing = []
+
+        if existing:
+            dedupe_results.append({
+                "fact": fact,
+                "action": "attach_evidence",
+                "duplicate_of": existing[0]["id"],
+                "duplicate_reason": "source_fingerprint",
+                "relates_to": [],
+            })
+            print(f"[Dedup] Source retry: {fact['statement'][:50]}")
+            continue
+
         if not fact.get("embedding"):
             dedupe_results.append({
                 "fact": fact,
@@ -260,6 +330,7 @@ async def dedup_node(state: ExtractionState) -> ExtractionState:
                     "fact": fact,
                     "action": "attach_evidence",
                     "duplicate_of": best_match["id"],
+                    "duplicate_reason": "semantic",
                     "relates_to": []
                 })
                 print(f"[Dedup] Exact duplicate (score {best_match['score']:.3f}): {fact['statement'][:50]}")
@@ -367,19 +438,25 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
         action = result["action"]
 
         try:
+            if (
+                action == "attach_evidence"
+                and result.get("duplicate_reason") == "source_fingerprint"
+            ):
+                print(f"[Persist] Source evidence already attached to {result['duplicate_of']}")
+                continue
+
             # Create Evidence node
-            evidence_id = str(uuid4())
+            evidence_id = evidence_id_for(source_item, fact)
             evidence_query = """
-            CREATE (e:Evidence {
-                id: $id,
-                org_id: $org_id,
-                source: $source,
-                reference: $reference,
-                url: $url,
-                excerpt: $excerpt,
-                source_date: datetime($source_date),
-                created_at: datetime()
-            })
+            MERGE (e:Evidence {id: $id})
+            ON CREATE SET
+                e.org_id = $org_id,
+                e.source = $source,
+                e.reference = $reference,
+                e.url = $url,
+                e.excerpt = $excerpt,
+                e.source_date = datetime($source_date),
+                e.created_at = datetime()
             """
 
             await GraphClient.run_query(evidence_query, {
@@ -419,6 +496,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                     status: 'proposed',
                     confidence: $confidence,
                     embedding: $embedding,
+                    source_fingerprint: $source_fingerprint,
                     created_at: datetime(),
                     updated_at: datetime()
                 })
@@ -442,6 +520,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                     "detail": fact.get("detail"),
                     "confidence": fact.get("confidence", "medium"),
                     "embedding": fact.get("embedding"),
+                    "source_fingerprint": fact["source_fingerprint"],
                     "evidence_id": evidence_id
                 })
 
