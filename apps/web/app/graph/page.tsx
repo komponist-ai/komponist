@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { RefreshCw } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
+import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
-// Dynamically import ForceGraph to avoid SSR issues
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false,
   loading: () => <div className="flex items-center justify-center h-96">Loading graph...</div>
@@ -66,7 +67,8 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
-  const graphRef = useRef<any>()
+  const graphContainerRef = useRef<HTMLDivElement>(null)
+  const [graphSize, setGraphSize] = useState({ width: 0, height: 0 })
 
   const fetchGraph = useCallback(async () => {
     setLoading(true)
@@ -109,14 +111,27 @@ export default function GraphPage() {
     fetchGraph()
   }, [fetchGraph])
 
+  useEffect(() => {
+    const container = graphContainerRef.current
+    if (!container) return
+
+    const updateGraphSize = () => {
+      const { width, height } = container.getBoundingClientRect()
+      setGraphSize({
+        width: Math.max(0, Math.floor(width)),
+        height: Math.max(0, Math.floor(height))
+      })
+    }
+
+    updateGraphSize()
+    const observer = new ResizeObserver(updateGraphSize)
+    observer.observe(container)
+
+    return () => observer.disconnect()
+  }, [loading, graphData.nodes.length])
+
   const handleNodeClick = useCallback((node: any) => {
     setSelectedNode(node as GraphNode)
-  }, [])
-
-  const handleZoomToFit = useCallback(() => {
-    if (graphRef.current) {
-      graphRef.current.zoomToFit(400, 50)
-    }
   }, [])
 
   const getNodeColor = (node: GraphNode) => {
@@ -149,20 +164,15 @@ export default function GraphPage() {
       <div className="page-header">
         <h1 className="page-title">Knowledge Graph</h1>
         <div className="flex gap-2">
-          <button
-            onClick={handleZoomToFit}
-            className="btn btn-ghost btn-sm"
-            title="Fit graph to view"
-          >
-            ⊡ Fit
-          </button>
-          <button
+          <Button
             onClick={fetchGraph}
-            className="btn btn-secondary btn-sm"
+            variant="subtle"
+            size="sm"
             disabled={loading}
           >
-            {loading ? 'Loading...' : 'Refresh'}
-          </button>
+            <RefreshCw className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Loading…' : 'Refresh'}
+          </Button>
         </div>
       </div>
 
@@ -192,10 +202,11 @@ export default function GraphPage() {
         ) : (
           <div className="flex gap-4 h-full overflow-hidden" style={{ padding: '0 1.5rem' }}>
             {/* Graph visualization */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ maxWidth: 'calc(100vw - 560px)' }}>
-              <div className="card p-0 overflow-hidden" style={{ height: 'calc(100% - 60px)' }}>
-                <ForceGraph2D
-                  ref={graphRef}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              <div ref={graphContainerRef} className="card p-0 overflow-hidden" style={{ height: 'calc(100% - 60px)' }}>
+                {graphSize.width > 0 && graphSize.height > 0 && <ForceGraph2D
+                  width={graphSize.width}
+                  height={graphSize.height}
                   graphData={{
                     nodes: graphData.nodes,
                     links: graphData.edges
@@ -220,7 +231,7 @@ export default function GraphPage() {
                   cooldownTime={2000}
                   cooldownTicks={50}
                   d3AlphaMin={0.05}
-                />
+                />}
               </div>
 
               {/* Legend */}

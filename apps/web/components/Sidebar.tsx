@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
   Braces, CircleDot, Database, Download, KeyRound, MessageSquareText,
-  Network, Plus, Settings, Sparkles, UsersRound,
+  LogOut, Network, Plus, Settings, Sparkles, UsersRound,
 } from 'lucide-react'
 import { useAuth } from './AuthProvider'
 import BrandMark from './BrandMark'
@@ -100,17 +100,30 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="sidebar-user">
-          <div className="user-avatar" aria-hidden="true">
-            {user?.name?.slice(0, 1).toUpperCase() || '?'}
+      <div className="sidebar-footer !p-3">
+        <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_#d9cfc0]">
+          <div className="flex min-w-0 items-center gap-3 p-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange font-display text-sm font-black text-white shadow-[2px_2px_0_#201c15]" aria-hidden="true">
+              {user?.name?.slice(0, 1).toUpperCase() || '?'}
+            </div>
+            <div className="min-w-0 flex-1 leading-tight">
+              <div className="truncate text-sm font-bold text-ink" title={user?.name}>{user?.name}</div>
+              <div className="mt-1 flex min-w-0 items-center gap-2">
+                <span className="rounded-full bg-teal-soft px-2 py-0.5 font-mono text-[8px] font-bold uppercase tracking-wider text-teal-dark">
+                  {user?.role}
+                </span>
+                <span className="min-w-0 truncate text-[10px] text-muted" title={user?.email}>{user?.email}</span>
+              </div>
+            </div>
           </div>
-          <div className="sidebar-user-copy">
-            <div className="text-small sidebar-user-name">{user?.name}</div>
-            <div className="text-caption text-muted">{user?.role}</div>
-          </div>
-          <button className="sidebar-logout" onClick={logout} title="Sign out" aria-label="Sign out">
-            ↪
+          <button
+            className="group flex w-full items-center justify-between border-t-2 border-ink bg-paper-2 px-3 py-2.5 text-xs font-bold text-ink-2 transition hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange"
+            onClick={logout}
+            title="Sign out of Komponist"
+            aria-label="Sign out"
+          >
+            <span>Sign out</span>
+            <LogOut className="size-4 transition-transform group-hover:translate-x-0.5" />
           </button>
         </div>
       </div>
