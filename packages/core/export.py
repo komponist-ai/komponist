@@ -44,18 +44,19 @@ async def export_brain(
         e.detail as detail,
         e.status as status,
         e.confidence as confidence,
-        e.created_at as created_at,
-        e.confirmed_at as confirmed_at,
+        toString(e.created_at) as created_at,
+        toString(e.confirmed_at) as confirmed_at,
         {"e.embedding as embedding," if include_embeddings else ""}
-        collect(DISTINCT ev{{
-            .id,
-            .source,
-            .reference,
-            .url,
-            .excerpt,
-            .source_date
+        collect(DISTINCT {{
+            id: ev.id,
+            source: ev.source,
+            title: ev.title,
+            reference: ev.reference,
+            url: ev.url,
+            excerpt: ev.excerpt,
+            source_date: toString(ev.source_date)
         }}) as evidence
-    ORDER BY e.created_at
+    ORDER BY created_at
     """
 
     entities = await GraphClient.run_query(
@@ -63,10 +64,18 @@ async def export_brain(
         {"org_id": org_id}
     )
 
-    # Export relationships between entities
-    relationships_query = """
-    MATCH (e1:Entity {org_id: $org_id})-[r]->(e2:Entity {org_id: $org_id})
+    # Export relationships only when both endpoints are part of the export.
+    relationships_status_filter = (
+        "e1.status IN ['proposed', 'confirmed', 'superseded'] AND "
+        "e2.status IN ['proposed', 'confirmed', 'superseded']"
+    )
+    if include_rejected:
+        relationships_status_filter = "true"
+
+    relationships_query = f"""
+    MATCH (e1:Entity {{org_id: $org_id}})-[r]->(e2:Entity {{org_id: $org_id}})
     WHERE type(r) IN ['SUPERSEDES', 'AFFECTS', 'SUPPORTS', 'ADVANCES', 'CONSTRAINS', 'RELATES_TO']
+      AND {relationships_status_filter}
     RETURN
         e1.id as source,
         type(r) as type,
@@ -95,7 +104,7 @@ async def export_brain(
         wp.permissions as permissions,
         wp.verification as verification,
         wp.status as status,
-        wp.created_at as created_at,
+        toString(wp.created_at) as created_at,
         collect(DISTINCT g.id) as implements,
         collect(DISTINCT c.id) as governed_by,
         collect(DISTINCT i.id) as informed_by

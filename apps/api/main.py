@@ -25,7 +25,7 @@ sys.path.append("../../packages")
 from core.graph import GraphClient
 from core.schema import GraphSchema
 from core.export import export_brain_yaml
-from core.import_ import import_brain_yaml
+from core.import_ import import_brain_yaml, parse_export_yaml
 from database import init_db, health_check_db
 from persistence import (
     authenticate_api_key,
@@ -77,6 +77,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 async def get_org_settings(org_id: str) -> dict:
@@ -1042,6 +1043,7 @@ async def google_auth_callback(code: str, state: str):
 
 @app.get("/export", response_class=PlainTextResponse)
 async def export_brain_endpoint(
+    request: Request,
     org_id: str = Query("default-org", description="Organization ID to export"),
     include_embeddings: bool = Query(False, description="Include embedding vectors (large!)"),
     include_rejected: bool = Query(False, description="Include rejected entities")
@@ -1052,23 +1054,80 @@ async def export_brain_endpoint(
     Returns a YAML file containing all entities, relationships, evidence,
     and workpacks for the organization.
     """
+    await _authorized_org_user(request, org_id, manage=True)
     yaml_content = await export_brain_yaml(
         org_id=org_id,
         include_embeddings=include_embeddings,
         include_rejected=include_rejected
     )
+    safe_org_id = re.sub(r"[^a-z0-9_-]+", "-", org_id.casefold()).strip("-")
 
     return PlainTextResponse(
         content=yaml_content,
         media_type="application/x-yaml",
         headers={
-            "Content-Disposition": f"attachment; filename=komponist-brain-{org_id}.yaml"
+            "Content-Disposition": f"attachment; filename=komponist-export-{safe_org_id}.yaml"
         }
     )
 
 
+@app.get("/export/summary")
+async def export_summary(
+    request: Request,
+    org_id: str = Query(..., description="Organization ID to summarize"),
+):
+    """Preview the organization-scoped data contained in an export."""
+    await _authorized_org_user(request, org_id, manage=True)
+    entity_rows = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id})
+        RETURN count(entity) AS total,
+               sum(CASE WHEN entity.status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
+               sum(CASE WHEN entity.status = 'proposed' THEN 1 ELSE 0 END) AS proposed,
+               sum(CASE WHEN entity.status = 'rejected' THEN 1 ELSE 0 END) AS rejected
+        """,
+        {"org_id": org_id},
+    )
+    type_rows = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id})
+        RETURN entity.entity_type AS type, count(entity) AS count
+        ORDER BY count DESC, type ASC
+        """,
+        {"org_id": org_id},
+    )
+    graph_rows = await GraphClient.run_query(
+        """
+        OPTIONAL MATCH (:Entity {org_id: $org_id})-[relationship]->(:Entity {org_id: $org_id})
+        WHERE type(relationship) IN [
+            'SUPERSEDES', 'AFFECTS', 'SUPPORTS', 'ADVANCES',
+            'CONSTRAINS', 'RELATES_TO'
+        ]
+        WITH count(relationship) AS relationships
+        OPTIONAL MATCH (evidence:Evidence {org_id: $org_id})
+        RETURN relationships, count(evidence) AS evidence
+        """,
+        {"org_id": org_id},
+    )
+    sources = await list_connected_sources(org_id)
+    entity_summary = entity_rows[0] if entity_rows else {
+        "total": 0, "confirmed": 0, "proposed": 0, "rejected": 0
+    }
+    graph_summary = graph_rows[0] if graph_rows else {
+        "relationships": 0, "evidence": 0
+    }
+    return {
+        "entities": entity_summary,
+        "by_type": {row["type"]: row["count"] for row in type_rows if row["type"]},
+        "relationships": graph_summary["relationships"],
+        "evidence": graph_summary["evidence"],
+        "connected_sources": len(sources),
+    }
+
+
 @app.post("/import")
 async def import_brain_endpoint(
+    request: Request,
     file: UploadFile = File(..., description="YAML export file to import"),
     org_id: Optional[str] = Query(None, description="Override org_id (uses export's if not provided)"),
     mode: str = Query("merge", description="Import mode: merge, replace, or skip_existing")
@@ -1086,12 +1145,23 @@ async def import_brain_endpoint(
 
     # Read uploaded file
     content = await file.read()
-    yaml_content = content.decode("utf-8")
+    if len(content) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Import file exceeds 25 MB")
+    try:
+        yaml_content = content.decode("utf-8")
+        export_data = parse_export_yaml(yaml_content)
+    except (UnicodeDecodeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail="Invalid YAML export") from error
+    export_meta = export_data.get("komponist_export", {}) if isinstance(export_data, dict) else {}
+    target_org = org_id or export_meta.get("org_id")
+    if not isinstance(target_org, str) or not validate_org_id(target_org):
+        raise HTTPException(status_code=400, detail="A valid target organization is required")
+    await _authorized_org_user(request, target_org, manage=True)
 
     # Import
     result = await import_brain_yaml(
         yaml_content=yaml_content,
-        org_id=org_id,
+        org_id=target_org,
         mode=mode
     )
 
