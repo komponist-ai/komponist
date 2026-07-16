@@ -100,6 +100,104 @@ async def root():
     }
 
 
+class DemoQueryRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=240)
+
+
+_DEMO_FACTS = [
+    {
+        "id": "demo-pilot-goal",
+        "type": "Goal",
+        "statement": "The pilot goal is to onboard 10 design partners in 4 weeks.",
+        "detail": "The team reviews progress with design partners every week.",
+        "source": "01-product-strategy.md",
+        "excerpt": "Goal: Onboard 10 design partners during a four-week pilot.",
+    },
+    {
+        "id": "demo-review-constraint",
+        "type": "Constraint",
+        "statement": "Every extracted fact requires human review before it becomes trusted company context.",
+        "detail": "Only confirmed facts are available to chat, API, and MCP consumers.",
+        "source": "02-review-policy.md",
+        "excerpt": "Constraint: Extracted knowledge must be reviewed before it can be trusted.",
+    },
+    {
+        "id": "demo-agent-access",
+        "type": "Decision",
+        "statement": "Agents access confirmed company context through Komponist's REST API or MCP server.",
+        "detail": "People use Studio while products and agents use organization-scoped credentials.",
+        "source": "03-agent-integration.md",
+        "excerpt": "Decision: Serve the same confirmed context through Studio, REST API, and MCP.",
+    },
+    {
+        "id": "demo-launch-project",
+        "type": "Project",
+        "statement": "The MVP launch flow is upload, extraction, human review, then cited search.",
+        "detail": "The first vertical slice keeps evidence attached throughout the workflow.",
+        "source": "04-mvp-scope.md",
+        "excerpt": "Project: Ship upload → extraction → review → cited search as one reliable loop.",
+    },
+]
+
+_DEMO_STOP_WORDS = {
+    "a", "an", "and", "are", "before", "can", "company", "do", "does",
+    "for", "from", "has", "how", "in", "is", "it", "of", "our", "the",
+    "to", "we", "what", "which", "with",
+}
+
+
+def _demo_query_terms(value: str) -> set[str]:
+    return {
+        term for term in re.findall(r"[a-z0-9]+", value.casefold())
+        if len(term) > 1 and term not in _DEMO_STOP_WORDS
+    }
+
+
+def _rank_demo_facts(question: str) -> List[dict]:
+    question_terms = _demo_query_terms(question)
+    ranked = []
+    for fact in _DEMO_FACTS:
+        searchable = " ".join([
+            fact["type"], fact["statement"], fact["detail"], fact["excerpt"]
+        ])
+        fact_terms = _demo_query_terms(searchable)
+        overlap = question_terms & fact_terms
+        score = len(overlap)
+        if fact["type"].casefold() in question_terms:
+            score += 2
+        ranked.append((score, fact))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    best_score = ranked[0][0]
+    if best_score == 0:
+        return [_DEMO_FACTS[3]]
+    return [fact for score, fact in ranked if score == best_score][:2]
+
+
+@app.post("/demo/query")
+async def query_demo(payload: DemoQueryRequest):
+    """Query a fixed, read-only workspace used by the public landing-page demo."""
+    matches = _rank_demo_facts(payload.question)
+    sources = [
+        {
+            "id": fact["id"],
+            "number": index,
+            "title": fact["source"],
+            "excerpt": fact["excerpt"],
+            "type": fact["type"],
+        }
+        for index, fact in enumerate(matches, start=1)
+    ]
+    citations = " ".join(f"[{source['number']}]" for source in sources)
+    return {
+        "mode": "demo",
+        "workspace": "Komponist demo workspace",
+        "question": payload.question,
+        "answer": f"{matches[0]['statement']} {citations}",
+        "sources": sources,
+        "trace": ["Demo source matched", "Confirmed fact selected", "Citation attached"],
+    }
+
+
 @app.get("/healthz")
 async def health_check():
     """

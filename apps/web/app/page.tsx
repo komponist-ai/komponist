@@ -1,15 +1,17 @@
 'use client'
 
 import Link from 'next/link'
+import { useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowRight, Braces, Check, ChevronRight, DatabaseZap, FileCheck2,
   FileText, GitBranch, KeyRound, MessageSquareText, Network, Search,
-  ShieldCheck, Sparkles, TerminalSquare, Upload, UsersRound,
+  LoaderCircle, Send, ShieldCheck, Sparkles, TerminalSquare, Upload, UsersRound,
 } from 'lucide-react'
 import BrandMark from '@/components/BrandMark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { API_URL } from '@/lib/api'
 
 const reveal = {
   initial: { opacity: 0, y: 24 },
@@ -96,7 +98,87 @@ const platformLayers = [
   },
 ] as const
 
+type DemoResult = {
+  mode: 'demo'
+  workspace: string
+  question: string
+  answer: string
+  sources: Array<{ id: string; number: number; title: string; excerpt: string; type: string }>
+  trace: string[]
+}
+
+const demoQuestions = [
+  'How long does the pilot run?',
+  'What happens before knowledge is trusted?',
+  'How can agents access company context?',
+] as const
+
+const fallbackDemoResults: DemoResult[] = [
+  {
+    mode: 'demo',
+    workspace: 'Komponist browser demo',
+    question: demoQuestions[0],
+    answer: 'The pilot goal is to onboard 10 design partners in 4 weeks. [1]',
+    sources: [{ id: 'fallback-pilot', number: 1, title: '01-product-strategy.md', excerpt: 'Goal: Onboard 10 design partners during a four-week pilot.', type: 'Goal' }],
+    trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
+  },
+  {
+    mode: 'demo',
+    workspace: 'Komponist browser demo',
+    question: demoQuestions[1],
+    answer: 'Every extracted fact requires human review before it becomes trusted company context. [1]',
+    sources: [{ id: 'fallback-review', number: 1, title: '02-review-policy.md', excerpt: 'Constraint: Extracted knowledge must be reviewed before it can be trusted.', type: 'Constraint' }],
+    trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
+  },
+  {
+    mode: 'demo',
+    workspace: 'Komponist browser demo',
+    question: demoQuestions[2],
+    answer: "Agents access confirmed company context through Komponist's REST API or MCP server. [1]",
+    sources: [{ id: 'fallback-access', number: 1, title: '03-agent-integration.md', excerpt: 'Decision: Serve the same confirmed context through Studio, REST API, and MCP.', type: 'Decision' }],
+    trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
+  },
+]
+
+function fallbackDemo(question: string) {
+  const terms = question.toLowerCase()
+  if (terms.includes('trust') || terms.includes('review')) return fallbackDemoResults[1]
+  if (terms.includes('agent') || terms.includes('access') || terms.includes('api') || terms.includes('mcp')) return fallbackDemoResults[2]
+  return fallbackDemoResults[0]
+}
+
 export default function LandingPage() {
+  const [demoQuestion, setDemoQuestion] = useState<string>(demoQuestions[0])
+  const [demoResult, setDemoResult] = useState<DemoResult | null>(null)
+  const [demoStatus, setDemoStatus] = useState<'checking' | 'live' | 'fallback'>('checking')
+  const [demoLoading, setDemoLoading] = useState(true)
+
+  const runDemo = useCallback(async (question: string) => {
+    const normalizedQuestion = question.trim()
+    if (normalizedQuestion.length < 3) return
+    setDemoQuestion(normalizedQuestion)
+    setDemoLoading(true)
+    try {
+      const response = await fetch(`${API_URL}/demo/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: normalizedQuestion }),
+      })
+      if (!response.ok) throw new Error('Demo API unavailable')
+      setDemoResult(await response.json() as DemoResult)
+      setDemoStatus('live')
+    } catch {
+      setDemoResult(fallbackDemo(normalizedQuestion))
+      setDemoStatus('fallback')
+    } finally {
+      setDemoLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void runDemo(demoQuestions[0])
+  }, [runDemo])
+
   return (
     <main className="min-h-screen overflow-hidden bg-paper text-ink">
       <div className="border-b-2 border-ink bg-ink px-4 py-2 text-center font-mono text-[11px] text-white sm:text-xs">
@@ -168,9 +250,11 @@ export default function LandingPage() {
                   <span className="size-2.5 rounded-full bg-orange" />
                   <span className="size-2.5 rounded-full bg-teal" />
                   <span className="size-2.5 rounded-full bg-white/25" />
-                  <span className="ml-2 font-mono text-xs text-white/60">company-brain / live</span>
+                  <span className="ml-2 font-mono text-xs text-white/60">komponist / demo-api</span>
                 </div>
-                <Badge variant="dark" className="border-white/20 px-2 py-0.5 text-[9px]">Local MVP</Badge>
+                <Badge variant="dark" className="border-white/20 px-2 py-0.5 text-[9px]">
+                  {demoStatus === 'live' ? 'API live' : demoStatus === 'fallback' ? 'Browser demo' : 'Checking API'}
+                </Badge>
               </div>
 
               <div className="grid min-h-[480px] md:grid-cols-[180px_1fr]">
@@ -216,11 +300,46 @@ export default function LandingPage() {
                   </div>
 
                   <div className="mt-5 rounded-lg border-2 border-ink bg-paper p-4 shadow-[4px_4px_0_#0e8a7d]">
-                    <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted">
-                      <Search className="size-3.5" /> Answer compiled
+                    <form
+                      className="flex gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void runDemo(demoQuestion)
+                      }}
+                    >
+                      <label className="sr-only" htmlFor="landing-demo-question">Ask the Komponist demo</label>
+                      <input
+                        id="landing-demo-question"
+                        value={demoQuestion}
+                        onChange={(event) => setDemoQuestion(event.target.value)}
+                        maxLength={240}
+                        className="min-w-0 flex-1 rounded-md border-2 border-ink bg-white px-3 py-2 text-xs font-semibold outline-none focus:shadow-[2px_2px_0_#e8641b]"
+                      />
+                      <Button className="size-9 shrink-0 p-0" aria-label="Ask Komponist" disabled={demoLoading || demoQuestion.trim().length < 3}>
+                        {demoLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+                      </Button>
+                    </form>
+                    <div className="mt-3 flex items-center gap-2 font-mono text-[9px] uppercase tracking-wider text-muted">
+                      <Search className="size-3.5" /> {demoLoading ? 'Retrieving confirmed context…' : 'Answer compiled from demo data'}
                     </div>
-                    <p className="mt-2 text-sm font-semibold leading-6">Ship upload → extraction → review → cited search.</p>
-                    <p className="mt-2 font-mono text-[10px] text-orange-dark">[1] 01-product-strategy.md</p>
+                    <p className="mt-2 min-h-12 text-sm font-semibold leading-6" aria-live="polite">
+                      {demoLoading ? 'Komponist is checking the demo workspace.' : demoResult?.answer}
+                    </p>
+                    {demoResult?.sources[0] && !demoLoading && (
+                      <p className="mt-2 truncate font-mono text-[10px] text-orange-dark">[{demoResult.sources[0].number}] {demoResult.sources[0].title}</p>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {demoQuestions.map((question, index) => (
+                        <button
+                          key={question}
+                          type="button"
+                          onClick={() => void runDemo(question)}
+                          className="rounded-full border border-line bg-white px-2 py-1 font-mono text-[8px] font-semibold text-muted transition hover:border-ink hover:text-ink"
+                        >
+                          Try 0{index + 1}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -348,7 +467,7 @@ export default function LandingPage() {
           <div className="flex items-center justify-between border-b border-white/15 bg-code-surface px-5 py-3 font-mono text-xs text-code-muted">
             <span>ask-komponist.ts</span><span>MCP · API</span>
           </div>
-          <pre className="overflow-x-auto p-6 font-mono text-[13px] leading-7 sm:p-8"><code><span className="text-code-keyword">const</span> context = <span className="text-code-keyword">await</span> brain.search({'{'}{`\n`}  query: <span className="text-code-string">&quot;What did we decide?&quot;</span>,{`\n`}  types: [<span className="text-code-string">&quot;Decision&quot;</span>, <span className="text-code-string">&quot;Constraint&quot;</span>],{`\n`}  status: <span className="text-code-string">&quot;confirmed&quot;</span>{`\n`}{'}'}){`\n\n`}<span className="text-code-comment">// 3 facts · 3 citations · org isolated</span>{`\n`}<span className="text-code-number">context.evidence</span></code></pre>
+          <pre className="overflow-x-auto p-6 font-mono text-[13px] leading-7 sm:p-8"><code><span className="text-code-keyword">const</span> context = <span className="text-code-keyword">await</span> komponist.search({'{'}{`\n`}  query: <span className="text-code-string">&quot;What did we decide?&quot;</span>,{`\n`}  types: [<span className="text-code-string">&quot;Decision&quot;</span>, <span className="text-code-string">&quot;Constraint&quot;</span>],{`\n`}  status: <span className="text-code-string">&quot;confirmed&quot;</span>{`\n`}{'}'}){`\n\n`}<span className="text-code-comment">// 3 facts · 3 citations · org isolated</span>{`\n`}<span className="text-code-number">context.evidence</span></code></pre>
           <div className="border-t border-white/15 bg-black/20 px-6 py-4 font-mono text-xs text-teal-light">✓ Context compiled. Nothing invented.</div>
         </motion.div>
       </section>
