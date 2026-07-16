@@ -248,7 +248,7 @@ async def search_company_context(
                     f"Allowed types: {allowed}."
                 )
 
-        mock_mode = os.getenv("KOMPONIST_AI_MODE", "mock").lower() == "mock"
+        mock_mode = os.getenv("KOMPONIST_AI_MODE", "live").lower() == "mock"
         results: List[Dict[str, Any]] = []
 
         if not mock_mode:

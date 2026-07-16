@@ -48,6 +48,21 @@ async def seed() -> None:
             source_date: datetime('2026-07-16T09:00:00Z'), created_at: datetime()
         })
         CREATE (confirmed)-[:CITED_BY]->(evidence)
+        CREATE (pilot:Entity:Project {
+            id: 'chat-northstar-pilot', org_id: $org_id, entity_type: 'Project',
+            statement: 'Run a four-week Northstar Labs design-partner pilot with weekly feedback sessions.',
+            detail: 'The platform engineering team participates in the pilot.',
+            status: 'confirmed', confidence: 'high',
+            created_at: datetime(), updated_at: datetime(), confirmed_at: datetime()
+        })
+        CREATE (pilot_evidence:Evidence {
+            id: 'chat-pilot-evidence', org_id: $org_id, source: 'upload',
+            reference: 'upload:03-customer-interview.txt:e2e',
+            url: 'upload://03-customer-interview.txt',
+            excerpt: 'Project: Run a four-week Northstar Labs design-partner pilot with weekly feedback sessions.',
+            source_date: datetime('2026-07-15T09:00:00Z'), created_at: datetime()
+        })
+        CREATE (pilot)-[:CITED_BY]->(pilot_evidence)
         """,
         {"org_id": ORG_ID, "other_org": f"{ORG_ID}-other"},
     )
@@ -77,6 +92,42 @@ async def run() -> None:
             assert source["entity_id"] == "chat-confirmed", source
             assert source["reference"] == "architecture.md", source
             assert source["url"] == "https://example.com/architecture", source
+
+            duration = await client.post(
+                "/chat",
+                json={
+                    "org_id": ORG_ID,
+                    "message": "Wie lange geht der Northstar Pilot?",
+                    "stream": False,
+                },
+            )
+            assert duration.status_code == 200, duration.text
+            duration_payload = duration.json()
+            assert "4 weeks" in duration_payload["response"], duration_payload
+            assert "[1]" in duration_payload["response"], duration_payload
+            assert duration_payload["sources"][0]["id"] == "chat-pilot-evidence", duration_payload
+
+            german_duration = await client.post(
+                "/chat",
+                json={
+                    "org_id": ORG_ID,
+                    "message": "Antworte auf Deutsch: Wie lange geht der Northstar Pilot?",
+                    "stream": False,
+                },
+            )
+            german_payload = german_duration.json()
+            assert "4 Wochen" in german_payload["response"], german_payload
+
+            suggestions = await client.get(
+                "/chat/suggestions",
+                params={"org_id": ORG_ID, "limit": 4},
+            )
+            assert suggestions.status_code == 200, suggestions.text
+            suggestion_payload = suggestions.json()["suggestions"]
+            assert any(
+                "How long" in item["prompt"] and "Northstar" in item["prompt"]
+                for item in suggestion_payload
+            ), suggestion_payload
 
             proposed_only = await client.post(
                 "/chat",

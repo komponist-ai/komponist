@@ -15,14 +15,14 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | MCP Server | 🚧 Core tools locally verified | 80% |
 | Integrations | 🚧 Code exists | 40% |
 | Web UI | 🚧 Auth gate browser-verified | 78% |
-| Chat Feature | ✅ Grounded local flow verified | 80% |
+| Chat Feature | ✅ Grounded live OpenAI flow verified | 88% |
 | Auth & Security | 🚧 Google + password sessions and org roles | 62% |
 | User Management | 🚧 Multi-org membership UI | 70% |
 | Deployment | ❌ Not implemented | 10% |
 
 **Overall MVP Readiness: ~54%**
 
-**Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker. Live provider login, authenticated API isolation, MCP client interoperability, and deployment are still unverified.
+**Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker, including a real OpenAI chat and embedding request. Live provider login, authenticated API isolation, MCP client interoperability, live extraction, and deployment are still unverified.
 
 ---
 
@@ -212,7 +212,7 @@ The local vertical slice is verified, but important boundaries are still open:
 - No one has completed a real Notion OAuth flow
 - Authenticated Streamable HTTP discovery is verified with a real FastMCP client;
   Claude Code interoperability is still unverified
-- No live OpenAI extraction/chat request has been run with an API key
+- Live OpenAI grounded chat is verified with `gpt-5.6-luna`; live extraction is still unverified
 - No cloud deployment or multi-user workflow has been tested
 
 ### 2. Authentication Is Only Partially Enforced

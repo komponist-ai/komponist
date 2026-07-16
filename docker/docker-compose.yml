@@ -64,6 +64,8 @@ services:
     container_name: komponist-api
     ports:
       - "8000:8000"
+    env_file:
+      - ../.env
     environment:
       # Database
       - DATABASE_URL=postgresql+asyncpg://komponist:${POSTGRES_PASSWORD:-komponist}@postgres:5432/komponist
@@ -72,13 +74,6 @@ services:
       - NEO4J_USERNAME=neo4j
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-komponist}
       # AI Providers
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - KOMPONIST_AI_MODE=${KOMPONIST_AI_MODE:-mock}
-      - KOMPONIST_LLM_PROVIDER=${KOMPONIST_LLM_PROVIDER:-openai}
-      - KOMPONIST_LLM_MODEL=${KOMPONIST_LLM_MODEL:-gpt-5.6-terra}
-      - KOMPONIST_OPENAI_STORE=${KOMPONIST_OPENAI_STORE:-false}
-      - KOMPONIST_EMBEDDING_PROVIDER=${KOMPONIST_EMBEDDING_PROVIDER:-openai}
-      - KOMPONIST_EMBEDDING_MODEL=${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
       # Connectors
       - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
@@ -120,6 +115,8 @@ services:
     container_name: komponist-mcp
     ports:
       - "8080:8080"
+    env_file:
+      - ../.env
     environment:
       # Database
       - DATABASE_URL=postgresql+asyncpg://komponist:${POSTGRES_PASSWORD:-komponist}@postgres:5432/komponist
@@ -127,13 +124,6 @@ services:
       - NEO4J_USERNAME=neo4j
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-komponist}
       # AI Providers
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - KOMPONIST_AI_MODE=${KOMPONIST_AI_MODE:-mock}
-      - KOMPONIST_LLM_PROVIDER=${KOMPONIST_LLM_PROVIDER:-openai}
-      - KOMPONIST_LLM_MODEL=${KOMPONIST_LLM_MODEL:-gpt-5.6-terra}
-      - KOMPONIST_OPENAI_STORE=${KOMPONIST_OPENAI_STORE:-false}
-      - KOMPONIST_EMBEDDING_PROVIDER=${KOMPONIST_EMBEDDING_PROVIDER:-openai}
-      - KOMPONIST_EMBEDDING_MODEL=${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
       # Slack (for approvals)
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
       - SLACK_APPROVALS_CHANNEL=${SLACK_APPROVALS_CHANNEL}

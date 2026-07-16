@@ -203,7 +203,7 @@ def get_embedding_client(provider: Optional[str] = None) -> BaseEmbeddingClient:
     Returns:
         Configured embedding client
     """
-    ai_mode = os.getenv("KOMPONIST_AI_MODE", "mock").lower()
+    ai_mode = os.getenv("KOMPONIST_AI_MODE", "live").lower()
     if ai_mode not in {"mock", "live"}:
         raise ValueError("KOMPONIST_AI_MODE must be 'mock' or 'live'")
     if ai_mode == "mock":

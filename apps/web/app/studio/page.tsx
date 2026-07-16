@@ -20,40 +20,27 @@ interface Message {
   sources?: any[]
 }
 
-const STARTER_QUESTIONS = [
-  {
-    category: 'Product strategy',
-    number: '01',
-    icon: Sparkles,
-    title: 'MVP scope',
-    prompt: 'What does the MVP extract, and which features does it postpone?',
-  },
-  {
-    category: 'Security policy',
-    number: '02',
-    icon: FileKey2,
-    title: 'Security constraints',
-    prompt: 'Which security constraints apply to OpenAI credentials and uploaded documents?',
-  },
-  {
-    category: 'Customer interview',
-    number: '03',
-    icon: FlaskConical,
-    title: 'Northstar pilot',
-    prompt: 'What are the goals and scope of the Northstar Labs pilot?',
-  },
-  {
-    category: 'Readiness',
-    number: '04',
-    icon: ShieldCheck,
-    title: 'Design partner gate',
-    prompt: 'What must happen before we invite the first external design partner?',
-  },
-]
+interface SuggestedQuestion {
+  id: string
+  category: string
+  title: string
+  prompt: string
+  entity_type: string
+  reference: string
+}
+
+const SUGGESTION_ICONS: Record<string, typeof Sparkles> = {
+  Decision: Sparkles,
+  Constraint: FileKey2,
+  Project: FlaskConical,
+  Goal: ShieldCheck,
+}
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [suggestions, setSuggestions] = useState<SuggestedQuestion[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -64,6 +51,26 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages.length])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadSuggestions = async () => {
+      setSuggestionsLoading(true)
+      try {
+        const orgId = getActiveOrgId()
+        const response = await apiFetch(`${API_URL}/chat/suggestions?org_id=${encodeURIComponent(orgId)}&limit=4`)
+        if (!response.ok) throw new Error('Could not load suggested questions')
+        const payload = await response.json()
+        if (!cancelled) setSuggestions(payload.suggestions || [])
+      } catch {
+        if (!cancelled) setSuggestions([])
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false)
+      }
+    }
+    loadSuggestions()
+    return () => { cancelled = true }
+  }, [])
 
   const handleSendMessage = async (messageText: string) => {
     const orgId = getActiveOrgId()
@@ -198,12 +205,12 @@ export default function ChatPage() {
             {messages.length === 0 ? (
               <section className="mx-auto grid min-h-full w-[calc(100%-2rem)] max-w-[1040px] content-center gap-10 py-12 lg:grid-cols-[0.72fr_1.28fr] lg:items-center">
                 <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.45 }}>
-                  <Badge variant="orange">Example upload is ready</Badge>
+                  <Badge variant="orange">Questions from your live graph</Badge>
                   <h2 className="mt-5 font-display text-[clamp(3rem,6vw,5.7rem)] font-bold leading-[0.88] tracking-[-0.06em]">
                     Ask the brain.<span className="mt-2 block text-orange">It has receipts.</span>
                   </h2>
                   <p className="mt-6 max-w-xl text-lg leading-8 text-ink-2">
-                    Query product strategy, security policy, and the Northstar interview. Every answer stays attached to confirmed graph facts.
+                    Ask for a direct answer across your confirmed company knowledge. Suggested questions adapt to the graph and documents in this workspace.
                   </p>
                   <div className="mt-7 flex items-center gap-3 rounded-lg border-2 border-ink bg-[#f4d06f] p-3 text-sm font-semibold shadow-[4px_4px_0_#201c15] lg:max-w-sm">
                     <ShieldCheck className="size-5 shrink-0" />
@@ -217,11 +224,19 @@ export default function ChatPage() {
                     <span className="flex items-center gap-2 font-mono text-[10px] text-teal-light"><span className="size-1.5 rounded-full bg-teal-light" /> live graph</span>
                   </div>
                   <div className="grid gap-px bg-line sm:grid-cols-2">
-                  {STARTER_QUESTIONS.map((question, index) => {
-                    const Icon = question.icon
+                  {suggestionsLoading ? Array.from({ length: 4 }).map((_, index) => (
+                    <div className="min-h-[190px] animate-pulse bg-white p-5" key={index}>
+                      <div className="size-10 rounded-md bg-paper-3" />
+                      <div className="mt-7 h-2 w-24 rounded bg-paper-3" />
+                      <div className="mt-3 h-4 w-32 rounded bg-paper-3" />
+                      <div className="mt-3 h-3 w-full rounded bg-paper-2" />
+                      <div className="mt-2 h-3 w-3/4 rounded bg-paper-2" />
+                    </div>
+                  )) : suggestions.length > 0 ? suggestions.map((question, index) => {
+                    const Icon = SUGGESTION_ICONS[question.entity_type] || Sparkles
                     return (
                     <motion.button
-                      key={question.prompt}
+                      key={question.id}
                       whileHover={{ y: -2 }}
                       whileTap={{ scale: 0.985 }}
                       className="group min-h-[190px] bg-white p-5 text-left transition-colors hover:bg-warning-soft disabled:opacity-50"
@@ -230,7 +245,7 @@ export default function ChatPage() {
                     >
                       <div className="flex items-start justify-between">
                         <span className="grid size-10 place-items-center rounded-md border-2 border-ink bg-paper shadow-[2px_2px_0_#201c15]"><Icon className="size-4" /></span>
-                        <span className="font-mono text-[10px] text-muted">{question.number}</span>
+                        <span className="font-mono text-[10px] text-muted">{String(index + 1).padStart(2, '0')}</span>
                       </div>
                       <div className="mt-6 font-mono text-[9px] font-semibold uppercase tracking-wider text-orange-dark">{question.category}</div>
                       <strong className="mt-1 block text-base">{question.title}</strong>
@@ -238,7 +253,13 @@ export default function ChatPage() {
                       <ArrowUpRight className="mt-4 size-4 text-faint transition-transform group-hover:translate-x-1 group-hover:-translate-y-1 group-hover:text-orange" />
                     </motion.button>
                     )
-                  })}
+                  }) : (
+                    <div className="bg-white p-7 sm:col-span-2">
+                      <strong className="block text-lg">No confirmed questions yet.</strong>
+                      <p className="mt-2 text-sm leading-6 text-muted">Upload a document and confirm its extracted facts. Komponist will generate useful starter questions from that context.</p>
+                      <Button asChild className="mt-5" size="sm"><Link href="/onboard">Upload a source <ArrowUpRight /></Link></Button>
+                    </div>
+                  )}
                   </div>
                   <div className="border-t-2 border-ink bg-paper-2 px-4 py-3 text-center font-mono text-[10px] text-muted">
                     Need more context? <Link href="/onboard" className="font-bold text-orange-dark underline">Upload another source</Link>

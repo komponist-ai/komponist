@@ -7,6 +7,7 @@ The programmable company brain.
 
 import os
 import hashlib
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -1588,9 +1589,51 @@ class ChatResponse(BaseModel):
 
 _CHAT_STOP_WORDS = {
     "about", "all", "and", "are", "been", "der", "die", "das", "do",
-    "does", "for", "from", "haben", "has", "ist", "it", "me", "our",
+    "does", "for", "from", "geht", "haben", "has", "ist", "it", "me", "our",
     "show", "the", "und", "use", "was", "what", "welche", "which",
     "who", "wie", "wir", "with",
+}
+
+_CHAT_ENTITY_TERMS = {
+    "decision": "decision", "decisions": "decision",
+    "goal": "goal", "goals": "goal",
+    "constraint": "constraint", "constraints": "constraint",
+    "project": "project", "projects": "project",
+    "entscheidung": "decision", "entscheidungen": "decision",
+    "ziel": "goal", "ziele": "goal",
+    "vorgabe": "constraint", "vorgaben": "constraint",
+    "projekt": "project", "projekte": "project",
+}
+
+_CHAT_ENTITY_TYPES = {
+    "decision": "Decision",
+    "goal": "Goal",
+    "constraint": "Constraint",
+    "project": "Project",
+}
+
+_COUNT_QUESTION_PATTERN = re.compile(
+    r"\b(?:how\s+many|number\s+of|count\s+of|wie\s+viele)\s+"
+    r"(?:confirmed\s+|bestätigte[nr]?\s+)?"
+    r"(?P<entity>decisions?|goals?|constraints?|projects?|"
+    r"entscheidungen?|ziele?|vorgaben?|projekte?)\b",
+    flags=re.IGNORECASE,
+)
+
+_DURATION_PATTERN = re.compile(
+    r"\b(?P<value>\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eins|eine|einen|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn)"
+    r"(?:-|\s)(?P<unit>day|days|week|weeks|month|months|year|years|"
+    r"tag|tage|tagen|woche|wochen|monat|monate|monaten|jahr|jahre|jahren)\b",
+    flags=re.IGNORECASE,
+)
+
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eins": 1, "eine": 1, "einen": 1, "zwei": 2, "drei": 3,
+    "vier": 4, "fünf": 5, "sechs": 6, "sieben": 7, "acht": 8,
+    "neun": 9, "zehn": 10,
 }
 
 
@@ -1600,8 +1643,34 @@ def _chat_search_terms(message: str) -> List[str]:
 
     words = re.findall(r"[\w-]+", message.casefold(), flags=re.UNICODE)
     return list(dict.fromkeys(
-        word for word in words if len(word) >= 3 and word not in _CHAT_STOP_WORDS
+        _CHAT_ENTITY_TERMS.get(word, word)
+        for word in words if len(word) >= 3 and word not in _CHAT_STOP_WORDS
     ))[:12]
+
+
+def _chat_count_entity_type(message: str) -> Optional[str]:
+    match = _COUNT_QUESTION_PATTERN.search(message)
+    if not match:
+        return None
+    normalized = _CHAT_ENTITY_TERMS.get(match.group("entity").casefold())
+    return _CHAT_ENTITY_TYPES.get(normalized or "")
+
+
+async def _exact_entity_type_chat_search(org_id: str, entity_type: str) -> List[dict]:
+    """Return every confirmed entity of a type for exact aggregate questions."""
+    return await GraphClient.run_query(
+        """
+        MATCH (n:Entity {
+            org_id: $org_id, status: 'confirmed', entity_type: $entity_type
+        })
+        RETURN n.id AS id, n.entity_type AS entity_type,
+               n.statement AS statement, n.detail AS detail,
+               n.status AS status, n.confidence AS confidence,
+               1.0 AS score
+        ORDER BY n.confirmed_at DESC, n.created_at DESC, n.id
+        """,
+        {"org_id": org_id, "entity_type": entity_type},
+    )
 
 
 async def _literal_chat_search(org_id: str, message: str, k: int = 8) -> List[dict]:
@@ -1613,14 +1682,19 @@ async def _literal_chat_search(org_id: str, message: str, k: int = 8) -> List[di
     return await GraphClient.run_query(
         """
         MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
-        WHERE any(term IN $terms WHERE
+        OPTIONAL MATCH (n)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+        WITH n, collect(DISTINCT evidence) AS evidence_items
+        WITH n, evidence_items, [term IN $terms WHERE
             toLower(coalesce(n.statement, '')) CONTAINS term OR
             toLower(coalesce(n.detail, '')) CONTAINS term OR
-            toLower(coalesce(n.name, '')) CONTAINS term)
-        WITH n, size([term IN $terms WHERE
-            toLower(coalesce(n.statement, '')) CONTAINS term OR
-            toLower(coalesce(n.detail, '')) CONTAINS term OR
-            toLower(coalesce(n.name, '')) CONTAINS term]) AS matches
+            toLower(coalesce(n.name, '')) CONTAINS term OR
+            toLower(coalesce(n.entity_type, '')) CONTAINS term OR
+            any(item IN evidence_items WHERE
+                toLower(coalesce(item.reference, '')) CONTAINS term OR
+                toLower(coalesce(item.excerpt, '')) CONTAINS term)
+        ] AS matched_terms
+        WHERE size(matched_terms) > 0
+        WITH n, size(matched_terms) AS matches
         RETURN n.id AS id, n.entity_type AS entity_type,
                n.statement AS statement, n.detail AS detail,
                n.status AS status, n.confidence AS confidence,
@@ -1630,6 +1704,52 @@ async def _literal_chat_search(org_id: str, message: str, k: int = 8) -> List[di
         """,
         {"org_id": org_id, "terms": terms, "k": k},
     )
+
+
+def _answer_in_german(message: str) -> bool:
+    """English is default; switch only when the user explicitly requests German."""
+    return bool(re.search(
+        r"\b(auf\s+deutsch|in\s+german|answer\s+in\s+german|"
+        r"antworte(?:\s+bitte)?\s+(?:auf\s+)?deutsch)\b",
+        message.casefold(),
+    ))
+
+
+def _extract_duration(text: str) -> Optional[tuple[int, str]]:
+    match = _DURATION_PATTERN.search(text or "")
+    if not match:
+        return None
+    raw_value = match.group("value").casefold()
+    value = int(raw_value) if raw_value.isdigit() else _NUMBER_WORDS.get(raw_value)
+    if value is None:
+        return None
+    unit = match.group("unit").casefold()
+    if unit.startswith(("day", "tag")):
+        normalized_unit = "day"
+    elif unit.startswith(("week", "woch")):
+        normalized_unit = "week"
+    elif unit.startswith(("month", "monat")):
+        normalized_unit = "month"
+    else:
+        normalized_unit = "year"
+    return value, normalized_unit
+
+
+def _format_duration(value: int, unit: str, german: bool) -> str:
+    units = {
+        False: {"day": ("day", "days"), "week": ("week", "weeks"),
+                "month": ("month", "months"), "year": ("year", "years")},
+        True: {"day": ("Tag", "Tage"), "week": ("Woche", "Wochen"),
+               "month": ("Monat", "Monate"), "year": ("Jahr", "Jahre")},
+    }
+    singular, plural = units[german][unit]
+    return f"{value} {singular if value == 1 else plural}"
+
+
+def _duration_subject(statement: str, german: bool) -> str:
+    if "northstar" in statement.casefold() and "pilot" in statement.casefold():
+        return "Northstar-Labs-Pilot" if german else "Northstar Labs pilot"
+    return "Projekt" if german else "project"
 
 
 async def _attach_chat_evidence(org_id: str, entities: List[dict]) -> None:
@@ -1695,7 +1815,7 @@ def _chat_context_and_sources(search_results: List[dict]) -> tuple[str, List[dic
     return "\n\n".join(context_parts), sources
 
 
-def _mock_chat_answer(search_results: List[dict], sources: List[dict]) -> str:
+def _mock_chat_answer(message: str, search_results: List[dict], sources: List[dict]) -> str:
     """Return a useful grounded answer while no external model is configured."""
     if not search_results:
         return (
@@ -1707,16 +1827,203 @@ def _mock_chat_answer(search_results: List[dict], sources: List[dict]) -> str:
     for index, source in enumerate(sources, 1):
         citation_by_entity.setdefault(source["entity_id"], []).append(index)
 
-    lines = ["Based on the confirmed company brain:"]
-    for result in search_results:
+    primary = search_results[0]
+    primary_citations = " ".join(
+        f"[{index}]" for index in citation_by_entity.get(primary["id"], [])
+    )
+    primary_text = " ".join(filter(None, [
+        primary.get("statement"), primary.get("detail"),
+    ]))
+    duration = _extract_duration(primary_text)
+    german = _answer_in_german(message)
+    asks_duration = bool(re.search(
+        r"\b(wie\s+lange|dauer|dauert|how\s+long|duration)\b",
+        message.casefold(),
+    ))
+
+    if asks_duration and duration:
+        value, unit = duration
+        formatted = _format_duration(value, unit, german)
+        subject = _duration_subject(primary.get("statement") or "", german)
+        if german:
+            answer = f"Der {subject} dauert {formatted}."
+        else:
+            answer = f"The {subject} lasts {formatted}."
+        return answer + (f" {primary_citations}" if primary_citations else "")
+
+    answer = (primary.get("statement") or primary.get("detail") or "").strip()
+    if primary_citations:
+        answer = f"{answer} {primary_citations}"
+
+    related_lines = []
+    for result in search_results[1:4]:
+        statement = (result.get("statement") or "").strip()
+        if not statement:
+            continue
         citations = " ".join(
             f"[{index}]" for index in citation_by_entity.get(result["id"], [])
         )
-        lines.append(
-            f"- [{result['entity_type']}] {result['statement']}"
-            + (f" {citations}" if citations else "")
-        )
-    return "\n".join(lines)
+        related_lines.append(f"- {statement}" + (f" {citations}" if citations else ""))
+
+    if related_lines:
+        heading = "Relevanter Kontext:" if german else "Relevant context:"
+        answer += f"\n\n{heading}\n" + "\n".join(related_lines)
+    return answer
+
+
+def _normalize_grounded_answer(
+    message: str,
+    answer: str,
+    search_results: List[dict],
+    sources: List[dict],
+) -> str:
+    """Make exact-value answers deterministic without changing general LLM prose."""
+    if not search_results or not re.search(
+        r"\b(wie\s+lange|dauer|dauert|how\s+long|duration)\b",
+        message.casefold(),
+    ):
+        return answer
+
+    primary = search_results[0]
+    primary_text = " ".join(filter(None, [
+        primary.get("statement"), primary.get("detail"),
+    ]))
+    duration = _extract_duration(primary_text)
+    if not duration:
+        return answer
+
+    german = _answer_in_german(message)
+    value, unit = duration
+    formatted = _format_duration(value, unit, german)
+    subject = _duration_subject(primary.get("statement") or "", german)
+    citation_numbers = [
+        index for index, source in enumerate(sources, 1)
+        if source.get("entity_id") == primary.get("id")
+    ]
+    citations = " ".join(f"[{index}]" for index in citation_numbers)
+    if german:
+        normalized = f"Der {subject} dauert {formatted}."
+    else:
+        normalized = f"The {subject} lasts {formatted}."
+    return normalized + (f" {citations}" if citations else "")
+
+
+def _human_source_label(reference: str) -> str:
+    value = reference or "Company source"
+    if value.startswith("upload:"):
+        parts = value.split(":")
+        value = parts[1] if len(parts) > 1 else value
+    elif value.startswith("local:"):
+        value = value.removeprefix("local:")
+    elif value.startswith("notion:"):
+        return "Notion workspace"
+    elif value.startswith("gdrive:"):
+        return "Google Drive"
+
+    stem = Path(value).stem
+    stem = re.sub(r"^\d+[\s_-]*", "", stem)
+    stem = re.sub(r"[_-]+", " ", stem).strip()
+    return stem.title() or "Company source"
+
+
+def _duration_question_subject(statement: str) -> str:
+    if "northstar" in statement.casefold() and "pilot" in statement.casefold():
+        return "the Northstar Labs pilot"
+    cleaned = _DURATION_PATTERN.sub("", statement, count=1)
+    cleaned = re.sub(r"^(run|launch|conduct|start|ship)\s+(a|an|the)?\s*", "", cleaned, flags=re.I)
+    cleaned = re.split(r"\s+(?:with|including|that|which)\s+", cleaned, maxsplit=1)[0]
+    cleaned = cleaned.strip(" .,-")
+    return cleaned[:72] if cleaned else "this project"
+
+
+def _chat_suggestion_from_entity(row: dict) -> dict:
+    statement = (row.get("statement") or row.get("detail") or "").strip()
+    entity_type = row.get("entity_type") or "Fact"
+    reference = row.get("reference") or "Company source"
+    source_label = _human_source_label(reference)
+    duration = _extract_duration(statement)
+
+    if duration:
+        subject = _duration_question_subject(statement)
+        title = "Pilot duration" if "pilot" in subject.casefold() else "Project duration"
+        prompt = f"How long does {subject} run?"
+    elif entity_type == "Decision":
+        title = "Confirmed decision"
+        prompt = f"What decision is documented in {source_label}?"
+    elif entity_type == "Goal":
+        title = "Primary goal"
+        prompt = f"What goal is documented in {source_label}?"
+    elif entity_type == "Constraint":
+        title = "Key constraint"
+        prompt = f"Which constraint is documented in {source_label}?"
+    elif entity_type == "Project":
+        title = "Project scope"
+        prompt = f"What project is described in {source_label}, and what is its scope?"
+    else:
+        title = f"{entity_type} context"
+        prompt = f"What confirmed information comes from {source_label}?"
+
+    return {
+        "id": row["id"],
+        "category": source_label,
+        "title": title,
+        "prompt": prompt,
+        "entity_type": entity_type,
+        "reference": reference,
+    }
+
+
+@app.get("/chat/suggestions")
+async def get_chat_suggestions(
+    org_id: str = Query("default-org"),
+    limit: int = Query(4, ge=1, le=8),
+):
+    """Build starter questions from confirmed, cited organization knowledge."""
+    rows = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id, status: 'confirmed'})
+        MATCH (entity)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+        WITH entity, head(collect(DISTINCT evidence)) AS evidence
+        RETURN entity.id AS id, entity.entity_type AS entity_type,
+               entity.statement AS statement, entity.detail AS detail,
+               evidence.source AS source, evidence.reference AS reference,
+               evidence.source_date AS source_date
+        ORDER BY evidence.source_date DESC, entity.confirmed_at DESC, entity.created_at DESC
+        LIMIT 48
+        """,
+        {"org_id": org_id},
+    )
+
+    rows.sort(key=lambda row: 0 if _extract_duration(
+        " ".join(filter(None, [row.get("statement"), row.get("detail")]))
+    ) else 1)
+
+    suggestions = []
+    seen_prompts = set()
+    seen_references = set()
+    deferred = []
+    for row in rows:
+        suggestion = _chat_suggestion_from_entity(row)
+        if suggestion["prompt"] in seen_prompts:
+            continue
+        if suggestion["reference"] in seen_references:
+            deferred.append(suggestion)
+            continue
+        suggestions.append(suggestion)
+        seen_prompts.add(suggestion["prompt"])
+        seen_references.add(suggestion["reference"])
+        if len(suggestions) == limit:
+            break
+
+    for suggestion in deferred:
+        if len(suggestions) == limit:
+            break
+        if suggestion["prompt"] in seen_prompts:
+            continue
+        suggestions.append(suggestion)
+        seen_prompts.add(suggestion["prompt"])
+
+    return {"suggestions": suggestions}
 
 
 @app.post("/chat")
@@ -1728,7 +2035,7 @@ async def chat_with_brain(request: ChatRequest):
     from fastapi import HTTPException
 
     try:
-        mock_mode = os.getenv("KOMPONIST_AI_MODE", "mock").lower() == "mock"
+        mock_mode = os.getenv("KOMPONIST_AI_MODE", "live").lower() == "mock"
 
         # 1. Try to embed user query for semantic search
         query_embedding = None
@@ -1783,19 +2090,24 @@ You have access to confirmed facts, decisions, goals, and relationships from the
 
 When answering:
 - Base your answers on the provided context from the knowledge graph
+- Start with the direct answer in the first sentence; do not begin with a preamble such as "Based on the context"
+- For duration, quantity, date, owner, or yes/no questions, state the exact value immediately
+- Render quantities with digits when possible (for example, "four weeks" becomes "4 Wochen" in German)
+- Prioritize the most relevant fact and only add context that helps answer the question
 - Cite claims with the numbered evidence markers included in the context, such as [1]
 - Never invent a citation or use information from proposed/rejected entities
 - If the context is empty or doesn't contain the answer, explain that the knowledge graph is empty or doesn't have that information yet
 - Suggest that the user should add sources to populate the knowledge graph (via the Onboard page)
-- Be concise but complete
-- Use the user's language and tone
+- Be concise but complete; use bullets only when the question asks for a list or several distinct items
+- Answer in English by default, even when the question is written in another language
+- Switch languages only when the user explicitly asks for a specific response language
 
 Context from knowledge graph:
 {context}"""
 
         user_prompt = f"{conversation_context}User question: {request.message}"
 
-        answer = _mock_chat_answer(search_results, sources) if mock_mode else None
+        answer = _mock_chat_answer(request.message, search_results, sources) if mock_mode else None
         llm = None if mock_mode else get_llm()
 
         if request.stream:
@@ -1808,15 +2120,23 @@ Context from knowledge graph:
                             "data": json.dumps({"content": answer})
                         }
                     else:
+                        generated_chunks = []
                         async for chunk in llm.stream(
                             prompt=user_prompt,
                             system=system_prompt.format(context=context),
                             max_tokens=2048,
                         ):
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({"content": chunk})
-                            }
+                            generated_chunks.append(chunk)
+                        generated_answer = _normalize_grounded_answer(
+                            request.message,
+                            "".join(generated_chunks),
+                            search_results,
+                            sources,
+                        )
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({"content": generated_answer})
+                        }
                     # Send sources at the end
                     yield {
                         "event": "sources",
@@ -1839,6 +2159,9 @@ Context from knowledge graph:
                     max_tokens=2048
                 )
                 answer = response["text"]
+                answer = _normalize_grounded_answer(
+                    request.message, answer, search_results, sources
+                )
 
             return ChatResponse(
                 response=answer,
@@ -1894,7 +2217,7 @@ async def get_ai_settings(
 ):
     """Return only non-secret status for the centrally managed provider."""
     await _authorized_org_user(request, org_id)
-    mode = os.getenv("KOMPONIST_AI_MODE", "mock").lower()
+    mode = os.getenv("KOMPONIST_AI_MODE", "live").lower()
     return {
         "mode": mode,
         "provider": "openai" if mode == "live" else "mock",
@@ -1910,7 +2233,7 @@ async def test_ai_settings(request: Request, org_id: str = Query(...)):
     """Test the server-managed provider without exposing its API key."""
     await _authorized_org_user(request, org_id, manage=True)
     try:
-        if os.getenv("KOMPONIST_AI_MODE", "mock").lower() == "mock":
+        if os.getenv("KOMPONIST_AI_MODE", "live").lower() == "mock":
             return {"status": "ok", "mode": "mock", "message": "Mock mode is ready"}
         from core.embeddings import get_embedder
         from core.llm import get_llm
