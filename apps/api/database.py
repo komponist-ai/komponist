@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, String, DateTime, Integer, Text, Boolean, text
+from sqlalchemy import JSON, String, DateTime, Integer, Text, Boolean, text, UniqueConstraint
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -84,6 +84,39 @@ class SyncState(Base):
     source: Mapped[str] = mapped_column(String(50), primary_key=True)
     cursor: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class OrgSetting(Base):
+    """Persistent organization-level application settings."""
+    __tablename__ = "org_settings"
+
+    org_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    auto_confirm: Mapped[bool] = mapped_column(Boolean, default=False)
+    parallel_batch_size: Mapped[int] = mapped_column(Integer, default=5)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class ConnectedSource(Base):
+    """Persistent connector metadata with encrypted private configuration."""
+    __tablename__ = "connected_sources"
+    __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_connected_sources_org_id_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(50), index=True)
+    source_type: Mapped[str] = mapped_column(String(50), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(50), default="connected")
+    last_sync: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    item_count: Mapped[int] = mapped_column(Integer, default=0)
+    config_ciphertext: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
 
 async def get_db() -> AsyncSession:

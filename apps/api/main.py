@@ -22,6 +22,16 @@ from core.schema import GraphSchema
 from core.export import export_brain_yaml
 from core.import_ import import_brain_yaml
 from database import init_db, health_check_db
+from persistence import (
+    create_connected_source,
+    delete_connected_source,
+    get_connected_source,
+    list_connected_sources,
+    load_org_settings,
+    save_org_settings,
+    update_connected_source,
+    upsert_single_source_type,
+)
 
 
 # Import security utilities
@@ -60,20 +70,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory store for connected sources (TODO: persist to database)
-connected_sources: dict = {}
-
-# In-memory store for org settings (TODO: persist to database)
-org_settings: dict = {}
-
-def get_org_settings(org_id: str) -> dict:
+async def get_org_settings(org_id: str) -> dict:
     """Get settings for an org with defaults."""
     defaults = {
         "auto_confirm": False,
         "extraction_model": os.getenv("KOMPONIST_LLM_MODEL", "gpt-5.6-terra"),
         "parallel_batch_size": 5,
     }
-    settings = org_settings.get(org_id, {})
+    settings = await load_org_settings(org_id) or {}
     return {**defaults, **settings}
 
 
@@ -450,9 +454,6 @@ async def notion_token_connect(org_id: str, token: str):
     User creates an integration at notion.so/my-integrations and pastes the token.
     """
     from integrations.notion import validate_token
-    import uuid
-    from datetime import datetime
-
     # Validate the token
     user_info = await validate_token(token)
 
@@ -460,29 +461,12 @@ async def notion_token_connect(org_id: str, token: str):
     bot_info = user_info.get("bot", {})
     workspace_name = bot_info.get("workspace_name", "Notion Workspace")
 
-    # Register as a connected source
-    if org_id not in connected_sources:
-        connected_sources[org_id] = []
-
-    # Check if Notion already connected
-    existing = [s for s in connected_sources[org_id] if s["type"] == "notion"]
-    if existing:
-        # Update existing
-        existing[0]["status"] = "connected"
-        existing[0]["config"]["token"] = token
-    else:
-        # Add new
-        source = {
-            "id": str(uuid.uuid4()),
-            "type": "notion",
-            "name": workspace_name,
-            "status": "connected",
-            "lastSync": None,
-            "itemCount": 0,
-            "config": {"token": token},
-            "created_at": datetime.utcnow().isoformat()
-        }
-        connected_sources[org_id].append(source)
+    await upsert_single_source_type(
+        org_id=org_id,
+        source_type="notion",
+        name=workspace_name,
+        config={"token": token},
+    )
 
     print(f"[Notion] Token validated for org {org_id}: {workspace_name}")
 
@@ -628,7 +612,7 @@ async def import_brain_endpoint(
 @app.get("/sources")
 async def list_sources(org_id: str = Query("default-org")):
     """List connected sources for an organization."""
-    org_sources = connected_sources.get(org_id, [])
+    org_sources = await list_connected_sources(org_id)
     return {"sources": org_sources, "total": len(org_sources)}
 
 
@@ -640,25 +624,14 @@ async def add_source(
     config: dict = None
 ):
     """Register a connected source."""
-    import uuid
-    from datetime import datetime
-
-    if org_id not in connected_sources:
-        connected_sources[org_id] = []
-
-    source = {
-        "id": str(uuid.uuid4()),
-        "type": source_type,
-        "name": name,
-        "status": "connected",
-        "lastSync": None,
-        "itemCount": 0,
-        "config": config or {},
-        "created_at": datetime.utcnow().isoformat()
-    }
-
-    connected_sources[org_id].append(source)
-    return source
+    if source_type not in {"notion", "slack", "google", "local"}:
+        raise HTTPException(status_code=400, detail="Unsupported source type")
+    return await create_connected_source(
+        org_id=org_id,
+        source_type=source_type,
+        name=name,
+        config=config or {},
+    )
 
 
 @app.delete("/sources/{source_id}")
@@ -676,9 +649,9 @@ async def remove_source(
         remove_data: If True, also delete all entities and evidence from this source
     """
     # Get source info before removing
-    source = None
-    if org_id in connected_sources:
-        source = next((s for s in connected_sources[org_id] if s["id"] == source_id), None)
+    source = await get_connected_source(org_id, source_id, include_config=True)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
 
     entities_deleted = 0
     evidence_deleted = 0
@@ -723,11 +696,7 @@ async def remove_source(
             import traceback
             traceback.print_exc()
 
-    # Remove from connected sources list
-    if org_id in connected_sources:
-        connected_sources[org_id] = [
-            s for s in connected_sources[org_id] if s["id"] != source_id
-        ]
+    await delete_connected_source(org_id, source_id)
 
     return {
         "status": "removed",
@@ -746,13 +715,12 @@ async def sync_source(source_id: str, org_id: str = Query("default-org")):
     from datetime import datetime
 
     # Find the source
-    org_sources = connected_sources.get(org_id, [])
-    source = next((s for s in org_sources if s["id"] == source_id), None)
+    source = await get_connected_source(org_id, source_id, include_config=True)
 
     if not source:
-        return {"error": "Source not found"}, 404
+        raise HTTPException(status_code=404, detail="Source not found")
 
-    source["status"] = "syncing"
+    await update_connected_source(org_id, source_id, status="syncing")
 
     try:
         if source["type"] == "notion":
@@ -760,17 +728,21 @@ async def sync_source(source_id: str, org_id: str = Query("default-org")):
         elif source["type"] == "local":
             result = await sync_local_source(org_id, source)
         else:
-            return {"error": f"Sync not implemented for {source['type']}"}
+            raise ValueError(f"Sync not implemented for {source['type']}")
 
-        source["status"] = "connected"
-        source["lastSync"] = datetime.utcnow().isoformat()
-        source["itemCount"] = result.get("items_processed", 0)
+        await update_connected_source(
+            org_id,
+            source_id,
+            status="connected",
+            last_sync=datetime.utcnow(),
+            item_count=result.get("items_processed", 0),
+        )
 
         return result
 
     except Exception as e:
-        source["status"] = "error"
-        return {"error": str(e)}
+        await update_connected_source(org_id, source_id, status="error")
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 async def sync_notion_source(org_id: str, source: dict) -> dict:
@@ -805,7 +777,7 @@ async def sync_notion_source(org_id: str, source: dict) -> dict:
     print(f"[Notion Sync] Found {len(all_pages)} pages total, processing in parallel...")
 
     # Get org settings
-    settings = get_org_settings(org_id)
+    settings = await get_org_settings(org_id)
     auto_confirm = settings.get("auto_confirm", True)
     batch_size = settings.get("parallel_batch_size", 5)
 
@@ -1424,7 +1396,7 @@ Context from knowledge graph:
 @app.get("/settings")
 async def get_settings(org_id: str = Query("default-org")):
     """Get settings for an organization."""
-    return get_org_settings(org_id)
+    return await get_org_settings(org_id)
 
 
 @app.put("/settings")
@@ -1435,19 +1407,23 @@ async def update_settings(
     parallel_batch_size: Optional[int] = Query(None, description="Parallel processing batch size")
 ):
     """Update settings for an organization."""
-    if org_id not in org_settings:
-        org_settings[org_id] = {}
-
     resolved_auto_confirm = payload.auto_confirm if payload else auto_confirm
     resolved_batch_size = payload.parallel_batch_size if payload else parallel_batch_size
-
-    if resolved_auto_confirm is not None:
-        org_settings[org_id]["auto_confirm"] = resolved_auto_confirm
-
-    if resolved_batch_size is not None:
-        org_settings[org_id]["parallel_batch_size"] = max(1, min(10, resolved_batch_size))
-
-    return get_org_settings(org_id)
+    current = await get_org_settings(org_id)
+    saved = await save_org_settings(
+        org_id=org_id,
+        auto_confirm=(
+            resolved_auto_confirm
+            if resolved_auto_confirm is not None
+            else current["auto_confirm"]
+        ),
+        parallel_batch_size=(
+            max(1, min(10, resolved_batch_size))
+            if resolved_batch_size is not None
+            else current["parallel_batch_size"]
+        ),
+    )
+    return {**current, **saved}
 
 
 if __name__ == "__main__":

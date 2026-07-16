@@ -10,7 +10,7 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 
 | Category | Status | Progress |
 |----------|--------|----------|
-| Core Infrastructure | ✅ Locally verified | 80% |
+| Core Infrastructure | ✅ Locally verified | 85% |
 | Extraction Pipeline | ✅ Local-docs slice verified | 80% |
 | MCP Server | 🚧 Search and writeback verified | 75% |
 | Integrations | 🚧 Code exists | 40% |
@@ -20,7 +20,7 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | User Management | ❌ Not implemented | 0% |
 | Deployment | ❌ Not implemented | 10% |
 
-**Overall MVP Readiness: ~45%**
+**Overall MVP Readiness: ~50%**
 
 **Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker. External integrations, authentication, MCP client interoperability, and deployment are still unverified.
 
@@ -52,6 +52,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Chat excludes proposed entities and data belonging to another organization
 - [x] MCP tool discovery and cited context search over Streamable HTTP
 - [x] MCP agent reports create idempotent Decision proposals in the review queue
+- [x] Organization settings and encrypted connected-source configs survive API restarts
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -60,6 +61,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - `apps/api/tests/chat_e2e.py` — grounded chat, citations, streaming, and isolation (passing)
 - `apps/mcp/tests/search_context_e2e.py` — MCP discovery, cited search, and isolation (passing)
 - `apps/mcp/tests/report_result_e2e.py` — agent writeback, retry dedup, and review queue (passing)
+- `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
 
 ---
@@ -158,11 +160,11 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [ ] **No code exists**
 
 ### Data Persistence
-- [ ] OAuth tokens stored in database (currently in-memory dict, lost on restart)
-- [ ] Connected sources stored in database (currently in-memory dict)
-- [ ] Org settings stored in database (currently in-memory dict)
+- [ ] OAuth callback tokens stored in database (callbacks still need writeback)
+- [x] Connected sources and encrypted connector configs stored in Postgres
+- [x] Org settings stored in Postgres
 - [ ] Approval requests stored in database (currently in-memory dict)
-- [ ] **Critical bug**: All state is lost when server restarts
+- [ ] Approval state and OAuth callback credentials still do not survive restarts
 
 ### Komponist Cloud (Hosted Version)
 - [ ] Landing page / marketing website
@@ -203,12 +205,10 @@ There is no way to:
 - Protect API endpoints
 - Isolate user data
 
-### 3. All State Is In-Memory
-When the server restarts, you lose:
-- All connected OAuth tokens
-- All connected sources
-- All org settings
-- All pending approvals
+### 3. Some Workflow State Is Still In-Memory
+Connected sources and organization settings now survive API restarts. Remaining gaps:
+- OAuth callback credentials are not written to persistent connector records yet
+- Pending approval requests are still process-local
 
 ### 4. Security Not Applied
 - `security.py` has utilities but they're not used
