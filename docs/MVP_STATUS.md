@@ -12,7 +12,7 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 |----------|--------|----------|
 | Core Infrastructure | ✅ Locally verified | 80% |
 | Extraction Pipeline | ✅ Local-docs slice verified | 80% |
-| MCP Server | 🚧 Cited search verified | 65% |
+| MCP Server | 🚧 Search and writeback verified | 75% |
 | Integrations | 🚧 Code exists | 40% |
 | Web UI | 🚧 Builds and runs locally | 65% |
 | Chat Feature | ✅ Grounded local flow verified | 80% |
@@ -51,6 +51,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Chat uses confirmed graph context and returns real Evidence citations
 - [x] Chat excludes proposed entities and data belonging to another organization
 - [x] MCP tool discovery and cited context search over Streamable HTTP
+- [x] MCP agent reports create idempotent Decision proposals in the review queue
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -58,6 +59,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - `apps/api/tests/review_lifecycle_e2e.py` — review lifecycle against the Docker stack (passing)
 - `apps/api/tests/chat_e2e.py` — grounded chat, citations, streaming, and isolation (passing)
 - `apps/mcp/tests/search_context_e2e.py` — MCP discovery, cited search, and isolation (passing)
+- `apps/mcp/tests/report_result_e2e.py` — agent writeback, retry dedup, and review queue (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
 
 ---
@@ -92,6 +94,8 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `constraints.py` — Constraint checking logic with LLM adjudication (code complete)
 - [x] `search_company_context` verified through a real FastMCP HTTP client
 - [x] Search returns only confirmed, org-scoped facts with their exact Evidence
+- [x] `report_result` writes structured Decisions as proposed with agent-report Evidence
+- [x] `report_result` retries are idempotent and can link verified Work Packs
 - [ ] **NOT TESTED** — Never connected to Claude Code or another external MCP client
 - [ ] **NOT TESTED** — Approval flow (Slack buttons) never tested
 
@@ -240,6 +244,7 @@ When the server restarts, you lose:
 - [x] Chat returns answers from confirmed graph context with Evidence citations
 - [ ] MCP server connects to Claude Code
 - [x] `search_company_context` returns confirmed results with Evidence citations
+- [x] `report_result` sends new Decisions to the review queue without auto-confirming
 - [ ] `check_constraint` correctly blocks/allows actions
 - [ ] Data persists across server restarts
 

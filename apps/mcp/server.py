@@ -6,10 +6,10 @@ FastMCP server providing tools for coding agents to interact with the company br
 
 import os
 import sys
+import hashlib
+import json
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
-from datetime import datetime
-import asyncio
 
 sys.path.append("../../packages")
 
@@ -17,8 +17,6 @@ from fastmcp import FastMCP
 from core.graph import GraphClient
 from core.queries import BrainQueries
 from core.embeddings import embed
-from core.models import SourceItem, SourceType
-from pipelines.extract import extract_from_source
 
 # Import database for tool call logging
 sys.path.append("../api")
@@ -387,6 +385,205 @@ async def get_active_decisions(
         return f"Error fetching decisions: {e}"
 
 
+def _normalized_report_list(values: Optional[List[str]], field: str) -> List[str]:
+    """Validate and normalize bounded free-text report fields."""
+    if not values:
+        return []
+    if len(values) > 20:
+        raise ValueError(f"{field} accepts at most 20 items")
+
+    normalized = []
+    for value in values:
+        if not isinstance(value, str):
+            raise ValueError(f"Every {field} item must be a string")
+        item = value.strip()
+        if len(item) > 2000:
+            raise ValueError(f"Every {field} item must be at most 2000 characters")
+        if item:
+            normalized.append(item)
+    return normalized
+
+
+def _normalized_report_decisions(
+    decisions: Optional[List[Dict[str, str]]],
+) -> List[Dict[str, str]]:
+    """Validate structured decisions and remove duplicates within one report."""
+    if not decisions:
+        return []
+    if len(decisions) > 20:
+        raise ValueError("new_decisions accepts at most 20 items")
+
+    normalized = []
+    seen = set()
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            raise ValueError("Every new_decisions item must be an object")
+        statement = decision.get("statement", "")
+        detail = decision.get("detail", "")
+        if not isinstance(statement, str) or not isinstance(detail, str):
+            raise ValueError("Decision statement and detail must be strings")
+        statement = statement.strip()
+        detail = detail.strip()
+        if not statement:
+            raise ValueError("Every decision requires a non-empty statement")
+        if len(statement) > 1000:
+            raise ValueError("Decision statements must be at most 1000 characters")
+        if len(detail) > 4000:
+            raise ValueError("Decision details must be at most 4000 characters")
+
+        key = (statement.casefold(), detail.casefold())
+        if key not in seen:
+            normalized.append({"statement": statement, "detail": detail})
+            seen.add(key)
+    return normalized
+
+
+def _report_reference(
+    summary: str,
+    decisions: List[Dict[str, str]],
+    deviations: List[str],
+    unresolved_questions: List[str],
+    work_pack_id: Optional[str],
+) -> str:
+    """Create a stable retry key for an agent report payload."""
+    payload = json.dumps({
+        "org_id": ORG_ID,
+        "summary": summary,
+        "decisions": decisions,
+        "deviations": deviations,
+        "unresolved_questions": unresolved_questions,
+        "work_pack_id": work_pack_id,
+    }, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"agent-report-{digest[:24]}"
+
+
+async def _persist_reported_decision(
+    decision: Dict[str, str],
+    reference: str,
+) -> Dict[str, Any]:
+    """Persist one structured decision with deterministic provenance."""
+    statement = decision["statement"]
+    detail = decision["detail"]
+    normalized_statement = " ".join(statement.split()).casefold()
+    fingerprint = hashlib.sha256(
+        f"{ORG_ID}\x1fagent_report\x1f{normalized_statement}\x1f{detail.casefold()}".encode("utf-8")
+    ).hexdigest()
+    entity_id = f"agent-decision-{fingerprint[:32]}"
+    evidence_id = "ev-agent-" + hashlib.sha256(
+        f"{reference}\x1f{fingerprint}".encode("utf-8")
+    ).hexdigest()
+    excerpt = f"Decision: {statement}" + (f"\nDetail: {detail}" if detail else "")
+
+    existing = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id, entity_type: 'Decision'})
+        WHERE entity.status IN ['proposed', 'confirmed']
+          AND (entity.source_fingerprint = $fingerprint OR
+               toLower(trim(coalesce(entity.statement, ''))) = $statement)
+        RETURN entity.id AS id, entity.status AS status
+        ORDER BY CASE entity.status WHEN 'confirmed' THEN 0 ELSE 1 END
+        LIMIT 1
+        """,
+        {
+            "org_id": ORG_ID,
+            "fingerprint": fingerprint,
+            "statement": normalized_statement,
+        },
+    )
+
+    was_created = not existing
+    target_id = existing[0]["id"] if existing else entity_id
+    if not existing:
+        created = await GraphClient.run_query(
+            """
+            MERGE (entity:Entity:Decision {id: $entity_id})
+            ON CREATE SET entity.org_id = $org_id,
+                          entity.entity_type = 'Decision',
+                          entity.statement = $statement,
+                          entity.detail = $detail,
+                          entity.status = 'proposed',
+                          entity.confidence = 'high',
+                          entity.source_fingerprint = $fingerprint,
+                          entity.created_at = datetime(),
+                          entity.updated_at = datetime()
+            RETURN entity.status AS status, entity.org_id AS org_id
+            """,
+            {
+                "entity_id": entity_id,
+                "org_id": ORG_ID,
+                "statement": statement,
+                "detail": detail or None,
+                "fingerprint": fingerprint,
+            },
+        )
+        if not created or created[0]["org_id"] != ORG_ID:
+            raise ValueError("Could not create an org-scoped decision proposal")
+        status = created[0]["status"]
+        if status not in {"proposed", "confirmed"}:
+            return {"id": target_id, "status": status, "created": False}
+    else:
+        status = existing[0]["status"]
+
+    await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {id: $entity_id, org_id: $org_id})
+        MERGE (evidence:Evidence {id: $evidence_id})
+        ON CREATE SET evidence.org_id = $org_id,
+                      evidence.source = 'agent_report',
+                      evidence.reference = $reference,
+                      evidence.url = '',
+                      evidence.excerpt = $excerpt,
+                      evidence.source_date = datetime(),
+                      evidence.created_at = datetime()
+        MERGE (entity)-[:CITED_BY]->(evidence)
+        """,
+        {
+            "entity_id": target_id,
+            "org_id": ORG_ID,
+            "evidence_id": evidence_id,
+            "reference": reference,
+            "excerpt": excerpt,
+        },
+    )
+    return {"id": target_id, "status": status, "created": was_created}
+
+
+async def _work_pack_exists(work_pack_id: str) -> bool:
+    result = await GraphClient.run_query(
+        "MATCH (work_pack:WorkPack {id: $id, org_id: $org_id}) RETURN work_pack.id AS id",
+        {"id": work_pack_id, "org_id": ORG_ID},
+    )
+    return bool(result)
+
+
+async def _link_report_to_work_pack(
+    entity_ids: List[str],
+    work_pack_id: str,
+    deviations: List[str],
+    unresolved_questions: List[str],
+) -> None:
+    await GraphClient.run_query(
+        """
+        MATCH (work_pack:WorkPack {id: $work_pack_id, org_id: $org_id})
+        SET work_pack.deviations = $deviations,
+            work_pack.unresolved_questions = $unresolved_questions,
+            work_pack.updated_at = datetime()
+        WITH work_pack
+        UNWIND $entity_ids AS entity_id
+        MATCH (entity:Entity {id: entity_id, org_id: $org_id})
+        MERGE (entity)-[:REPORTED_IN]->(work_pack)
+        """,
+        {
+            "work_pack_id": work_pack_id,
+            "org_id": ORG_ID,
+            "entity_ids": entity_ids,
+            "deviations": deviations,
+            "unresolved_questions": unresolved_questions,
+        },
+    )
+
+
 @mcp.tool()
 async def report_result(
     summary: str,
@@ -417,66 +614,74 @@ async def report_result(
     start = time.time()
 
     try:
-        created_ids = []
+        summary = summary.strip()
+        if not summary:
+            return "Invalid report: summary must not be empty."
+        if len(summary) > 4000:
+            return "Invalid report: summary must be at most 4000 characters."
 
-        # Process each new decision
-        if new_decisions:
-            for decision in new_decisions:
-                statement = decision.get("statement", "")
-                detail = decision.get("detail", "")
+        decisions = _normalized_report_decisions(new_decisions)
+        normalized_deviations = _normalized_report_list(deviations, "deviations")
+        normalized_questions = _normalized_report_list(
+            unresolved_questions, "unresolved_questions"
+        )
+        work_pack_id = work_pack_id.strip() if work_pack_id else None
+        if work_pack_id and not await _work_pack_exists(work_pack_id):
+            return f"Invalid report: Work Pack `{work_pack_id}` was not found in this organization."
 
-                if not statement:
-                    continue
+        reference = _report_reference(
+            summary,
+            decisions,
+            normalized_deviations,
+            normalized_questions,
+            work_pack_id,
+        )
+        persisted = [
+            await _persist_reported_decision(decision, reference)
+            for decision in decisions
+        ]
+        entity_ids = [item["id"] for item in persisted]
+        created_ids = [item["id"] for item in persisted if item["created"]]
+        existing = [item for item in persisted if not item["created"]]
 
-                # Create a SourceItem from agent report
-                source_item = SourceItem(
-                    org_id=ORG_ID,
-                    source=SourceType.AGENT_REPORT,
-                    kind="agent_report",
-                    title=f"Agent discovery: {statement[:50]}",
-                    body=f"{statement}\n\n{detail}",
-                    author="agent",
-                    url="",
-                    reference=f"agent-{int(time.time())}",
-                    source_date=datetime.utcnow()
-                )
-
-                # Run through extraction pipeline
-                result = await extract_from_source(source_item)
-
-                if result["success"]:
-                    created_ids.extend(result["entity_ids"])
-
-        # Link to WorkPack if provided
-        if work_pack_id and created_ids:
-            sys.path.append("../api/integrations")
-            from writeback import link_report_result_to_workpack
-
-            await link_report_result_to_workpack(
-                entity_ids=created_ids,
-                work_pack_id=work_pack_id,
-                org_id=ORG_ID,
-                deviations=deviations,
-                unresolved_questions=unresolved_questions
+        if work_pack_id:
+            await _link_report_to_work_pack(
+                entity_ids,
+                work_pack_id,
+                normalized_deviations,
+                normalized_questions,
             )
-
-        # TODO: Link to WorkPack if work_pack_id provided
-        # TODO: Store deviations and unresolved_questions
 
         latency_ms = int((time.time() - start) * 1000)
         await log_tool_call("report_result", {
             "summary": summary,
-            "new_decisions_count": len(new_decisions) if new_decisions else 0,
+            "new_decisions_count": len(decisions),
             "work_pack_id": work_pack_id
         }, {
-            "entities_created": len(created_ids)
+            "entities_created": len(created_ids),
+            "entities_existing": len(existing),
+            "reference": reference,
         }, latency_ms)
 
+        lines = [f"Report received. Reference: `{reference}`."]
         if created_ids:
-            return f"✅ Report received. {len(created_ids)} new decision(s) added to review queue.\n\nEntity IDs: {', '.join(created_ids)}"
-        else:
-            return "✅ Report received. No new decisions extracted."
+            lines.append(
+                f"{len(created_ids)} new decision proposal(s) added to the review queue: "
+                + ", ".join(f"`{entity_id}`" for entity_id in created_ids)
+            )
+        if existing:
+            known = ", ".join(
+                f"`{item['id']}` ({item['status']})" for item in existing
+            )
+            lines.append(f"Already known: {known}.")
+        if not decisions:
+            lines.append("No new decisions were included in the report.")
+        if work_pack_id:
+            lines.append(f"Linked to Work Pack `{work_pack_id}`.")
+        return "\n\n".join(lines)
 
+    except ValueError as e:
+        return f"Invalid report: {e}."
     except Exception as e:
         latency_ms = int((time.time() - start) * 1000)
         await log_tool_call("report_result", {

@@ -156,8 +156,14 @@ Tool call: report_result(
 )
 
 Result:
-✅ Report received. 1 new decision(s) added to review queue.
+Report received. Reference: `agent-report-...`.
+
+1 new decision proposal added to the review queue: `agent-decision-...`
 ```
+
+`report_result` does not call a model for already structured decisions. Reports
+are idempotent, retain `agent_report` Evidence, and always require human review
+before they become visible to agent searches.
 
 ## Testing the Connection
 
