@@ -333,13 +333,13 @@ class OpenAIClient(BaseLLMClient):
     def __init__(self, api_key: Optional[str] = None, client: Any = None):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if client is None:
-            from openai import AsyncOpenAI
-
             if not self.api_key:
                 raise ValueError(
                     "OPENAI_API_KEY is not set. Use KOMPONIST_AI_MODE=mock "
                     "for offline development."
                 )
+            from openai import AsyncOpenAI
+
             client = AsyncOpenAI(api_key=self.api_key)
 
         self.client = client

@@ -101,10 +101,12 @@ class OpenAIClientTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MockClientTests(unittest.IsolatedAsyncioTestCase):
-    async def test_no_configuration_defaults_to_mock_mode(self):
+    async def test_no_configuration_requires_explicit_mock_mode(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertIsInstance(get_llm_client(), MockLLMClient)
-            self.assertIsInstance(get_embedding_client(), MockEmbeddingClient)
+            with self.assertRaisesRegex(ValueError, "OPENAI_API_KEY is not set"):
+                get_llm_client()
+            with self.assertRaisesRegex(ValueError, "OPENAI_API_KEY is not set"):
+                get_embedding_client()
 
     async def test_mock_llm_builds_schema_compatible_response(self):
         client = MockLLMClient()
