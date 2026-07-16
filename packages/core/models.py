@@ -42,6 +42,7 @@ class SourceType(str, Enum):
     GOOGLE = "google"
     AGENT_REPORT = "agent_report"
     MANUAL = "manual"
+    UPLOAD = "upload"
 
 
 class Entity(BaseModel):

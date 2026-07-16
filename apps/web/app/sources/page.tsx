@@ -7,7 +7,7 @@ import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 interface Source {
   id: string
-  type: 'notion' | 'slack' | 'google' | 'local'
+  type: 'notion' | 'slack' | 'google' | 'local' | 'upload'
   name: string
   status: 'connected' | 'syncing' | 'error'
   lastSync: string | null
@@ -112,6 +112,7 @@ export default function SourcesPage() {
       case 'slack': return 'SL'
       case 'google': return 'GD'
       case 'local': return '📁'
+      case 'upload': return '↑'
       default: return '?'
     }
   }
@@ -122,6 +123,7 @@ export default function SourcesPage() {
       case 'slack': return 'source-badge-slack'
       case 'google': return 'source-badge-google'
       case 'local': return 'source-badge-manual'
+      case 'upload': return 'source-badge-manual'
       default: return ''
     }
   }
@@ -192,13 +194,13 @@ export default function SourcesPage() {
                 </div>
 
                 <div className="flex gap-2 mt-4">
-                  <button
-                    onClick={() => handleSync(source.id)}
-                    className="btn btn-secondary btn-sm"
-                    disabled={syncing === source.id}
-                  >
-                    {syncing === source.id ? 'Syncing...' : 'Sync Now'}
-                  </button>
+                  {source.type !== 'upload' && <button
+                      onClick={() => handleSync(source.id)}
+                      className="btn btn-secondary btn-sm"
+                      disabled={syncing === source.id}
+                    >
+                      {syncing === source.id ? 'Syncing...' : 'Sync Now'}
+                    </button>}
                   <button
                     onClick={() => setDisconnectModal({ source, loading: false })}
                     className="btn btn-ghost btn-sm text-muted"

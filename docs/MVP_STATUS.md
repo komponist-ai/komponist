@@ -47,6 +47,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Narrow extraction contracts for Decision, Goal, Constraint, and Project
 - [x] Full Docker stack starts with healthy Neo4j, Postgres, API, MCP, and Web services
 - [x] Local documents create reviewable entities with stable source deduplication
+- [x] Authenticated browser uploads process Markdown, text, and YAML into the same review pipeline
 - [x] Confirm, reject, and merge lifecycle rules persist correctly in Neo4j
 - [x] Chat uses confirmed graph context and returns real Evidence citations
 - [x] Chat excludes proposed entities and data belonging to another organization
@@ -134,6 +135,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `app/queue/page.tsx` — Review queue (170 lines)
 - [x] `app/graph/page.tsx` — Graph visualization (337 lines)
 - [x] `app/onboard/page.tsx` — Source connection flow (451 lines)
+- [x] Direct document upload with per-file extraction results and Review Queue handoff
 - [x] `app/entities/page.tsx` — Entity list (169 lines)
 - [x] `app/sources/page.tsx` — Connected sources (340 lines)
 - [x] `app/settings/page.tsx` — Settings page (241 lines)
@@ -143,7 +145,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Components: AuthProvider, AuthGate, AppLayout, Sidebar, Nav, FactCard, ChatMessage, ChatInput, EvidenceChip
 - [x] Web app builds successfully and runs in the local Docker stack
 - [x] Signed-out auth gate loaded and visually verified in the local browser
-- [ ] **NOT TESTED** — Authenticated pages need live Google credentials for browser verification
+- [x] Email/password authenticated source and settings pages browser-verified
 
 ### Docker Configuration (`docker/`)
 - [x] `docker-compose.yml` — Full stack: Neo4j, Postgres, API, MCP, Web (176 lines)

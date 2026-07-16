@@ -1,0 +1,17 @@
+Customer Interview — Northstar Labs
+Date: 2026-07-15
+
+The engineering lead said their agents repeatedly miss architecture decisions
+that were written in Notion several months earlier. Search alone is not enough;
+the team needs to know which information was reviewed and who can trust it.
+
+Goal: Reduce repeated architecture questions in engineering channels by 50 percent.
+
+Decision: The pilot will begin with the platform engineering team and its Notion workspace.
+
+Constraint: Search answers must cite the exact source document and must not use rejected facts.
+
+Project: Run a four-week Northstar Labs design-partner pilot with weekly feedback sessions.
+
+The customer would consider paying once the system reliably retrieves decisions
+inside their coding agent without requiring a separate browser search.

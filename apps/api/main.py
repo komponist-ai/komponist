@@ -6,7 +6,10 @@ The programmable company brain.
 """
 
 import os
+import hashlib
 from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 import httpx
@@ -961,12 +964,12 @@ async def list_sources(org_id: str = Query("default-org")):
 @app.post("/sources")
 async def add_source(
     org_id: str = Query("default-org"),
-    source_type: str = Query(..., description="Source type: notion, slack, google, local"),
+    source_type: str = Query(..., description="Source type: notion, slack, google, local, upload"),
     name: str = Query(..., description="Display name for the source"),
     config: dict = None
 ):
     """Register a connected source."""
-    if source_type not in {"notion", "slack", "google", "local"}:
+    if source_type not in {"notion", "slack", "google", "local", "upload"}:
         raise HTTPException(status_code=400, detail="Unsupported source type")
     return await create_connected_source(
         org_id=org_id,
@@ -1211,6 +1214,122 @@ async def run_extraction(source_item, auto_confirm: bool = False) -> dict:
         "entities_created": result.get("entities_created", 0),
         "relationships_created": 0,
         "entity_ids": entity_ids,
+    }
+
+
+UPLOAD_EXTENSIONS = {".md", ".markdown", ".txt", ".yaml", ".yml"}
+MAX_UPLOAD_FILES = 10
+MAX_UPLOAD_BYTES = 1024 * 1024
+
+
+@app.post("/sources/upload")
+async def upload_documents(
+    request: Request,
+    org_id: str = Query(...),
+    files: List[UploadFile] = File(...),
+):
+    """Extract uploaded text documents without persisting their raw contents."""
+    await _authorized_org_user(request, org_id)
+    if not files or len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Upload between 1 and {MAX_UPLOAD_FILES} files at a time",
+        )
+
+    from core.models import SourceItem, SourceType
+    from integrations.local_docs import extract_title_from_markdown
+
+    settings = await get_org_settings(org_id)
+    auto_confirm = settings.get("auto_confirm", False)
+    results = []
+    total_entities = 0
+
+    for upload in files:
+        filename = Path(upload.filename or "document.txt").name
+        suffix = Path(filename).suffix.lower()
+        if suffix not in UPLOAD_EXTENSIONS:
+            results.append({
+                "filename": filename,
+                "status": "error",
+                "error": "Supported formats: .md, .txt, .yaml, .yml",
+            })
+            continue
+
+        content_bytes = await upload.read(MAX_UPLOAD_BYTES + 1)
+        if len(content_bytes) > MAX_UPLOAD_BYTES:
+            results.append({
+                "filename": filename,
+                "status": "error",
+                "error": "File exceeds the 1 MB limit",
+            })
+            continue
+        try:
+            content = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            results.append({
+                "filename": filename,
+                "status": "error",
+                "error": "File must be UTF-8 encoded text",
+            })
+            continue
+        if not content.strip():
+            results.append({
+                "filename": filename, "status": "error", "error": "File is empty"
+            })
+            continue
+
+        digest = hashlib.sha256(content_bytes).hexdigest()
+        source_item = SourceItem(
+            org_id=org_id,
+            source=SourceType.UPLOAD,
+            kind={
+                ".md": "markdown", ".markdown": "markdown",
+                ".yaml": "yaml", ".yml": "yaml",
+            }.get(suffix, "text"),
+            title=extract_title_from_markdown(content, filename),
+            body=content,
+            url=f"upload://{filename}",
+            reference=f"upload:{filename}:{digest[:12]}",
+            source_date=datetime.utcnow(),
+        )
+        try:
+            extraction = await run_extraction(source_item, auto_confirm=auto_confirm)
+            created = extraction["entities_created"]
+            total_entities += created
+            results.append({
+                "filename": filename,
+                "status": "processed",
+                "entities_created": created,
+                "entity_ids": extraction["entity_ids"],
+            })
+        except Exception as error:
+            results.append({
+                "filename": filename,
+                "status": "error",
+                "error": str(error),
+            })
+
+    processed = sum(item["status"] == "processed" for item in results)
+    if processed:
+        source = await upsert_single_source_type(
+            org_id=org_id,
+            source_type="upload",
+            name="Document Uploads",
+            config={},
+        )
+        await update_connected_source(
+            org_id,
+            source["id"],
+            last_sync=datetime.utcnow(),
+            item_count=source.get("itemCount", 0) + processed,
+        )
+
+    return {
+        "status": "complete" if processed == len(files) else "partial",
+        "files_processed": processed,
+        "entities_created": total_entities,
+        "review_mode": not auto_confirm,
+        "results": results,
     }
 
 

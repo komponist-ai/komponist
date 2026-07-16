@@ -5,8 +5,15 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import AppLayout from '../../components/AppLayout'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
-type SourceType = 'notion' | 'slack' | 'google' | 'local'
+type SourceType = 'notion' | 'slack' | 'google' | 'local' | 'upload'
 type ConnectorStatus = 'idle' | 'connecting' | 'connected' | 'error'
+
+type UploadResult = {
+  filename: string
+  status: 'processed' | 'error'
+  entities_created?: number
+  error?: string
+}
 
 function OnboardContent() {
   const router = useRouter()
@@ -19,6 +26,8 @@ function OnboardContent() {
   // Form fields
   const [notionToken, setNotionToken] = useState('')
   const [localDocsPath, setLocalDocsPath] = useState('/data/docs')
+  const [uploadFiles, setUploadFiles] = useState<File[]>([])
+  const [uploadResults, setUploadResults] = useState<UploadResult[]>([])
 
   const [orgId, setOrgId] = useState('')
 
@@ -146,6 +155,33 @@ function OnboardContent() {
     }
   }
 
+  const handleDocumentUpload = async () => {
+    if (uploadFiles.length === 0) {
+      setError('Choose at least one document')
+      return
+    }
+    setStatus('connecting')
+    setError(null)
+    setUploadResults([])
+
+    try {
+      const form = new FormData()
+      uploadFiles.forEach(file => form.append('files', file))
+      const response = await apiFetch(
+        `${API_URL}/sources/upload?org_id=${orgId}`,
+        { method: 'POST', body: form }
+      )
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Upload failed')
+      setUploadResults(data.results || [])
+      setStatus(data.files_processed > 0 ? 'connected' : 'error')
+      if (!data.files_processed) setError('No documents could be processed')
+    } catch (err: any) {
+      setError(err.message || 'Failed to upload documents')
+      setStatus('error')
+    }
+  }
+
   // Source picker view
   if (!selectedSource) {
     return (
@@ -210,6 +246,22 @@ function OnboardContent() {
 
             {/* Local Docs */}
             <button
+              onClick={() => setSelectedSource('upload')}
+              className="card hover:shadow-card transition-shadow text-left"
+            >
+              <div className="flex items-center gap-4">
+                <span className="text-2xl">↑</span>
+                <div>
+                  <h3 className="text-h3">Upload Documents</h3>
+                  <p className="text-small text-muted">
+                    Test the MVP directly from your browser
+                  </p>
+                </div>
+              </div>
+            </button>
+
+            {/* Local Docs */}
+            <button
               onClick={() => setSelectedSource('local')}
               className="card hover:shadow-card transition-shadow text-left"
             >
@@ -247,7 +299,8 @@ function OnboardContent() {
           <h1 className="page-title">
             Connect {selectedSource === 'notion' ? 'Notion' :
                      selectedSource === 'slack' ? 'Slack' :
-                     selectedSource === 'google' ? 'Google Workspace' : 'Local Documents'}
+                     selectedSource === 'google' ? 'Google Workspace' :
+                     selectedSource === 'upload' ? 'Upload Documents' : 'Local Documents'}
           </h1>
         </div>
       </div>
@@ -264,7 +317,7 @@ function OnboardContent() {
           )}
 
           {/* Success message */}
-          {status === 'connected' && (
+          {status === 'connected' && selectedSource !== 'upload' && (
             <div className="card mb-6" style={{ background: 'var(--color-success-soft)', borderColor: 'var(--color-success)' }}>
               <p className="text-small" style={{ color: 'var(--color-success)' }}>
                 ✓ Connected! Redirecting...
@@ -382,6 +435,50 @@ function OnboardContent() {
               >
                 {status === 'connecting' ? 'Redirecting...' : 'Connect Google'}
               </button>
+            </div>
+          )}
+
+          {/* Local docs form */}
+          {selectedSource === 'upload' && (
+            <div className="card">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-2xl">↑</span>
+                <h2 className="text-h3">Upload Documents</h2>
+              </div>
+              <p className="text-muted mb-6">
+                Upload company context and send extracted facts to the review queue.
+                Raw files are processed in memory and are not stored by Komponist.
+              </p>
+              <label className="upload-zone mb-5">
+                <span className="text-small font-medium">Choose documents</span>
+                <span className="text-caption text-muted">Markdown, text, or YAML · up to 10 files · 1 MB each</span>
+                <input type="file" multiple accept=".md,.markdown,.txt,.yaml,.yml,text/plain,text/markdown"
+                  onChange={event => setUploadFiles(Array.from(event.target.files || []))}
+                  disabled={status === 'connecting'} />
+              </label>
+              {uploadFiles.length > 0 && <div className="file-list mb-5">
+                {uploadFiles.map(file => <div key={`${file.name}-${file.size}`} className="file-row">
+                  <span className="text-small">{file.name}</span>
+                  <span className="text-caption text-muted">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                </div>)}
+              </div>}
+              <button onClick={handleDocumentUpload} className="btn btn-primary"
+                disabled={status === 'connecting' || uploadFiles.length === 0}>
+                {status === 'connecting' ? 'Extracting with OpenAI…' : `Upload ${uploadFiles.length || ''} document${uploadFiles.length === 1 ? '' : 's'}`}
+              </button>
+              {uploadResults.length > 0 && <div className="upload-results mt-6">
+                <h3 className="text-h3 mb-3">Extraction results</h3>
+                {uploadResults.map(result => <div key={result.filename} className="result-row">
+                  <div><p className="text-small font-medium">{result.filename}</p>
+                    <p className="text-caption text-muted">{result.status === 'processed' ? `${result.entities_created || 0} entities extracted` : result.error}</p></div>
+                  <span className={`badge ${result.status === 'processed' ? 'badge-teal' : ''}`}>{result.status}</span>
+                </div>)}
+                <div className="flex gap-2 mt-4">
+                  <button className="btn btn-primary" onClick={() => router.push('/queue')}>Open Review Queue</button>
+                  <button className="btn btn-secondary" onClick={() => router.push('/graph')}>View Graph</button>
+                </div>
+              </div>}
+              <style jsx>{`.upload-zone{display:flex;flex-direction:column;gap:8px;padding:24px;border:1px dashed var(--color-line);border-radius:8px;background:var(--color-paper-2);cursor:pointer}.file-list,.upload-results{border-top:1px solid var(--color-line)}.file-row,.result-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-line)}`}</style>
             </div>
           )}
 
