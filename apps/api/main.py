@@ -1587,9 +1587,10 @@ class ChatResponse(BaseModel):
 
 
 _CHAT_STOP_WORDS = {
-    "about", "all", "are", "der", "die", "das", "do", "does", "for",
-    "from", "haben", "ist", "me", "our", "show", "the", "und", "use",
-    "was", "what", "welche", "which", "who", "wie", "wir", "with",
+    "about", "all", "and", "are", "been", "der", "die", "das", "do",
+    "does", "for", "from", "haben", "has", "ist", "it", "me", "our",
+    "show", "the", "und", "use", "was", "what", "welche", "which",
+    "who", "wie", "wir", "with",
 }
 
 

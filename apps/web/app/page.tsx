@@ -12,6 +12,33 @@ interface Message {
   sources?: any[]
 }
 
+const STARTER_QUESTIONS = [
+  {
+    category: 'Product strategy',
+    number: '01',
+    title: 'MVP scope',
+    prompt: 'What does the MVP extract, and which features does it postpone?',
+  },
+  {
+    category: 'Security policy',
+    number: '02',
+    title: 'Security constraints',
+    prompt: 'Which security constraints apply to OpenAI credentials and uploaded documents?',
+  },
+  {
+    category: 'Customer interview',
+    number: '03',
+    title: 'Northstar pilot',
+    prompt: 'What are the goals and scope of the Northstar Labs pilot?',
+  },
+  {
+    category: 'Readiness',
+    number: '04',
+    title: 'Design partner gate',
+    prompt: 'What must happen before we invite the first external design partner?',
+  },
+]
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -24,7 +51,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages])
+  }, [messages.length])
 
   const handleSendMessage = async (messageText: string) => {
     const orgId = getActiveOrgId()
@@ -124,75 +151,95 @@ export default function ChatPage() {
 
   return (
     <AppLayout>
-      <div className="page-header">
-        <h1 className="page-title">Company Brain</h1>
-        <div className="text-small text-muted">
-          Ask questions about your knowledge graph
-        </div>
-      </div>
-
-      <div className="page-body" style={{ height: 'calc(100vh - 180px)', display: 'flex', flexDirection: 'column', padding: 0 }}>
-        {error && (
-          <div className="card mb-4 mx-4 mt-4" style={{ background: 'var(--color-danger-soft)', borderColor: 'var(--color-danger)' }}>
-            <p className="text-small" style={{ color: 'var(--color-danger)' }}>
-              ⚠ {error}
-            </p>
+      <div className="chat-page">
+        <header className="chat-page-header">
+          <div>
+            <div className="chat-page-eyebrow">Company brain</div>
+            <h1>Ask Komponist</h1>
           </div>
-        )}
+          <div className="chat-trust-badge" title="Chat searches confirmed entities only">
+            <span className="chat-trust-dot" aria-hidden="true" />
+            Confirmed knowledge only
+          </div>
+        </header>
 
-        <div className="chat-container">
-          {messages.length === 0 ? (
-            <div className="chat-empty-state">
-              <div className="empty-state-icon">🧠</div>
-              <h3 className="empty-state-title">Ask your company brain anything</h3>
-              <p className="empty-state-description">
-                Try questions like:
-              </p>
-              <div className="chat-example-queries">
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => handleSendMessage("Who worked on the DAAD application?")}
-                  disabled={isLoading}
-                >
-                  Who worked on the DAAD application?
-                </button>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => handleSendMessage("What are our active decisions?")}
-                  disabled={isLoading}
-                >
-                  What are our active decisions?
-                </button>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => handleSendMessage("Show me all current goals")}
-                  disabled={isLoading}
-                >
-                  Show me all current goals
-                </button>
+        <div className="chat-workspace">
+          {error && (
+            <div className="chat-error" role="alert">
+              <span aria-hidden="true">!</span>
+              <div>
+                <strong>Komponist could not answer</strong>
+                <p>{error}</p>
               </div>
             </div>
-          ) : (
-            <div className="chat-messages">
-              {messages.map((msg, idx) => (
-                <ChatMessage
-                  key={idx}
-                  role={msg.role}
-                  content={msg.content}
-                  sources={msg.sources}
-                  isStreaming={idx === messages.length - 1 && isLoading}
-                />
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
           )}
-        </div>
 
-        <ChatInput
-          onSend={handleSendMessage}
-          disabled={isLoading}
-          placeholder="Ask about decisions, goals, people, projects..."
-        />
+          <div className="chat-container">
+            {messages.length === 0 ? (
+              <section className="chat-welcome">
+                <div className="chat-mark" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div className="chat-welcome-copy">
+                  <div className="eyebrow">Explore the example upload</div>
+                  <h2>Your documents,<br />ready to answer.</h2>
+                  <p>
+                    Ask across the product strategy, security policy, and customer
+                    interview. Every answer stays grounded in confirmed graph facts.
+                  </p>
+                </div>
+
+                <div className="chat-starter-grid">
+                  {STARTER_QUESTIONS.map((question) => (
+                    <button
+                      key={question.prompt}
+                      className="chat-starter-card"
+                      onClick={() => handleSendMessage(question.prompt)}
+                      disabled={isLoading}
+                    >
+                      <span className="chat-starter-number">{question.number}</span>
+                      <span className="chat-starter-copy">
+                        <span className="chat-starter-category">{question.category}</span>
+                        <strong>{question.title}</strong>
+                        <span>{question.prompt}</span>
+                      </span>
+                      <span className="chat-starter-arrow" aria-hidden="true">↗</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="chat-grounding-note">
+                  <span className="chat-grounding-icon" aria-hidden="true">✓</span>
+                  <span>
+                    Only confirmed facts are used. Review proposed facts in the{' '}
+                    <a href="/queue">Review Queue</a> before asking about them.
+                  </span>
+                </div>
+              </section>
+            ) : (
+              <div className="chat-messages">
+                {messages.map((msg, idx) => (
+                  <ChatMessage
+                    key={idx}
+                    role={msg.role}
+                    content={msg.content}
+                    sources={msg.sources}
+                    isStreaming={idx === messages.length - 1 && isLoading}
+                  />
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+
+          <ChatInput
+            onSend={handleSendMessage}
+            disabled={isLoading}
+            placeholder="Ask a question about your company knowledge…"
+          />
+        </div>
       </div>
     </AppLayout>
   )
