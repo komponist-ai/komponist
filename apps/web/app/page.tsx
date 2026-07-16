@@ -69,12 +69,39 @@ const steps = [
   ['Call the brain', 'Ask in Studio or connect an agent through your scoped MCP key.', TerminalSquare],
 ] as const
 
+const platformLayers = [
+  {
+    eyebrow: '01 · Connect',
+    icon: Upload,
+    title: 'Bring your company sources',
+    copy: 'Documents, Notion, Slack, and Drive flow into one organization-scoped workspace.',
+    detail: 'Connectors · uploads · sync',
+    tone: 'bg-warning-soft',
+  },
+  {
+    eyebrow: '02 · Govern',
+    icon: DatabaseZap,
+    title: 'Build trusted company memory',
+    copy: 'Komponist extracts durable facts, links them in a graph, and keeps a human in control.',
+    detail: 'Entities · evidence · review',
+    tone: 'bg-success-soft',
+  },
+  {
+    eyebrow: '03 · Serve',
+    icon: Braces,
+    title: 'Give context to every interface',
+    copy: 'People use Studio. Products and agents use the same knowledge through API and MCP.',
+    detail: 'Studio · chat · API · MCP',
+    tone: 'bg-info-soft',
+  },
+] as const
+
 export default function LandingPage() {
   return (
     <main className="min-h-screen overflow-hidden bg-paper text-ink">
       <div className="border-b-2 border-ink bg-ink px-4 py-2 text-center font-mono text-[11px] text-white sm:text-xs">
         <span className="mr-2 inline-block size-2 rounded-full bg-orange" />
-        Local-first MVP in active development. The brain is awake, mildly caffeinated.
+        The context backend for AI-native companies · local-first MVP
       </div>
 
       <header className="sticky top-0 z-40 border-b-2 border-ink bg-paper/95 backdrop-blur">
@@ -105,27 +132,27 @@ export default function LandingPage() {
           <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
             <Badge variant="default" className="mb-7 normal-case tracking-normal">
               <span className="size-2 rounded-full bg-teal" />
-              The programmable company brain
+              Think Supabase — for your company&apos;s knowledge
             </Badge>
             <h1 className="max-w-[760px] font-display text-[clamp(3.5rem,7vw,7rem)] font-bold leading-[0.86] tracking-[-0.065em]">
-              Your agents know the model.
-              <span className="mt-2 block text-orange">Give them the company.</span>
+              Build your company brain.
+              <span className="mt-2 block text-orange">Ship context-aware AI.</span>
             </h1>
             <p className="mt-8 max-w-2xl text-lg leading-8 text-ink-2 sm:text-xl">
-              Komponist turns documents and company tools into a reviewed context graph with citations — then serves it to humans and AI agents without the archaeology.
+              Komponist is the backend platform for company context: connect scattered sources, turn them into reviewed knowledge with citations, then serve the same truth to your team, product, and AI agents.
             </p>
             <div className="mt-9 flex flex-wrap gap-4">
               <Button asChild size="lg" variant="dark">
-                <Link href="/studio">Try the company brain <ArrowRight /></Link>
+                <Link href="/studio">Start building with Komponist <ArrowRight /></Link>
               </Button>
               <Button asChild size="lg" variant="outline">
                 <a href="#platform">See what is inside <ChevronRight /></a>
               </Button>
             </div>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted">
-              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> Human-reviewed</span>
-              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> Cited by default</span>
-              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> MCP-ready</span>
+              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> One workspace per organization</span>
+              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> Human-governed</span>
+              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> API + MCP ready</span>
             </div>
           </motion.div>
 
@@ -207,18 +234,58 @@ export default function LandingPage() {
 
       <section className="border-b-2 border-ink bg-[#eee9db] px-5 py-5 sm:px-8 lg:px-12">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-center gap-x-10 gap-y-3 font-mono text-xs font-semibold uppercase tracking-wider text-ink-2">
-          <span className="text-orange-dark">One brain underneath</span>
+          <span className="text-orange-dark">One context layer underneath</span>
           <span>Humans</span><span className="text-faint">+</span><span>Claude</span><span className="text-faint">+</span><span>OpenAI</span><span className="text-faint">+</span><span>Codex</span><span className="text-faint">+</span><span>Your agent</span>
         </div>
       </section>
 
-      <section id="platform" className="mx-auto max-w-[1440px] px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
+      <section id="platform" className="border-b-2 border-ink bg-white px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
+        <div className="mx-auto max-w-[1440px]">
+          <motion.div {...reveal} className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+            <div>
+              <Badge variant="teal">The company context stack</Badge>
+              <h2 className="mt-6 font-display text-[clamp(2.8rem,5.5vw,5.8rem)] font-bold leading-[0.92] tracking-[-0.055em]">
+                The backend your agents are <span className="text-orange">missing.</span>
+              </h2>
+            </div>
+            <div className="border-l-2 border-ink pl-6 sm:pl-8">
+              <p className="text-xl font-semibold leading-8 text-ink-2 sm:text-2xl">
+                Supabase gives applications a database, auth, and APIs. Komponist gives AI applications governed company memory, retrieval, and agent access.
+              </p>
+              <p className="mt-4 font-mono text-xs uppercase tracking-wider text-muted">Not another chatbot · shared infrastructure for every AI surface</p>
+            </div>
+          </motion.div>
+
+          <div className="mt-14 grid border-l-2 border-t-2 border-ink lg:grid-cols-3">
+            {platformLayers.map((layer, index) => (
+              <motion.article
+                key={layer.title}
+                {...reveal}
+                transition={{ ...reveal.transition, delay: index * 0.08 }}
+                className={`relative min-h-[360px] overflow-hidden border-b-2 border-r-2 border-ink p-7 pb-20 sm:p-9 sm:pb-20 ${layer.tone}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted">{layer.eyebrow}</span>
+                  <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-white shadow-[3px_3px_0_#201c15]">
+                    <layer.icon className="size-5" />
+                  </span>
+                </div>
+                <h3 className="mt-14 max-w-xs text-3xl font-bold leading-tight tracking-tight">{layer.title}</h3>
+                <p className="mt-4 max-w-sm leading-7 text-ink-2">{layer.copy}</p>
+                <p className="absolute bottom-7 left-7 font-mono text-[10px] font-bold uppercase tracking-wider text-orange-dark sm:bottom-9 sm:left-9">{layer.detail}</p>
+              </motion.article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="capabilities" className="mx-auto max-w-[1440px] px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
         <motion.div {...reveal} className="max-w-4xl">
-          <Badge variant="orange">The whole brain</Badge>
+          <Badge variant="orange">Platform primitives</Badge>
           <h2 className="mt-6 font-display text-[clamp(2.8rem,5.8vw,6rem)] font-bold leading-[0.92] tracking-[-0.055em]">
             Company context without the <span className="text-orange">document archaeology.</span>
           </h2>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-ink-2">Six primitives, one governed graph. Start with uploads today; connect every agent tomorrow.</p>
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-ink-2">The dashboard and infrastructure come together. Start with documents today; connect every teammate, product, and agent tomorrow.</p>
         </motion.div>
 
         <div className="mt-14 grid border-l-2 border-t-2 border-ink md:grid-cols-2 xl:grid-cols-3">
