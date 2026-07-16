@@ -91,7 +91,8 @@ komponist/
 │   └── web/              # Next.js UI (review queue, graph browser)
 ├── packages/
 │   ├── core/             # Graph client, models, LLM/embedding clients
-│   └── pipelines/        # LangGraph extraction pipeline
+│   ├── pipelines/        # LangGraph extraction pipeline
+│   └── sdk-js/           # Typed JavaScript context client
 ├── docker/               # Docker Compose and Dockerfiles
 └── docs/                 # Documentation and design system
 ```
@@ -118,6 +119,28 @@ The MCP server exposes six tools to AI coding assistants:
 | `report_result` | Log outcomes back to the brain |
 | `request_approval` | Ask for human approval on actions |
 | `get_approval_status` | Check pending approval requests |
+
+## JavaScript / TypeScript SDK
+
+Use the reviewed company context directly from trusted server-side code:
+
+```ts
+import { createKomponistClient } from '@komponist/sdk'
+
+const komponist = createKomponistClient({
+  url: process.env.KOMPONIST_URL ?? 'http://localhost:8000',
+  apiKey: process.env.KOMPONIST_API_KEY!,
+})
+
+const { data, error } = await komponist.context.search(
+  'What did we decide about authentication?',
+  { types: ['Decision', 'Constraint'] },
+)
+```
+
+The same client exposes `brain.info()` and project-scoped `decisions.list()`.
+See [`packages/sdk-js`](packages/sdk-js) for the complete contract. Keep API
+keys out of browser bundles.
 
 ### Claude Code Setup
 
