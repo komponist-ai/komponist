@@ -5,6 +5,7 @@ check_constraint, request_approval, get_approval_status
 """
 
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -49,58 +50,106 @@ async def check_constraint(
         Dict with verdict, constraint (if applicable), reasoning
     """
     start_time = time.time()
+    action = intended_action.strip()
+    if not action or len(action) > 4000:
+        return {
+            "verdict": "error",
+            "constraint_id": None,
+            "reasoning": "Intended action must be 1-4000 characters.",
+            "latency_ms": int((time.time() - start_time) * 1000),
+        }
 
     try:
-        # Get applicable constraints
         constraints = await BrainQueries.applicable_constraints(
-            org_id=org_id,
-            project_id=project
+            org_id=org_id, project_id=project
         )
-
         if not constraints:
             return {
                 "verdict": "allowed",
                 "constraint_id": None,
-                "reasoning": "No constraints apply to this action.",
-                "latency_ms": int((time.time() - start_time) * 1000)
+                "reasoning": "No cited constraints apply to this action.",
+                "latency_ms": int((time.time() - start_time) * 1000),
             }
 
-        # Embed the intended action
-        action_embedding = await embed(intended_action)
+        stop_words = {
+            "about", "after", "before", "company", "could", "from", "into",
+            "should", "that", "their", "this", "using", "with", "would",
+        }
 
-        # Find top-10 most relevant constraints by vector similarity
-        from core.graph import GraphClient
+        def keywords(value: str) -> set[str]:
+            return {
+                word for word in re.findall(r"[a-z0-9-]+", value.casefold())
+                if len(word) >= 4 and word not in stop_words
+            }
 
-        similarity_query = """
-        MATCH (c:Constraint {org_id: $org_id, status: 'confirmed'})
-        WHERE c.id IN $constraint_ids AND c.embedding IS NOT NULL
-        WITH c,
-             reduce(s = 0.0, i IN range(0, size($action_embedding)-1) |
-                 s + (c.embedding[i] * $action_embedding[i])
-             ) / (
-                 sqrt(reduce(s = 0.0, i IN range(0, size(c.embedding)-1) | s + c.embedding[i] * c.embedding[i])) *
-                 sqrt(reduce(s = 0.0, i IN range(0, size($action_embedding)-1) | s + $action_embedding[i] * $action_embedding[i]))
-             ) AS similarity
-        WHERE similarity > 0.5
-        RETURN c.id as id, c.statement as statement, c.detail as detail,
-               c.enforcement as enforcement, similarity
-        ORDER BY similarity DESC
-        LIMIT 10
-        """
+        action_words = keywords(action)
 
-        constraint_ids = [c["id"] for c in constraints]
-        relevant = await GraphClient.run_query(similarity_query, {
-            "org_id": org_id,
-            "constraint_ids": constraint_ids,
-            "action_embedding": action_embedding
-        })
+        def literal_score(constraint: Dict[str, Any]) -> int:
+            constraint_words = keywords(
+                f"{constraint.get('statement', '')} {constraint.get('detail', '')}"
+            )
+            return sum(
+                1 for left in action_words
+                if any(left[:5] == right[:5] for right in constraint_words)
+            )
+
+        literal_relevant = sorted(
+            (constraint for constraint in constraints if literal_score(constraint) >= 2),
+            key=literal_score,
+            reverse=True,
+        )[:10]
+        relevant = list(literal_relevant)
+
+        mock_mode = os.getenv("KOMPONIST_AI_MODE", "live").lower() == "mock"
+        if not mock_mode:
+            try:
+                action_embedding = await embed(action)
+                similarity_query = """
+                MATCH (c:Constraint {org_id: $org_id, status: 'confirmed'})
+                WHERE c.id IN $constraint_ids AND c.embedding IS NOT NULL
+                WITH c,
+                     reduce(s = 0.0, i IN range(0, size($action_embedding)-1) |
+                         s + (c.embedding[i] * $action_embedding[i])
+                     ) / (
+                         sqrt(reduce(s = 0.0, i IN range(0, size(c.embedding)-1) | s + c.embedding[i] * c.embedding[i])) *
+                         sqrt(reduce(s = 0.0, i IN range(0, size($action_embedding)-1) | s + $action_embedding[i] * $action_embedding[i]))
+                     ) AS similarity
+                WHERE similarity > 0.5
+                RETURN c.id as id, c.statement as statement, c.detail as detail,
+                       c.enforcement as enforcement, similarity
+                ORDER BY similarity DESC
+                LIMIT 10
+                """
+                semantic = await GraphClient.run_query(similarity_query, {
+                    "org_id": org_id,
+                    "constraint_ids": [constraint["id"] for constraint in constraints],
+                    "action_embedding": action_embedding,
+                })
+                by_id = {constraint["id"]: constraint for constraint in relevant}
+                for constraint in semantic:
+                    by_id.setdefault(constraint["id"], constraint)
+                relevant = list(by_id.values())[:10]
+            except Exception as search_error:
+                print(f"[MCP] Constraint semantic search failed: {search_error}")
 
         if not relevant:
             return {
                 "verdict": "allowed",
                 "constraint_id": None,
-                "reasoning": "No relevant constraints found for this action.",
-                "latency_ms": int((time.time() - start_time) * 1000)
+                "reasoning": "No relevant cited constraints found for this action.",
+                "latency_ms": int((time.time() - start_time) * 1000),
+            }
+
+        if mock_mode:
+            matched_constraint = relevant[0]
+            enforcement = matched_constraint.get("enforcement", "approve")
+            verdict = "blocked" if enforcement == "block" else "approval_required"
+            return {
+                "verdict": verdict,
+                "constraint_id": matched_constraint["id"],
+                "constraint": matched_constraint,
+                "reasoning": "The intended action directly matches this confirmed constraint.",
+                "latency_ms": int((time.time() - start_time) * 1000),
             }
 
         # LLM adjudication
@@ -144,7 +193,20 @@ Does the intended action violate any constraint?"""
             prompt=prompt,
             system=system_prompt,
             model=Model.SONNET,
-            max_tokens=500
+            max_tokens=500,
+            schema={
+                "type": "object",
+                "required": ["verdict", "constraint_id", "reasoning"],
+                "additionalProperties": False,
+                "properties": {
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["allowed", "blocked", "approval_required"],
+                    },
+                    "constraint_id": {"type": ["string", "null"]},
+                    "reasoning": {"type": "string"},
+                },
+            },
         )
 
         verdict = adjudication.get("verdict", "allowed")
@@ -152,9 +214,17 @@ Does the intended action violate any constraint?"""
         reasoning = adjudication.get("reasoning", "")
 
         # Get full constraint details if matched
-        matched_constraint = None
-        if constraint_id:
-            matched_constraint = next((c for c in relevant if c["id"] == constraint_id), None)
+        matched_constraint = next(
+            (c for c in relevant if c["id"] == constraint_id), None
+        ) if constraint_id else None
+        if verdict != "allowed" and matched_constraint is None:
+            raise ValueError("Adjudicator returned an unknown constraint ID")
+        if matched_constraint is not None:
+            expected = (
+                "blocked" if matched_constraint.get("enforcement") == "block"
+                else "approval_required"
+            )
+            verdict = expected
 
         result = {
             "verdict": verdict,

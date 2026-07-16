@@ -35,7 +35,7 @@ def verify_github_signature(payload: bytes, signature: str) -> bool:
         True if signature is valid
     """
     if not GITHUB_WEBHOOK_SECRET:
-        return True  # Dev mode: skip verification
+        return os.getenv("KOMPONIST_ALLOW_UNSIGNED_WEBHOOKS", "false").lower() == "true"
 
     expected_signature = "sha256=" + hmac.new(
         GITHUB_WEBHOOK_SECRET.encode(),
@@ -72,7 +72,10 @@ async def handle_github_webhook(request: Request, org_id: str) -> Dict[str, str]
 
     # Parse JSON
     import json
-    payload = json.loads(body)
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from error
 
     # Store raw event
     async with async_session() as session:

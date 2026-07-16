@@ -6,6 +6,7 @@ OAuth, Drive API, Docs/Sheets extraction.
 
 import os
 import json
+import hmac
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
@@ -23,6 +24,7 @@ from database import async_session, EventRaw, SyncState
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+GOOGLE_WEBHOOK_TOKEN = os.getenv("GOOGLE_WEBHOOK_TOKEN", "")
 
 # Scopes needed for Drive access
 GOOGLE_SCOPES = [
@@ -51,7 +53,8 @@ def get_oauth_url(state: str) -> str:
         "prompt": "consent",
         "state": state,
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    from urllib.parse import urlencode
+    query = urlencode(params)
     return f"https://accounts.google.com/o/oauth2/v2/auth?{query}"
 
 
@@ -329,11 +332,19 @@ async def handle_google_webhook(request: Request, org_id: str) -> Dict[str, str]
     Returns:
         Status dict
     """
-    # Verify the notification is from Google
+    # Google echoes the channel token configured when the watch was created.
+    # A channel ID by itself is public metadata and is not authentication.
     channel_id = request.headers.get("X-Goog-Channel-ID")
+    channel_token = request.headers.get("X-Goog-Channel-Token", "")
     resource_state = request.headers.get("X-Goog-Resource-State")
 
-    if not channel_id:
+    allow_unsigned = os.getenv(
+        "KOMPONIST_ALLOW_UNSIGNED_WEBHOOKS", "false"
+    ).lower() == "true"
+    valid_token = bool(GOOGLE_WEBHOOK_TOKEN) and hmac.compare_digest(
+        channel_token, GOOGLE_WEBHOOK_TOKEN
+    )
+    if not channel_id or not (valid_token or allow_unsigned):
         raise HTTPException(status_code=401, detail="Invalid notification")
 
     # Handle sync state
@@ -342,7 +353,10 @@ async def handle_google_webhook(request: Request, org_id: str) -> Dict[str, str]
 
     # Store change notification for processing
     body = await request.body()
-    payload = json.loads(body) if body else {}
+    try:
+        payload = json.loads(body) if body else {}
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from error
 
     async with async_session() as session:
         event = EventRaw(

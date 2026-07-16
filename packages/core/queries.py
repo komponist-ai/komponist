@@ -133,7 +133,8 @@ class BrainQueries:
     async def active_decisions(
         org_id: str,
         topic_embedding: Optional[List[float]] = None,
-        k: int = 20
+        k: int = 20,
+        project_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get active (non-superseded) decisions.
@@ -144,6 +145,7 @@ class BrainQueries:
             org_id: Organization ID
             topic_embedding: Optional filter by similarity to topic
             k: Limit results
+            project_id: Optional project scope
 
         Returns:
             List of active decisions with evidence
@@ -157,42 +159,57 @@ class BrainQueries:
               AND d.entity_type = 'Decision'
               AND d.status = 'confirmed'
               AND NOT EXISTS {
-                  MATCH (newer:Decision {status: 'confirmed'})-[:SUPERSEDES]->(d)
+                  MATCH (newer:Decision {org_id: $org_id, status: 'confirmed'})-[:SUPERSEDES]->(d)
               }
+              AND ($project_id IS NULL OR EXISTS {
+                  MATCH (d)-[:AFFECTS|RELATES_TO]-(project:Project {
+                      id: $project_id, org_id: $org_id
+                  })
+              })
             WITH d, score
             ORDER BY score DESC
             LIMIT $k
-            OPTIONAL MATCH (d)-[:CITED_BY]->(e:Evidence)
+            MATCH (d)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
             RETURN
                 d.id as id,
                 d.statement as statement,
                 d.detail as detail,
                 d.confidence as confidence,
                 d.confirmed_at as confirmed_at,
-                collect(e{.id, .source, .reference, .url, .excerpt}) as evidence,
+                collect(DISTINCT e{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence,
                 score
             ORDER BY score DESC
             """
-            params = {"org_id": org_id, "k": k, "topic_embedding": topic_embedding}
+            params = {
+                "org_id": org_id,
+                "k": k,
+                "topic_embedding": topic_embedding,
+                "project_id": project_id,
+            }
         else:
             # All active decisions
             query = """
             MATCH (d:Decision {org_id: $org_id, entity_type: 'Decision', status: 'confirmed'})
             WHERE NOT EXISTS {
-                MATCH (newer:Decision {status: 'confirmed'})-[:SUPERSEDES]->(d)
+                MATCH (newer:Decision {org_id: $org_id, status: 'confirmed'})-[:SUPERSEDES]->(d)
             }
-            OPTIONAL MATCH (d)-[:CITED_BY]->(e:Evidence)
+              AND ($project_id IS NULL OR EXISTS {
+                  MATCH (d)-[:AFFECTS|RELATES_TO]-(project:Project {
+                      id: $project_id, org_id: $org_id
+                  })
+              })
+            MATCH (d)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
             RETURN
                 d.id as id,
                 d.statement as statement,
                 d.detail as detail,
                 d.confidence as confidence,
                 d.confirmed_at as confirmed_at,
-                collect(e{.id, .source, .reference, .url, .excerpt}) as evidence
+                collect(DISTINCT e{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence
             ORDER BY d.confirmed_at DESC
             LIMIT $k
             """
-            params = {"org_id": org_id, "k": k}
+            params = {"org_id": org_id, "k": k, "project_id": project_id}
 
         results = await GraphClient.run_query(query, params)
         return results
@@ -326,11 +343,11 @@ class BrainQueries:
             query = """
             MATCH (c:Constraint {org_id: $org_id, entity_type: 'Constraint', status: 'confirmed'})
             WHERE NOT EXISTS {
-                MATCH (c)-[:CONSTRAINS]->(:Project)
+                MATCH (c)-[:CONSTRAINS]->(:Project {org_id: $org_id})
             } OR EXISTS {
-                MATCH (c)-[:CONSTRAINS]->(:Project {id: $project_id})
+                MATCH (c)-[:CONSTRAINS]->(:Project {id: $project_id, org_id: $org_id})
             }
-            OPTIONAL MATCH (c)-[:CITED_BY]->(e:Evidence)
+            MATCH (c)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
             RETURN
                 c.id as id,
                 c.statement as statement,
@@ -338,7 +355,7 @@ class BrainQueries:
                 c.enforcement as enforcement,
                 c.confidence as confidence,
                 c.confirmed_at as confirmed_at,
-                collect(e{.id, .source, .reference, .url, .excerpt}) as evidence
+                collect(DISTINCT e{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence
             ORDER BY c.enforcement DESC, c.confirmed_at DESC
             """
             params = {"org_id": org_id, "project_id": project_id}
@@ -347,9 +364,9 @@ class BrainQueries:
             query = """
             MATCH (c:Constraint {org_id: $org_id, entity_type: 'Constraint', status: 'confirmed'})
             WHERE NOT EXISTS {
-                MATCH (c)-[:CONSTRAINS]->(:Project)
+                MATCH (c)-[:CONSTRAINS]->(:Project {org_id: $org_id})
             }
-            OPTIONAL MATCH (c)-[:CITED_BY]->(e:Evidence)
+            MATCH (c)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
             RETURN
                 c.id as id,
                 c.statement as statement,
@@ -357,7 +374,7 @@ class BrainQueries:
                 c.enforcement as enforcement,
                 c.confidence as confidence,
                 c.confirmed_at as confirmed_at,
-                collect(e{.id, .source, .reference, .url, .excerpt}) as evidence
+                collect(DISTINCT e{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence
             ORDER BY c.enforcement DESC, c.confirmed_at DESC
             """
             params = {"org_id": org_id}

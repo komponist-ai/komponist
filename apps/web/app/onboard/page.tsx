@@ -85,8 +85,12 @@ function OnboardContent() {
 
     try {
       const response = await apiFetch(
-        `${API_URL}/auth/notion/token?org_id=${orgId}&token=${encodeURIComponent(notionToken)}`,
-        { method: 'POST' }
+        `${API_URL}/auth/notion/token?org_id=${orgId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: notionToken }),
+        }
       )
       const data = await response.json()
 

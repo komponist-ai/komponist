@@ -5,13 +5,23 @@ Run inside the API container while the stack is healthy:
 """
 
 import asyncio
+import sys
+from pathlib import Path
+from uuid import uuid4
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "packages"))
+sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 import httpx
 
+import auth
 from core.graph import GraphClient
 
 
-ORG_ID = "e2e-review-lifecycle"
+ORG_ID = ""
+EMAIL = f"review-lifecycle-e2e-{uuid4().hex}@example.com"
+PASSWORD = "review-lifecycle-e2e-password"
 
 
 async def seed() -> None:
@@ -70,11 +80,16 @@ async def seed() -> None:
 
 
 async def run() -> None:
+    global ORG_ID
     GraphClient.initialize()
+    user = await auth.register_password_user("Review Lifecycle E2E", EMAIL, PASSWORD)
+    ORG_ID = user.org_id
     await seed()
+    raw_session, _ = await auth.create_session(user.id)
 
     try:
         async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+            client.cookies.set(auth.SESSION_COOKIE, raw_session)
             confirm = await client.post(
                 f"/entities/review-confirm/confirm?org_id={ORG_ID}",
                 json={"statement": "Edited and confirmed goal"},

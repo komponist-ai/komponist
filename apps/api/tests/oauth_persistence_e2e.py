@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 
 import main
-from database import ConnectedSource, async_session
+from database import ConnectorOAuthState, ConnectedSource, async_session, init_db
 from integrations import google, notion, slack
 from persistence import get_connected_source, list_connected_sources
 
@@ -28,6 +28,11 @@ async def cleanup() -> None:
         await session.execute(
             delete(ConnectedSource).where(
                 ConnectedSource.org_id.in_([ORG_ID, ERROR_ORG_ID])
+            )
+        )
+        await session.execute(
+            delete(ConnectorOAuthState).where(
+                ConnectorOAuthState.org_id.in_([ORG_ID, ERROR_ORG_ID])
             )
         )
         await session.commit()
@@ -77,6 +82,7 @@ async def fake_missing_token(_code: str) -> dict:
 
 
 async def run() -> None:
+    await init_db()
     await cleanup()
     original_notion = notion.exchange_code
     original_slack = slack.exchange_code
@@ -87,10 +93,13 @@ async def run() -> None:
         slack.exchange_code = fake_slack_exchange
         google.exchange_code = fake_google_exchange
 
+        notion_state = await main._connector_oauth_state(ORG_ID)
+        slack_state = await main._connector_oauth_state(ORG_ID)
+        google_state = await main._connector_oauth_state(ORG_ID)
         redirects = [
-            await main.notion_auth_callback("notion-code", ORG_ID),
-            await main.slack_auth_callback("slack-code", ORG_ID),
-            await main.google_auth_callback("google-code", ORG_ID),
+            await main.notion_auth_callback("notion-code", notion_state),
+            await main.slack_auth_callback("slack-code", slack_state),
+            await main.google_auth_callback("google-code", google_state),
         ]
         for redirect in redirects:
             location = redirect.headers["location"]
@@ -118,7 +127,8 @@ async def run() -> None:
         assert google_source["config"]["refresh_token"] == GOOGLE_REFRESH, google_source
 
         google.exchange_code = fake_google_reconnect
-        reconnect = await main.google_auth_callback("google-code-2", ORG_ID)
+        reconnect_state = await main._connector_oauth_state(ORG_ID)
+        reconnect = await main.google_auth_callback("google-code-2", reconnect_state)
         assert "status=connected" in reconnect.headers["location"]
         google_source = await get_connected_source(
             ORG_ID, source_ids["google"], include_config=True
@@ -127,16 +137,26 @@ async def run() -> None:
         assert google_source["config"]["refresh_token"] == GOOGLE_REFRESH
 
         notion.exchange_code = fake_missing_token
-        failed = await main.notion_auth_callback("missing-token", ERROR_ORG_ID)
+        failure_state = await main._connector_oauth_state(ERROR_ORG_ID)
+        failed = await main.notion_auth_callback("missing-token", failure_state)
         assert "status=error" in failed.headers["location"]
         assert await list_connected_sources(ERROR_ORG_ID) == []
 
         try:
-            await main.google_auth_callback("code", "INVALID ORG")
+            await main.google_auth_callback("code", "invalid-state")
         except HTTPException as error:
             assert error.status_code == 400
         else:
             raise AssertionError("Invalid OAuth state was accepted")
+
+        replay_state = await main._connector_oauth_state(ORG_ID)
+        await main.google_auth_callback("google-code", replay_state)
+        try:
+            await main.google_auth_callback("google-code", replay_state)
+        except HTTPException as error:
+            assert error.status_code == 400
+        else:
+            raise AssertionError("Consumed OAuth state was replayed")
 
         async with async_session() as session:
             ciphertexts = (

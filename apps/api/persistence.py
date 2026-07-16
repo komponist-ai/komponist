@@ -13,6 +13,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import delete, select
 
 from database import (
+    ApprovalRequest,
     ChatConversation,
     ChatMessageRecord,
     ConnectedSource,
@@ -20,6 +21,61 @@ from database import (
     OrgSetting,
     async_session,
 )
+
+
+def _approval_dict(row: ApprovalRequest) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "action": row.action,
+        "constraint_id": row.constraint_id,
+        "constraint_statement": row.constraint_statement,
+        "context": row.context,
+        "status": row.status,
+        "delivery": "slack" if row.slack_ts else "database",
+        "resolved_by": row.resolved_by,
+        "resolved_at": f"{row.resolved_at.isoformat()}Z" if row.resolved_at else None,
+        "created_at": f"{row.created_at.isoformat()}Z",
+        "updated_at": f"{row.updated_at.isoformat()}Z",
+    }
+
+
+async def list_approval_requests(
+    org_id: str, status: Optional[str] = None
+) -> list[dict[str, Any]]:
+    async with async_session() as session:
+        query = select(ApprovalRequest).where(ApprovalRequest.org_id == org_id)
+        if status:
+            query = query.where(ApprovalRequest.status == status)
+        rows = (
+            await session.execute(query.order_by(ApprovalRequest.created_at.desc()))
+        ).scalars().all()
+        return [_approval_dict(row) for row in rows]
+
+
+async def resolve_approval_request(
+    org_id: str, approval_id: str, approved: bool, resolved_by: str
+) -> Optional[dict[str, Any]]:
+    """Resolve an approval exactly once and preserve the first human decision."""
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(ApprovalRequest)
+                .where(
+                    ApprovalRequest.id == approval_id,
+                    ApprovalRequest.org_id == org_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        if row.status == "pending":
+            row.status = "approved" if approved else "denied"
+            row.resolved_by = resolved_by[:255]
+            row.resolved_at = datetime.utcnow()
+            row.updated_at = datetime.utcnow()
+            await session.commit()
+        return _approval_dict(row)
 
 
 def _chat_message_dict(row: ChatMessageRecord) -> dict[str, Any]:

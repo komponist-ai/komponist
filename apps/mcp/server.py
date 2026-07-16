@@ -364,17 +364,32 @@ async def get_active_decisions(
     start = time.time()
 
     try:
-        # Get topic embedding if provided
+        # Prefer semantic topic filtering, but keep a literal fallback for mock
+        # mode and temporary embedding-provider failures.
         topic_embedding = None
-        if topic:
-            topic_embedding = await embed(topic)
+        if topic and os.getenv("KOMPONIST_AI_MODE", "live").lower() != "mock":
+            try:
+                topic_embedding = await embed(topic)
+            except Exception as embedding_error:
+                print(f"[MCP] Decision topic embedding failed: {embedding_error}")
 
         # Query active decisions
         decisions = await BrainQueries.active_decisions(
             org_id=_org_id(),
             topic_embedding=topic_embedding,
-            k=20
+            k=20,
+            project_id=project,
         )
+
+        if topic and topic_embedding is None:
+            terms = _search_terms(topic)
+            decisions = [
+                decision for decision in decisions
+                if any(
+                    term in f"{decision.get('statement', '')} {decision.get('detail', '')}".casefold()
+                    for term in terms
+                )
+            ]
 
         if not decisions:
             latency_ms = int((time.time() - start) * 1000)
@@ -908,7 +923,7 @@ async def brain_info() -> str:
         verification = await GraphClient.run_query("""
             MATCH (e:Entity {org_id: $org_id, status: 'confirmed'})
             WITH count(e) as confirmed
-            MATCH (p:Entity {org_id: $org_id, status: 'proposed'})
+            OPTIONAL MATCH (p:Entity {org_id: $org_id, status: 'proposed'})
             RETURN confirmed, count(p) as proposed
         """, {"org_id": _org_id()})
 

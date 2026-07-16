@@ -39,7 +39,7 @@ def verify_linear_signature(body: bytes, signature: str) -> bool:
         True if signature is valid
     """
     if not LINEAR_WEBHOOK_SECRET:
-        return True  # Dev mode
+        return os.getenv("KOMPONIST_ALLOW_UNSIGNED_WEBHOOKS", "false").lower() == "true"
 
     expected_signature = hmac.new(
         LINEAR_WEBHOOK_SECRET.encode(),
@@ -67,7 +67,10 @@ async def handle_linear_webhook(request: Request, org_id: str) -> Dict[str, str]
     if not verify_linear_signature(body, signature):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    payload = json.loads(body)
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from error
 
     event_type = payload.get("type", "unknown")
     action = payload.get("action", "")

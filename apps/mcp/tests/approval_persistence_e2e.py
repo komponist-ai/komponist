@@ -19,9 +19,10 @@ sys.path.insert(0, str(MCP_DIR.parent / "api"))
 from constraints import get_approval_status, resolve_approval
 from core.graph import GraphClient
 from database import ApprovalRequest, async_session
+from helpers import create_test_api_key, delete_test_api_key
 
 
-ORG_ID = "default-org"
+ORG_ID = "e2e-mcp-approval"
 OTHER_ORG_ID = "e2e-approval-other-org"
 CONSTRAINT_ID = "e2e-persistent-approval-constraint"
 ACTION = "Publish the persistent approval E2E release."
@@ -56,6 +57,7 @@ async def cleanup() -> None:
 async def seed() -> None:
     GraphClient.initialize()
     await cleanup()
+    key_id, raw_key = await create_test_api_key(ORG_ID)
     await GraphClient.run_query(
         """
         CREATE (constraint:Entity:Constraint {
@@ -90,7 +92,7 @@ async def seed() -> None:
     )
 
     try:
-        async with Client("http://localhost:8080/mcp") as client:
+        async with Client("http://localhost:8080/mcp", auth=raw_key) as client:
             created = await client.call_tool(
                 "request_approval",
                 {
@@ -117,11 +119,13 @@ async def seed() -> None:
         await cleanup()
         raise
     finally:
+        await delete_test_api_key(key_id)
         await GraphClient.close()
 
 
 async def verify() -> None:
     GraphClient.initialize()
+    key_id, raw_key = await create_test_api_key(ORG_ID)
     try:
         async with async_session() as session:
             result = await session.execute(
@@ -132,7 +136,7 @@ async def verify() -> None:
             )
             approval_id = result.scalar_one().id
 
-        async with Client("http://localhost:8080/mcp") as client:
+        async with Client("http://localhost:8080/mcp", auth=raw_key) as client:
             pending = await client.call_tool(
                 "get_approval_status", {"approval_id": approval_id}
             )
@@ -167,6 +171,7 @@ async def verify() -> None:
 
         print("Approval persistence restart E2E: OK")
     finally:
+        await delete_test_api_key(key_id)
         await cleanup()
         await GraphClient.close()
 

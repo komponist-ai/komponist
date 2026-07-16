@@ -6,13 +6,13 @@ Run inside the MCP container while the stack is healthy:
 
 import asyncio
 
-import httpx
 from fastmcp import Client
 
+from helpers import create_test_api_key, delete_test_api_key
 from core.graph import GraphClient
 
 
-ORG_ID = "default-org"
+ORG_ID = "e2e-mcp-report-result"
 WORK_PACK_ID = "e2e-report-result-work-pack"
 STATEMENT = "Use ResultNebula7 for deterministic agent writeback."
 EXISTING_STATEMENT = "Keep ExistingNebula7 as the confirmed writeback rule."
@@ -66,6 +66,7 @@ def text_result(result) -> str:
 async def run() -> None:
     GraphClient.initialize()
     await seed()
+    key_id, raw_key = await create_test_api_key(ORG_ID)
 
     report_arguments = {
         "summary": "Implemented deterministic ResultNebula7 writeback.",
@@ -80,7 +81,7 @@ async def run() -> None:
     }
 
     try:
-        async with Client("http://localhost:8080/mcp") as client:
+        async with Client("http://localhost:8080/mcp", auth=raw_key) as client:
             invalid = await client.call_tool(
                 "report_result",
                 {
@@ -97,15 +98,16 @@ async def run() -> None:
             assert "(confirmed)" in first_text, first_text
             assert f"Linked to Work Pack `{WORK_PACK_ID}`" in first_text, first_text
 
-            async with httpx.AsyncClient(base_url="http://api:8000") as api_client:
-                queue_response = await api_client.get(
-                    "/queue", params={"org_id": ORG_ID}
-                )
-            assert queue_response.status_code == 200, queue_response.text
-            queued = [
-                item for item in queue_response.json()["items"]
-                if item["statement"] == STATEMENT
-            ]
+            queued = await GraphClient.run_query(
+                """
+                MATCH (item:Entity {org_id: $org_id, statement: $statement})
+                OPTIONAL MATCH (item)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+                RETURN item.id AS id, item.entity_type AS entity_type,
+                       item.status AS status,
+                       collect(evidence{.source, .reference}) AS evidence
+                """,
+                {"org_id": ORG_ID, "statement": STATEMENT},
+            )
             assert len(queued) == 1, queued
             assert queued[0]["entity_type"] == "Decision", queued
             assert queued[0]["evidence"][0]["source"] == "agent_report", queued
@@ -167,6 +169,7 @@ async def run() -> None:
         assert invalid_count == [{"count": 0}], invalid_count
         print("MCP report_result E2E: OK")
     finally:
+        await delete_test_api_key(key_id)
         await cleanup()
         await GraphClient.close()
 

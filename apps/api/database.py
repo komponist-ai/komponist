@@ -215,6 +215,17 @@ class OrganizationApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ConnectorOAuthState(Base):
+    """Short-lived, single-use connector OAuth state."""
+    __tablename__ = "connector_oauth_states"
+
+    state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(50), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ConnectedSource(Base):
     """Persistent connector metadata with encrypted private configuration."""
     __tablename__ = "connected_sources"

@@ -8,10 +8,11 @@ import asyncio
 
 from fastmcp import Client
 
+from helpers import create_test_api_key, delete_test_api_key
 from core.graph import GraphClient
 
 
-ORG_ID = "default-org"
+ORG_ID = "e2e-mcp-search"
 OTHER_ORG_ID = "e2e-mcp-search-other"
 NODE_IDS = [
     "e2e-mcp-decision",
@@ -109,9 +110,10 @@ def text_result(result) -> str:
 async def run() -> None:
     GraphClient.initialize()
     await seed()
+    key_id, raw_key = await create_test_api_key(ORG_ID)
 
     try:
-        async with Client("http://localhost:8080/mcp") as client:
+        async with Client("http://localhost:8080/mcp", auth=raw_key) as client:
             tools = await client.list_tools()
             assert "search_company_context" in {tool.name for tool in tools}, tools
 
@@ -151,6 +153,7 @@ async def run() -> None:
 
         print("MCP cited search E2E: OK")
     finally:
+        await delete_test_api_key(key_id)
         await cleanup()
         await GraphClient.close()
 

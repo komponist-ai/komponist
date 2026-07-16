@@ -7,9 +7,11 @@ The programmable company brain.
 
 import os
 import hashlib
+import json
 import re
+import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -18,6 +20,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Re
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, select
 
 import sys
 sys.path.append("../../packages")
@@ -26,7 +29,7 @@ from core.graph import GraphClient
 from core.schema import GraphSchema
 from core.export import export_brain_yaml
 from core.import_ import import_brain_yaml, parse_export_yaml
-from database import init_db, health_check_db
+from database import ConnectorOAuthState, async_session, init_db, health_check_db
 from persistence import (
     append_chat_message,
     authenticate_api_key,
@@ -38,11 +41,13 @@ from persistence import (
     get_chat_conversation,
     get_connected_source,
     list_chat_conversations,
+    list_approval_requests,
     list_connected_sources,
     list_api_keys,
     load_org_settings,
     save_org_settings,
     revoke_api_key,
+    resolve_approval_request,
     rename_chat_conversation,
     update_connected_source,
     upsert_single_source_type,
@@ -77,9 +82,14 @@ app = FastAPI(
 )
 
 # CORS
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js dev
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -249,8 +259,16 @@ class ApiKeyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class ApprovalResolutionRequest(BaseModel):
+    approved: bool
+
+
 async def _authorized_org_user(
-    request: Request, org_id: str, *, manage: bool = False
+    request: Request,
+    org_id: str,
+    *,
+    manage: bool = False,
+    write: bool = False,
 ) -> dict:
     import auth
 
@@ -258,7 +276,11 @@ async def _authorized_org_user(
         user = await auth.authorize_organization(
             request.cookies.get(auth.SESSION_COOKIE),
             org_id,
-            {"owner", "admin"} if manage else None,
+            (
+                {"owner", "admin"}
+                if manage
+                else {"owner", "admin", "member"} if write else None
+            ),
         )
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
@@ -282,8 +304,9 @@ async def _get_entity_lifecycle(entity_id: str, org_id: str) -> dict:
 
 
 @app.get("/queue")
-async def get_queue(org_id: str = "default-org"):
+async def get_queue(request: Request, org_id: str = Query(...)):
     """Get review queue (proposed entities)."""
+    await _authorized_org_user(request, org_id)
     query = """
     MATCH (e:Entity {org_id: $org_id, status: 'proposed'})
     OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
@@ -319,12 +342,14 @@ async def get_queue(org_id: str = "default-org"):
 
 @app.get("/entities")
 async def list_entities(
-    org_id: str = "default-org",
+    request: Request,
+    org_id: str = Query(...),
     status: str = "confirmed",
     entity_type: Optional[str] = None,
-    limit: int = 100
+    limit: int = Query(100, ge=1, le=500),
 ):
     """List brain entities."""
+    await _authorized_org_user(request, org_id)
     allowed_statuses = {"confirmed", "proposed", "rejected", "all"}
     if status not in allowed_statuses:
         raise HTTPException(
@@ -403,8 +428,9 @@ async def list_entities(
 
 
 @app.get("/entities/{entity_id}")
-async def get_entity(entity_id: str, org_id: str = "default-org"):
+async def get_entity(entity_id: str, request: Request, org_id: str = Query(...)):
     """Get entity details."""
+    await _authorized_org_user(request, org_id)
     query = """
     MATCH (e:Entity {id: $entity_id, org_id: $org_id})
     OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
@@ -425,7 +451,7 @@ async def get_entity(entity_id: str, org_id: str = "default-org"):
     results = await GraphClient.run_query(query, {"entity_id": entity_id, "org_id": org_id})
 
     if not results:
-        return {"error": "Entity not found"}, 404
+        raise HTTPException(status_code=404, detail="Entity not found")
 
     entity = results[0]
     entity["evidence"] = [e for e in entity.get("evidence", []) if e.get("id")]
@@ -435,8 +461,11 @@ async def get_entity(entity_id: str, org_id: str = "default-org"):
 
 
 @app.get("/entities/{entity_id}/neighborhood")
-async def get_entity_neighborhood(entity_id: str, org_id: str = "default-org"):
+async def get_entity_neighborhood(
+    entity_id: str, request: Request, org_id: str = Query(...)
+):
     """Get entity 1-hop neighborhood."""
+    await _authorized_org_user(request, org_id)
     from core.queries import BrainQueries
 
     expansion = await BrainQueries.context_expansion(
@@ -451,11 +480,13 @@ async def get_entity_neighborhood(entity_id: str, org_id: str = "default-org"):
 @app.post("/entities/{entity_id}/confirm")
 async def confirm_entity(
     entity_id: str,
+    request: Request,
     payload: Optional[ConfirmEntityRequest] = None,
-    org_id: str = "default-org",
+    org_id: str = Query(...),
     statement: Optional[str] = None,
 ):
     """Confirm a proposed entity."""
+    await _authorized_org_user(request, org_id, write=True)
     entity = await _get_entity_lifecycle(entity_id, org_id)
     if entity["status"] != "proposed":
         raise HTTPException(
@@ -503,8 +534,11 @@ async def confirm_entity(
 
 
 @app.post("/entities/{entity_id}/reject")
-async def reject_entity(entity_id: str, org_id: str = "default-org"):
+async def reject_entity(
+    entity_id: str, request: Request, org_id: str = Query(...)
+):
     """Reject a proposed entity."""
+    await _authorized_org_user(request, org_id, write=True)
     entity = await _get_entity_lifecycle(entity_id, org_id)
     if entity["status"] != "proposed":
         raise HTTPException(
@@ -530,11 +564,13 @@ async def reject_entity(entity_id: str, org_id: str = "default-org"):
 @app.post("/entities/{entity_id}/merge")
 async def merge_entity(
     entity_id: str,
+    request: Request,
     payload: Optional[MergeEntityRequest] = None,
     target_id: Optional[str] = None,
-    org_id: str = "default-org",
+    org_id: str = Query(...),
 ):
     """Merge entity into another."""
+    await _authorized_org_user(request, org_id, write=True)
     resolved_target_id = payload.target_id if payload else target_id
     if not resolved_target_id:
         raise HTTPException(status_code=422, detail="target_id is required")
@@ -590,27 +626,87 @@ async def merge_entity(
 
 # Webhook handlers
 @app.post("/webhooks/github")
-async def github_webhook():
-    """GitHub webhook handler."""
-    return {"status": "received"}
+async def github_webhook(request: Request, org_id: str = Query(...)):
+    """Verify and persist an organization-scoped GitHub event."""
+    from integrations.github import handle_github_webhook
+
+    if not validate_org_id(org_id):
+        raise HTTPException(status_code=400, detail="Invalid organization ID")
+    return await handle_github_webhook(request, org_id)
 
 
 @app.post("/webhooks/slack")
-async def slack_webhook():
-    """Slack webhook handler."""
-    return {"status": "received"}
+async def slack_webhook(request: Request, org_id: str = Query(...)):
+    """Verify and persist an organization-scoped Slack event."""
+    from integrations.slack import handle_slack_webhook
+
+    if not validate_org_id(org_id):
+        raise HTTPException(status_code=400, detail="Invalid organization ID")
+    return await handle_slack_webhook(request, org_id)
+
+
+@app.post("/webhooks/slack/interactions")
+async def slack_interaction(request: Request, org_id: str = Query(...)):
+    """Resolve durable MCP approval requests from signed Slack buttons."""
+    from urllib.parse import parse_qs
+    from integrations.slack import verify_slack_signature
+
+    if not validate_org_id(org_id):
+        raise HTTPException(status_code=400, detail="Invalid organization ID")
+    body = await request.body()
+    if not verify_slack_signature(
+        body,
+        request.headers.get("X-Slack-Request-Timestamp", ""),
+        request.headers.get("X-Slack-Signature", ""),
+    ):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    try:
+        form = parse_qs(body.decode("utf-8"), strict_parsing=True)
+        payload = json.loads(form["payload"][0])
+        action = payload["actions"][0]
+        action_id = str(action["action_id"])
+        approval_id = str(action["value"])
+        resolved_by = str(payload.get("user", {}).get("id") or "slack")
+    except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=400, detail="Invalid Slack interaction") from error
+    if action_id.startswith("approve_"):
+        approved = True
+    elif action_id.startswith("deny_"):
+        approved = False
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported Slack action")
+    approval = await resolve_approval_request(
+        org_id, approval_id, approved, resolved_by
+    )
+    if approval is None:
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    return {"status": approval["status"], "approval_id": approval_id}
 
 
 @app.post("/webhooks/notion")
 async def notion_webhook():
-    """Notion webhook handler (placeholder - Notion doesn't have official webhooks yet)."""
-    return {"status": "received"}
+    """Notion does not expose a supported webhook for this connector."""
+    raise HTTPException(status_code=501, detail="Notion webhook ingestion is not supported")
 
 
 @app.post("/webhooks/google")
-async def google_webhook():
-    """Google Drive webhook handler."""
-    return {"status": "received"}
+async def google_webhook(request: Request, org_id: str = Query(...)):
+    """Validate and persist a Google Drive change notification."""
+    from integrations.google import handle_google_webhook
+
+    if not validate_org_id(org_id):
+        raise HTTPException(status_code=400, detail="Invalid organization ID")
+    return await handle_google_webhook(request, org_id)
+
+
+@app.post("/webhooks/linear")
+async def linear_webhook(request: Request, org_id: str = Query(...)):
+    """Verify and persist an organization-scoped Linear event."""
+    from integrations.linear import handle_linear_webhook
+
+    if not validate_org_id(org_id):
+        raise HTTPException(status_code=400, detail="Invalid organization ID")
+    return await handle_linear_webhook(request, org_id)
 
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
@@ -638,6 +734,10 @@ class EmailRegistrationRequest(BaseModel):
 class EmailLoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=1, max_length=128)
+
+
+class NotionTokenRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=512)
 
 
 def _set_session_cookie(response: Response, raw_token: str) -> None:
@@ -879,6 +979,48 @@ def _validated_oauth_org(org_id: str) -> str:
     return org_id
 
 
+async def _connector_oauth_state(org_id: str) -> str:
+    """Create a short-lived opaque connector state stored only as a hash."""
+    org_id = _validated_oauth_org(org_id)
+    state = f"komponist_oauth_{secrets.token_urlsafe(32)}"
+    state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
+    now = datetime.utcnow()
+    async with async_session() as session:
+        await session.execute(
+            delete(ConnectorOAuthState).where(
+                ConnectorOAuthState.expires_at < now
+            )
+        )
+        session.add(ConnectorOAuthState(
+            state_hash=state_hash,
+            org_id=org_id,
+            expires_at=now + timedelta(minutes=10),
+        ))
+        await session.commit()
+    return state
+
+
+async def _connector_oauth_org(state: str) -> str:
+    """Consume connector state once and return its authorized organization."""
+    if not state.startswith("komponist_oauth_") or len(state) > 200:
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+    state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
+    now = datetime.utcnow()
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(ConnectorOAuthState)
+                .where(ConnectorOAuthState.state_hash == state_hash)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if row is None or row.consumed_at is not None or row.expires_at < now:
+            raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+        row.consumed_at = now
+        await session.commit()
+        return _validated_oauth_org(row.org_id)
+
+
 def _oauth_redirect(source: str, org_id: str, status: str) -> RedirectResponse:
     """Build a callback redirect without reflecting provider errors or secrets."""
     from urllib.parse import urlencode
@@ -899,18 +1041,21 @@ def _required_oauth_token(tokens: dict, provider: str) -> str:
 # =============================================================================
 
 @app.get("/auth/notion")
-async def notion_auth_start(org: str):
+async def notion_auth_start(org: str, request: Request):
     """Start Notion OAuth flow."""
     from integrations.notion import get_oauth_url, NOTION_CLIENT_ID
     org = _validated_oauth_org(org)
+    await _authorized_org_user(request, org, manage=True)
     if not NOTION_CLIENT_ID:
         return {"error": "NOTION_CLIENT_ID not configured. Use token-based auth instead.", "use_token": True}
-    url = get_oauth_url(state=org)
+    url = get_oauth_url(state=await _connector_oauth_state(org))
     return {"auth_url": url}
 
 
 @app.post("/auth/notion/token")
-async def notion_token_connect(org_id: str, token: str):
+async def notion_token_connect(
+    payload: NotionTokenRequest, request: Request, org_id: str = Query(...)
+):
     """
     Connect Notion using an Internal Integration token.
 
@@ -918,6 +1063,8 @@ async def notion_token_connect(org_id: str, token: str):
     User creates an integration at notion.so/my-integrations and pastes the token.
     """
     from integrations.notion import validate_token
+    await _authorized_org_user(request, org_id, manage=True)
+    token = payload.token.strip()
     # Validate the token
     user_info = await validate_token(token)
 
@@ -946,12 +1093,12 @@ async def notion_token_connect(org_id: str, token: str):
 async def notion_auth_callback(code: str, state: str):
     """Handle Notion OAuth callback."""
     from integrations.notion import exchange_code
-    state = _validated_oauth_org(state)
+    org_id = await _connector_oauth_org(state)
     try:
         tokens = await exchange_code(code)
         access_token = _required_oauth_token(tokens, "Notion")
         await upsert_single_source_type(
-            org_id=state,
+            org_id=org_id,
             source_type="notion",
             name=tokens.get("workspace_name") or "Notion Workspace",
             config={
@@ -961,18 +1108,19 @@ async def notion_auth_callback(code: str, state: str):
                 "oauth": True,
             },
         )
-        return _oauth_redirect("notion", state, "connected")
+        return _oauth_redirect("notion", org_id, "connected")
     except Exception as error:
-        print(f"[Notion OAuth] Callback failed for org {state}: {type(error).__name__}")
-        return _oauth_redirect("notion", state, "error")
+        print(f"[Notion OAuth] Callback failed for org {org_id}: {type(error).__name__}")
+        return _oauth_redirect("notion", org_id, "error")
 
 
 @app.get("/auth/slack")
-async def slack_auth_start(org: str):
+async def slack_auth_start(org: str, request: Request):
     """Start Slack OAuth flow."""
     from integrations.slack import get_oauth_url
     org = _validated_oauth_org(org)
-    url = get_oauth_url(state=org)
+    await _authorized_org_user(request, org, manage=True)
+    url = get_oauth_url(state=await _connector_oauth_state(org))
     return {"auth_url": url}
 
 
@@ -980,13 +1128,13 @@ async def slack_auth_start(org: str):
 async def slack_auth_callback(code: str, state: str):
     """Handle Slack OAuth callback."""
     from integrations.slack import exchange_code
-    state = _validated_oauth_org(state)
+    org_id = await _connector_oauth_org(state)
     try:
         tokens = await exchange_code(code)
         access_token = _required_oauth_token(tokens, "Slack")
         team = tokens.get("team") if isinstance(tokens.get("team"), dict) else {}
         await upsert_single_source_type(
-            org_id=state,
+            org_id=org_id,
             source_type="slack",
             name=team.get("name") or "Slack Workspace",
             config={
@@ -997,18 +1145,19 @@ async def slack_auth_callback(code: str, state: str):
                 "oauth": True,
             },
         )
-        return _oauth_redirect("slack", state, "connected")
+        return _oauth_redirect("slack", org_id, "connected")
     except Exception as error:
-        print(f"[Slack OAuth] Callback failed for org {state}: {type(error).__name__}")
-        return _oauth_redirect("slack", state, "error")
+        print(f"[Slack OAuth] Callback failed for org {org_id}: {type(error).__name__}")
+        return _oauth_redirect("slack", org_id, "error")
 
 
 @app.get("/auth/google")
-async def google_auth_start(org: str):
+async def google_auth_start(org: str, request: Request):
     """Start Google OAuth flow."""
     from integrations.google import get_oauth_url
     org = _validated_oauth_org(org)
-    url = get_oauth_url(state=org)
+    await _authorized_org_user(request, org, manage=True)
+    url = get_oauth_url(state=await _connector_oauth_state(org))
     return {"auth_url": url}
 
 
@@ -1016,7 +1165,7 @@ async def google_auth_start(org: str):
 async def google_auth_callback(code: str, state: str):
     """Handle Google OAuth callback."""
     from integrations.google import exchange_code
-    state = _validated_oauth_org(state)
+    org_id = await _connector_oauth_org(state)
     try:
         tokens = await exchange_code(code)
         access_token = _required_oauth_token(tokens, "Google")
@@ -1031,16 +1180,16 @@ async def google_auth_callback(code: str, state: str):
         if isinstance(refresh_token, str) and refresh_token.strip():
             config["refresh_token"] = refresh_token.strip()
         await upsert_single_source_type(
-            org_id=state,
+            org_id=org_id,
             source_type="google",
             name="Google Workspace",
             config=config,
             preserve_existing_config=True,
         )
-        return _oauth_redirect("google", state, "connected")
+        return _oauth_redirect("google", org_id, "connected")
     except Exception as error:
-        print(f"[Google OAuth] Callback failed for org {state}: {type(error).__name__}")
-        return _oauth_redirect("google", state, "error")
+        print(f"[Google OAuth] Callback failed for org {org_id}: {type(error).__name__}")
+        return _oauth_redirect("google", org_id, "error")
 
 
 # =============================================================================
@@ -1147,7 +1296,10 @@ async def import_brain_endpoint(
     - replace: Clear and replace all data (dangerous!)
     """
     if mode not in ["merge", "skip_existing", "replace"]:
-        return {"error": f"Invalid mode: {mode}. Use merge, skip_existing, or replace."}
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode: {mode}. Use merge, skip_existing, or replace.",
+        )
 
     # Read uploaded file
     content = await file.read()
@@ -1203,8 +1355,9 @@ def _document_title(reference: str) -> str:
 
 
 @app.get("/sources")
-async def list_sources(org_id: str = Query("default-org")):
+async def list_sources(request: Request, org_id: str = Query(...)):
     """List connected sources for an organization."""
+    await _authorized_org_user(request, org_id)
     org_sources = await list_connected_sources(org_id)
     return {"sources": org_sources, "total": len(org_sources)}
 
@@ -1213,7 +1366,7 @@ async def list_sources(org_id: str = Query("default-org")):
 async def list_source_documents(
     request: Request,
     source_id: str,
-    org_id: str = Query("default-org"),
+    org_id: str = Query(...),
 ):
     """List document-level evidence stored by Komponist for one connector."""
     await _authorized_org_user(request, org_id)
@@ -1276,7 +1429,7 @@ async def list_source_documents(
 async def remove_source_document(
     request: Request,
     source_id: str,
-    org_id: str = Query("default-org"),
+    org_id: str = Query(...),
     reference: str = Query(..., min_length=1, max_length=2048),
 ):
     """Delete one document's derived Komponist data, never the upstream file."""
@@ -1345,12 +1498,14 @@ async def remove_source_document(
 
 @app.post("/sources")
 async def add_source(
-    org_id: str = Query("default-org"),
+    request: Request,
+    org_id: str = Query(...),
     source_type: str = Query(..., description="Source type: notion, slack, google, local, upload"),
     name: str = Query(..., description="Display name for the source"),
     config: dict = None
 ):
     """Register a connected source."""
+    await _authorized_org_user(request, org_id, manage=True)
     if source_type not in {"notion", "slack", "google", "local", "upload"}:
         raise HTTPException(status_code=400, detail="Unsupported source type")
     return await create_connected_source(
@@ -1364,7 +1519,8 @@ async def add_source(
 @app.delete("/sources/{source_id}")
 async def remove_source(
     source_id: str,
-    org_id: str = Query("default-org"),
+    request: Request,
+    org_id: str = Query(...),
     remove_data: bool = Query(False)
 ):
     """
@@ -1375,6 +1531,7 @@ async def remove_source(
         org_id: Organization ID
         remove_data: If True, also delete all entities and evidence from this source
     """
+    await _authorized_org_user(request, org_id, manage=True)
     # Get source info before removing
     source = await get_connected_source(org_id, source_id, include_config=True)
     if not source:
@@ -1388,22 +1545,17 @@ async def remove_source(
         evidence_types = _source_evidence_types(source_type)
 
         try:
-            # Step 1: Delete entities that came from this source
-            # (delete entities that have CITED_BY relationship to evidence from this source)
-            delete_entities_query = """
-            MATCH (e:Entity {org_id: $org_id})-[:CITED_BY]->(ev:Evidence)
+            affected_query = """
+            MATCH (entity:Entity {org_id: $org_id})-[:CITED_BY]->(ev:Evidence)
             WHERE toLower(ev.source) IN $evidence_types
-            DETACH DELETE e
-            RETURN count(e) as deleted
+            RETURN collect(DISTINCT entity.id) AS entity_ids
             """
-            result = await GraphClient.run_query(delete_entities_query, {
+            affected = await GraphClient.run_query(affected_query, {
                 "org_id": org_id,
                 "evidence_types": evidence_types
             })
-            if result:
-                entities_deleted = result[0].get("deleted", 0)
+            entity_ids = affected[0].get("entity_ids", []) if affected else []
 
-            # Step 2: Delete evidence from this source
             delete_evidence_query = """
             MATCH (ev:Evidence {org_id: $org_id})
             WHERE toLower(ev.source) IN $evidence_types
@@ -1417,12 +1569,31 @@ async def remove_source(
             if result:
                 evidence_deleted = result[0].get("deleted", 0)
 
+            orphan_query = """
+            MATCH (entity:Entity {org_id: $org_id})
+            WHERE entity.id IN $entity_ids
+              AND NOT (entity)-[:CITED_BY]->(:Evidence {org_id: $org_id})
+            WITH collect(entity) AS orphans
+            WITH orphans, size(orphans) AS deleted
+            FOREACH (entity IN orphans | DETACH DELETE entity)
+            RETURN deleted
+            """
+            orphaned = await GraphClient.run_query(orphan_query, {
+                "org_id": org_id,
+                "entity_ids": entity_ids,
+            })
+            entities_deleted = orphaned[0].get("deleted", 0) if orphaned else 0
+
             print(f"[Disconnect] Removed {entities_deleted} entities, {evidence_deleted} evidence from {source_type}")
 
-        except Exception as e:
-            print(f"[Disconnect] Error removing data: {e}")
+        except Exception as error:
+            print(f"[Disconnect] Error removing data: {type(error).__name__}")
             import traceback
             traceback.print_exc()
+            raise HTTPException(
+                status_code=500,
+                detail="Could not safely remove the source data",
+            ) from error
 
     await delete_connected_source(org_id, source_id)
 
@@ -1436,10 +1607,13 @@ async def remove_source(
 
 
 @app.post("/sources/{source_id}/sync")
-async def sync_source(source_id: str, org_id: str = Query("default-org")):
+async def sync_source(
+    source_id: str, request: Request, org_id: str = Query(...)
+):
     """
     Sync a connected source - fetch data and extract facts.
     """
+    await _authorized_org_user(request, org_id, manage=True)
     from datetime import datetime
 
     # Find the source
@@ -1612,7 +1786,7 @@ async def upload_documents(
     files: List[UploadFile] = File(...),
 ):
     """Extract uploaded text documents without persisting their raw contents."""
-    await _authorized_org_user(request, org_id)
+    await _authorized_org_user(request, org_id, write=True)
     if not files or len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(
             status_code=400,
@@ -1721,18 +1895,21 @@ async def upload_documents(
 # =============================================================================
 
 @app.get("/connectors/local-docs/status")
-async def local_docs_status():
+async def local_docs_status(request: Request, org_id: str = Query(...)):
     """Get local documents connector status."""
+    await _authorized_org_user(request, org_id)
     from integrations.local_docs import get_local_docs_status
     return get_local_docs_status()
 
 
 @app.post("/connectors/local-docs/scan")
 async def local_docs_scan(
-    org_id: str = Query("default-org"),
+    request: Request,
+    org_id: str = Query(...),
     path: Optional[str] = Query(None, description="Override docs path")
 ):
     """Trigger a scan of local documents."""
+    await _authorized_org_user(request, org_id, manage=True)
     from integrations.local_docs import backfill_local_docs
     result = await backfill_local_docs(org_id=org_id, docs_path=path)
     if result.get("status") == "error":
@@ -1746,8 +1923,9 @@ async def local_docs_scan(
 
 @app.get("/graph")
 async def get_graph(
-    org_id: str = Query("default-org"),
-    limit: int = Query(200, description="Max nodes to return"),
+    request: Request,
+    org_id: str = Query(...),
+    limit: int = Query(200, ge=1, le=500, description="Max nodes to return"),
     entity_types: Optional[str] = Query(None, description="Comma-separated entity types to filter")
 ):
     """
@@ -1755,16 +1933,20 @@ async def get_graph(
 
     Returns nodes (entities) and edges (relationships).
     """
-    type_filter = ""
-    if entity_types:
-        types = [t.strip() for t in entity_types.split(",")]
-        type_filter = f"AND e.entity_type IN {types}"
+    await _authorized_org_user(request, org_id)
+    types = [value.strip() for value in entity_types.split(",")] if entity_types else []
+    invalid_types = sorted(set(types) - set(_CHAT_ENTITY_TYPES))
+    if invalid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported entity types: {', '.join(invalid_types)}",
+        )
 
     # Get nodes
     nodes_query = f"""
     MATCH (e:Entity {{org_id: $org_id}})
     WHERE e.status IN ['proposed', 'confirmed']
-    {type_filter}
+      AND (size($entity_types) = 0 OR e.entity_type IN $entity_types)
     RETURN
         e.id as id,
         coalesce(e.name, e.statement) as name,
@@ -1778,7 +1960,8 @@ async def get_graph(
 
     nodes = await GraphClient.run_query(nodes_query, {
         "org_id": org_id,
-        "limit": limit
+        "limit": limit,
+        "entity_types": types,
     })
 
     # Get all node IDs for edge filtering
@@ -1811,8 +1994,9 @@ async def get_graph(
 
 
 @app.get("/graph/stats")
-async def get_graph_stats(org_id: str = Query("default-org")):
+async def get_graph_stats(request: Request, org_id: str = Query(...)):
     """Get statistics about the knowledge graph."""
+    await _authorized_org_user(request, org_id)
 
     # Count nodes by type
     type_query = """
@@ -1826,7 +2010,7 @@ async def get_graph_stats(org_id: str = Query("default-org")):
 
     # Count relationships by type
     rel_query = """
-    MATCH (s:Entity {org_id: $org_id})-[r]->(t:Entity {org_id: $org_id})
+    OPTIONAL MATCH (s:Entity {org_id: $org_id})-[r]->(t:Entity {org_id: $org_id})
     WHERE NOT type(r) = 'CITED_BY'
     RETURN type(r) as type, count(r) as count
     ORDER BY count DESC
@@ -1839,7 +2023,7 @@ async def get_graph_stats(org_id: str = Query("default-org")):
     MATCH (e:Entity {org_id: $org_id})
     WHERE e.status IN ['proposed', 'confirmed']
     WITH count(e) as node_count
-    MATCH (s:Entity {org_id: $org_id})-[r]->(t:Entity {org_id: $org_id})
+    OPTIONAL MATCH (s:Entity {org_id: $org_id})-[r]->(t:Entity {org_id: $org_id})
     WHERE NOT type(r) = 'CITED_BY'
     RETURN node_count, count(r) as edge_count
     """
@@ -1853,22 +2037,28 @@ async def get_graph_stats(org_id: str = Query("default-org")):
         "total_nodes": node_count,
         "total_edges": edge_count,
         "nodes_by_type": {t["type"]: t["count"] for t in type_counts},
-        "edges_by_type": {r["type"]: r["count"] for r in rel_counts}
+        "edges_by_type": {
+            row["type"]: row["count"] for row in rel_counts if row.get("type")
+        },
     }
 
 
 @app.get("/graph/neighbors/{entity_id}")
 async def get_entity_neighbors(
     entity_id: str,
-    org_id: str = Query("default-org"),
-    depth: int = Query(1, description="How many hops to traverse")
+    request: Request,
+    org_id: str = Query(...),
+    depth: int = Query(1, ge=1, le=2, description="How many hops to traverse"),
 ):
     """Get the neighborhood of a specific entity."""
+    await _authorized_org_user(request, org_id)
 
     # Get the entity and its neighbors up to N hops
-    query = """
-    MATCH path = (center:Entity {id: $entity_id, org_id: $org_id})-[*1..$depth]-(neighbor:Entity)
+    query = f"""
+    MATCH path = (center:Entity {{id: $entity_id, org_id: $org_id}})-[*1..{depth}]-(neighbor:Entity)
     WHERE neighbor.org_id = $org_id
+      AND center.status IN ['proposed', 'confirmed']
+      AND neighbor.status IN ['proposed', 'confirmed']
     WITH center, neighbor, relationships(path) as rels
     UNWIND rels as r
     WITH center, neighbor, r, startNode(r) as source, endNode(r) as target
@@ -1886,7 +2076,6 @@ async def get_entity_neighbors(
     results = await GraphClient.run_query(query, {
         "entity_id": entity_id,
         "org_id": org_id,
-        "depth": depth
     })
 
     # Build nodes and edges
@@ -1896,7 +2085,8 @@ async def get_entity_neighbors(
     # Add center node
     center_query = """
     MATCH (e:Entity {id: $entity_id, org_id: $org_id})
-    RETURN e.id as id, e.name as name, e.entity_type as type, e.detail as description
+    RETURN e.id as id, coalesce(e.name, e.statement) as name,
+           e.entity_type as type, e.detail as description
     """
     center = await GraphClient.run_query(center_query, {
         "entity_id": entity_id,
@@ -1944,7 +2134,6 @@ async def get_entity_neighbors(
 # =============================================================================
 
 from sse_starlette.sse import EventSourceResponse
-import json
 from core.llm import get_llm
 from core.embeddings import embed
 from core.queries import BrainQueries
@@ -3070,20 +3259,55 @@ Context from knowledge graph:
 # Settings API endpoints
 # =============================================================================
 
+@app.get("/approvals")
+async def get_approvals(
+    request: Request,
+    org_id: str = Query(...),
+    status: Optional[str] = Query(None),
+):
+    """List durable agent approval requests for human review."""
+    await _authorized_org_user(request, org_id, manage=True)
+    if status not in {None, "pending", "approved", "denied"}:
+        raise HTTPException(
+            status_code=400, detail="status must be pending, approved, or denied"
+        )
+    approvals = await list_approval_requests(org_id, status)
+    return {"approvals": approvals, "total": len(approvals)}
+
+
+@app.post("/approvals/{approval_id}/resolve")
+async def resolve_approval_endpoint(
+    approval_id: str,
+    payload: ApprovalResolutionRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Approve or deny a pending MCP request exactly once."""
+    user = await _authorized_org_user(request, org_id, manage=True)
+    approval = await resolve_approval_request(
+        org_id, approval_id, payload.approved, user["email"]
+    )
+    if approval is None:
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    return approval
+
 @app.get("/settings")
-async def get_settings(org_id: str = Query("default-org")):
+async def get_settings(request: Request, org_id: str = Query(...)):
     """Get settings for an organization."""
+    await _authorized_org_user(request, org_id)
     return await get_org_settings(org_id)
 
 
 @app.put("/settings")
 async def update_settings(
+    request: Request,
     payload: Optional[OrgSettingsUpdate] = None,
-    org_id: str = Query("default-org"),
+    org_id: str = Query(...),
     auto_confirm: Optional[bool] = Query(None, description="Auto-confirm extracted entities"),
     parallel_batch_size: Optional[int] = Query(None, description="Parallel processing batch size")
 ):
     """Update settings for an organization."""
+    await _authorized_org_user(request, org_id, manage=True)
     resolved_auto_confirm = payload.auto_confirm if payload else auto_confirm
     resolved_batch_size = payload.parallel_batch_size if payload else parallel_batch_size
     current = await get_org_settings(org_id)
@@ -3170,27 +3394,140 @@ async def delete_organization_api_key(
         raise HTTPException(status_code=404, detail="API key not found")
 
 
-@app.get("/v1/context")
-async def api_context_search(request: Request, query: str = Query(..., min_length=1)):
-    """Small API-key-authenticated context endpoint for external agents."""
+async def _api_key_organization(request: Request) -> str:
     authorization = request.headers.get("authorization", "")
-    raw_key = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
-    org_id = await authenticate_api_key(raw_key)
+    scheme, _, raw_key = authorization.partition(" ")
+    org_id = await authenticate_api_key(raw_key.strip()) if scheme.casefold() == "bearer" else None
     if not org_id:
         raise HTTPException(status_code=401, detail="Valid Bearer API key required")
-    terms = [word.casefold() for word in query.split() if len(word) >= 3][:12]
-    rows = await GraphClient.run_query(
+    return org_id
+
+
+@app.get("/v1/context")
+async def api_context_search(
+    request: Request,
+    query: str = Query(..., min_length=1, max_length=500),
+    types: Optional[List[str]] = Query(None),
+    limit: int = Query(8, ge=1, le=20),
+):
+    """Search confirmed, cited context using an organization API key."""
+    org_id = await _api_key_organization(request)
+    requested_types = types or []
+    invalid_types = sorted(set(requested_types) - set(_CHAT_ENTITY_TYPES))
+    if invalid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported entity types: {', '.join(invalid_types)}",
+        )
+    terms = _chat_search_terms(query)[:12]
+    candidate_ids: list[str] = []
+    if terms:
+        literal_rows = await GraphClient.run_query(
+            """
+            MATCH (e:Entity {org_id: $org_id, status: 'confirmed'})
+            WHERE (size($types) = 0 OR e.entity_type IN $types)
+              AND any(term IN $terms WHERE toLower(e.statement) CONTAINS term OR
+                      toLower(coalesce(e.detail, '')) CONTAINS term)
+            WITH e, size([term IN $terms WHERE
+                toLower(e.statement) CONTAINS term OR
+                toLower(coalesce(e.detail, '')) CONTAINS term]) AS relevance
+            RETURN e.id AS id
+            ORDER BY relevance DESC, e.confirmed_at DESC
+            LIMIT $candidate_limit
+            """,
+            {
+                "org_id": org_id,
+                "terms": terms,
+                "types": requested_types,
+                "candidate_limit": limit * 2,
+            },
+        )
+        candidate_ids.extend(row["id"] for row in literal_rows)
+
+    if os.getenv("KOMPONIST_AI_MODE", "live").lower() != "mock":
+        try:
+            query_embedding = await embed(query)
+            semantic_rows = await BrainQueries.hybrid_search(
+                org_id=org_id,
+                query_text=query,
+                query_embedding=query_embedding,
+                entity_types=requested_types or None,
+                k=limit * 2,
+                status="confirmed",
+            )
+            candidate_ids.extend(row["id"] for row in semantic_rows)
+        except Exception as search_error:
+            print(
+                "[API] Semantic context search failed; using literal fallback: "
+                f"{type(search_error).__name__}"
+            )
+
+    candidate_ids = list(dict.fromkeys(candidate_ids))
+    if not candidate_ids:
+        return {"items": [], "total": 0, "query": query}
+
+    cited_rows = await GraphClient.run_query(
         """
         MATCH (e:Entity {org_id: $org_id, status: 'confirmed'})
-        WHERE any(term IN $terms WHERE toLower(e.statement) CONTAINS term OR
-              toLower(coalesce(e.detail, '')) CONTAINS term)
+        WHERE e.id IN $candidate_ids
+          AND (size($types) = 0 OR e.entity_type IN $types)
+        MATCH (e)-[:CITED_BY]->(ev:Evidence {org_id: $org_id})
         RETURN e.id AS id, e.entity_type AS type, e.statement AS statement,
-               e.detail AS detail
-        LIMIT 20
+               e.detail AS detail, e.confidence AS confidence,
+               collect(DISTINCT ev{.id, .source, .reference, .url,
+                                    .excerpt, .source_date}) AS evidence
         """,
-        {"org_id": org_id, "terms": terms},
+        {
+            "org_id": org_id,
+            "candidate_ids": candidate_ids,
+            "types": requested_types,
+        },
     )
-    return {"items": rows, "total": len(rows)}
+    by_id = {row["id"]: row for row in cited_rows}
+    rows = [by_id[entity_id] for entity_id in candidate_ids if entity_id in by_id][
+        :limit
+    ]
+    return {"items": rows, "total": len(rows), "query": query}
+
+
+@app.get("/v1/brain")
+async def api_brain_info(request: Request):
+    """Return compact API-key-authenticated company-brain metadata."""
+    org_id = await _api_key_organization(request)
+    rows = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id})
+        RETURN entity.status AS status, entity.entity_type AS type, count(entity) AS count
+        ORDER BY status, type
+        """,
+        {"org_id": org_id},
+    )
+    counts_by_status: Dict[str, int] = {}
+    counts_by_type: Dict[str, int] = {}
+    for row in rows:
+        counts_by_status[row["status"]] = counts_by_status.get(row["status"], 0) + row["count"]
+        if row["status"] == "confirmed":
+            counts_by_type[row["type"]] = row["count"]
+    return {
+        "organization_id": org_id,
+        "confirmed": counts_by_status.get("confirmed", 0),
+        "pending_review": counts_by_status.get("proposed", 0),
+        "confirmed_by_type": counts_by_type,
+    }
+
+
+@app.get("/v1/decisions")
+async def api_active_decisions(
+    request: Request,
+    project_id: Optional[str] = Query(None, max_length=100),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Return active, cited decisions for an API-key organization."""
+    org_id = await _api_key_organization(request)
+    decisions = await BrainQueries.active_decisions(
+        org_id=org_id, project_id=project_id, k=limit
+    )
+    return {"decisions": decisions, "total": len(decisions)}
 
 
 if __name__ == "__main__":

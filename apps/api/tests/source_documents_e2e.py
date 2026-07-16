@@ -132,6 +132,26 @@ async def run() -> None:
             assert payload["evidence_deleted"] == 2, payload
             assert payload["entities_deleted"] == 1, payload
 
+            await GraphClient.run_query(
+                """
+                MATCH (shared:Entity {id: 'source-doc-shared', org_id: $org_id})
+                CREATE (upload_ev:Evidence {
+                    id: 'source-doc-ev-4', org_id: $org_id, source: 'upload',
+                    reference: 'upload:second.md:e2e456', url: 'upload://second.md',
+                    source_date: datetime()
+                })
+                CREATE (shared)-[:CITED_BY]->(upload_ev)
+                """,
+                {"org_id": user.org_id},
+            )
+            removed_source = await client.delete(
+                f"/sources/{source['id']}",
+                params={"org_id": user.org_id, "remove_data": True},
+            )
+            assert removed_source.status_code == 200, removed_source.text
+            assert removed_source.json()["evidence_deleted"] == 1, removed_source.text
+            assert removed_source.json()["entities_deleted"] == 0, removed_source.text
+
         remaining = await GraphClient.run_query(
             """
             MATCH (entity:Entity {org_id: $org_id})
