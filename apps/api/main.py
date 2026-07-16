@@ -190,10 +190,16 @@ async def get_queue(org_id: str = "default-org"):
         e.statement as statement,
         e.detail as detail,
         e.confidence as confidence,
-        e.created_at as created_at,
-        collect(DISTINCT ev{.id, .source, .reference, .url, .source_date}) as evidence,
+        toString(e.created_at) as created_at,
+        collect(DISTINCT {
+            id: ev.id,
+            source: ev.source,
+            reference: ev.reference,
+            url: ev.url,
+            source_date: toString(ev.source_date)
+        }) as evidence,
         collect(DISTINCT {id: related.id, statement: related.statement, score: r.score}) as related_to
-    ORDER BY e.created_at DESC
+    ORDER BY created_at DESC
     """
 
     results = await GraphClient.run_query(query, {"org_id": org_id})

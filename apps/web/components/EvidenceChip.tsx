@@ -11,6 +11,7 @@ const SOURCE_BADGES: Record<string, { abbr: string; className: string }> = {
   google: { abbr: 'GD', className: 'bg-[#4285F4] text-white' },
   github: { abbr: 'GH', className: 'bg-[#24292f] text-white' },
   upload: { abbr: 'UP', className: 'bg-warning-soft text-orange-dark' },
+  local: { abbr: 'LD', className: 'bg-info-soft text-info' },
   agent_report: { abbr: 'AI', className: 'bg-success-soft text-teal' },
   manual: { abbr: 'M', className: 'bg-paper-3 text-ink-2' },
 }
