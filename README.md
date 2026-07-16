@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="komponist_logo.png" alt="Komponist" width="200" />
+  <img src="assets/images/komponist_logo.png" alt="Komponist" width="400" />
 </p>
 
 <h1 align="center">Komponist</h1>
