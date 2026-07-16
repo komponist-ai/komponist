@@ -3,8 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import AppLayout from '../../components/AppLayout'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 type SourceType = 'notion' | 'slack' | 'google' | 'local'
 type ConnectorStatus = 'idle' | 'connecting' | 'connected' | 'error'
@@ -21,14 +20,10 @@ function OnboardContent() {
   const [notionToken, setNotionToken] = useState('')
   const [localDocsPath, setLocalDocsPath] = useState('/data/docs')
 
-  // Org ID from localStorage or default
-  const [orgId, setOrgId] = useState('default-org')
+  const [orgId, setOrgId] = useState('')
 
   useEffect(() => {
-    const savedOrgId = localStorage.getItem('komponist_org_id')
-    if (savedOrgId) {
-      setOrgId(savedOrgId)
-    }
+    setOrgId(getActiveOrgId())
   }, [])
 
   // Handle OAuth callback
@@ -52,7 +47,7 @@ function OnboardContent() {
     setError(null)
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/auth/notion/token?org_id=${orgId}&token=${encodeURIComponent(notionToken)}`,
         { method: 'POST' }
       )
@@ -77,7 +72,7 @@ function OnboardContent() {
     setError(null)
 
     try {
-      const response = await fetch(`${API_URL}/auth/slack?org=${orgId}`)
+      const response = await apiFetch(`${API_URL}/auth/slack?org=${orgId}`)
       const data = await response.json()
 
       if (data.auth_url) {
@@ -96,7 +91,7 @@ function OnboardContent() {
     setError(null)
 
     try {
-      const response = await fetch(`${API_URL}/auth/google?org=${orgId}`)
+      const response = await apiFetch(`${API_URL}/auth/google?org=${orgId}`)
       const data = await response.json()
 
       if (data.auth_url) {
@@ -120,7 +115,7 @@ function OnboardContent() {
     setError(null)
 
     try {
-      const addResponse = await fetch(
+      const addResponse = await apiFetch(
         `${API_URL}/sources?org_id=${orgId}&source_type=local&name=${encodeURIComponent('Local Documents')}`,
         {
           method: 'POST',
@@ -133,7 +128,7 @@ function OnboardContent() {
         throw new Error(source.detail || source.error || 'Failed to register local documents')
       }
 
-      const syncResponse = await fetch(
+      const syncResponse = await apiFetch(
         `${API_URL}/sources/${source.id}/sync?org_id=${orgId}`,
         { method: 'POST' }
       )

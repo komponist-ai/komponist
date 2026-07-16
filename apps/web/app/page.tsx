@@ -4,8 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import AppLayout from '../components/AppLayout'
 import ChatMessage from '../components/ChatMessage'
 import ChatInput from '../components/ChatInput'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { API_URL, apiFetch, getActiveOrgId } from '../lib/api'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -28,9 +27,7 @@ export default function ChatPage() {
   }, [messages])
 
   const handleSendMessage = async (messageText: string) => {
-    const orgId = typeof window !== 'undefined'
-      ? localStorage.getItem('komponist_org_id') || 'default-org'
-      : 'default-org'
+    const orgId = getActiveOrgId()
 
     // Add user message
     const userMessage: Message = { role: 'user', content: messageText }
@@ -41,7 +38,7 @@ export default function ChatPage() {
 
     try {
       // Call chat API with streaming
-      const response = await fetch(`${API_URL}/chat`, {
+      const response = await apiFetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

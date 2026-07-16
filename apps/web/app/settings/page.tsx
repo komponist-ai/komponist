@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import AppLayout from '../../components/AppLayout'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useAuth } from '../../components/AuthProvider'
+import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 interface OrgSettings {
   auto_confirm: boolean
@@ -11,6 +12,7 @@ interface OrgSettings {
 }
 
 export default function SettingsPage() {
+  const { user } = useAuth()
   const [settings, setSettings] = useState<OrgSettings>({
     auto_confirm: false,
     parallel_batch_size: 5
@@ -19,14 +21,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
-  // Get org ID from localStorage
-  const getOrgId = () => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('komponist_org_id') || 'default-org'
-    }
-    return 'default-org'
-  }
-
   useEffect(() => {
     fetchSettings()
   }, [])
@@ -34,8 +28,8 @@ export default function SettingsPage() {
   const fetchSettings = async () => {
     setLoading(true)
     try {
-      const orgId = getOrgId()
-      const res = await fetch(`${API_URL}/settings?org_id=${orgId}`)
+      const orgId = getActiveOrgId()
+      const res = await apiFetch(`${API_URL}/settings?org_id=${orgId}`)
       if (res.ok) {
         const data = await res.json()
         setSettings(data)
@@ -51,8 +45,8 @@ export default function SettingsPage() {
     setSaving(true)
     setMessage(null)
     try {
-      const orgId = getOrgId()
-      const res = await fetch(`${API_URL}/settings?org_id=${orgId}`, {
+      const orgId = getActiveOrgId()
+      const res = await apiFetch(`${API_URL}/settings?org_id=${orgId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -140,33 +134,19 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Organization Settings */}
+        {/* Organization */}
         <div className="card mb-6">
           <h2 className="text-h2 mb-4">Organization</h2>
-
-          <div className="space-y-4">
+          <div className="organization-summary">
             <div>
-              <p className="text-small font-medium mb-1">Organization ID</p>
-              <p className="text-caption text-muted mb-2">
-                Used to isolate your data. Change this to work with a different organization.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={typeof window !== 'undefined' ? localStorage.getItem('komponist_org_id') || 'default-org' : 'default-org'}
-                  onChange={(e) => {
-                    if (typeof window !== 'undefined') {
-                      localStorage.setItem('komponist_org_id', e.target.value)
-                    }
-                  }}
-                  className="input flex-1"
-                  placeholder="my-company"
-                />
-              </div>
-              <p className="text-caption text-muted mt-1">
-                Note: Changing this requires a page refresh to take effect.
+              <p className="text-small font-medium">{user?.organization.name}</p>
+              <p className="text-caption text-muted">
+                You are a {user?.role}. Switch workspaces from the sidebar.
               </p>
             </div>
+            <Link href="/settings/team" className="btn btn-secondary">
+              Manage team
+            </Link>
           </div>
         </div>
 
@@ -234,6 +214,12 @@ export default function SettingsPage() {
         .input:focus {
           outline: none;
           border-color: var(--color-teal);
+        }
+        .organization-summary {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
         }
       `}</style>
     </AppLayout>

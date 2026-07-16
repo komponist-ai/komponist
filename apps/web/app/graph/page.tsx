@@ -4,8 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import AppLayout from '../../components/AppLayout'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 // Dynamically import ForceGraph to avoid SSR issues
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -69,25 +68,17 @@ export default function GraphPage() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const graphRef = useRef<any>()
 
-  // Get org ID from localStorage
-  const getOrgId = () => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('komponist_org_id') || 'default-org'
-    }
-    return 'default-org'
-  }
-
   const fetchGraph = useCallback(async () => {
     setLoading(true)
     setError(null)
 
     try {
-      const orgId = getOrgId()
+      const orgId = getActiveOrgId()
 
       // Fetch graph data and stats in parallel
       const [graphRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/graph?org_id=${orgId}&limit=300`),
-        fetch(`${API_URL}/graph/stats?org_id=${orgId}`)
+        apiFetch(`${API_URL}/graph?org_id=${orgId}&limit=300`),
+        apiFetch(`${API_URL}/graph/stats?org_id=${orgId}`)
       ])
 
       if (!graphRes.ok) throw new Error('Failed to fetch graph')

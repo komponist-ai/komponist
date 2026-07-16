@@ -14,13 +14,13 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | Extraction Pipeline | ✅ Local-docs slice verified | 80% |
 | MCP Server | 🚧 Core tools locally verified | 80% |
 | Integrations | 🚧 Code exists | 40% |
-| Web UI | 🚧 Builds and runs locally | 65% |
+| Web UI | 🚧 Auth gate browser-verified | 78% |
 | Chat Feature | ✅ Grounded local flow verified | 80% |
-| Auth & Security | 🚧 Sessions and org roles | 45% |
-| User Management | 🚧 Multi-org membership backend | 45% |
+| Auth & Security | 🚧 Sessions, gate, and org roles | 55% |
+| User Management | 🚧 Multi-org membership UI | 65% |
 | Deployment | ❌ Not implemented | 10% |
 
-**Overall MVP Readiness: ~50%**
+**Overall MVP Readiness: ~53%**
 
 **Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker. Live provider login, authenticated API isolation, MCP client interoperability, and deployment are still unverified.
 
@@ -57,6 +57,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] MCP approval requests and immutable decisions survive MCP restarts
 - [x] Provider-free Google user-login and persistent session lifecycle
 - [x] Multi-user organizations, role-checked invites, and per-session org switching
+- [x] Web login/session gate renders correctly in the local browser without console errors
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -135,10 +136,13 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `app/entities/page.tsx` — Entity list (169 lines)
 - [x] `app/sources/page.tsx` — Connected sources (340 lines)
 - [x] `app/settings/page.tsx` — Settings page (241 lines)
+- [x] `app/settings/team/page.tsx` — Organization members, roles, and invitation links
+- [x] `app/invite/page.tsx` — Authenticated invitation acceptance flow
 - [x] `lib/api.ts` — API client functions (85 lines)
-- [x] Components: AppLayout, Sidebar, Nav, FactCard, ChatMessage, ChatInput, EvidenceChip
+- [x] Components: AuthProvider, AuthGate, AppLayout, Sidebar, Nav, FactCard, ChatMessage, ChatInput, EvidenceChip
 - [x] Web app builds successfully and runs in the local Docker stack
-- [ ] **NOT TESTED** — No page has been loaded in a browser
+- [x] Signed-out auth gate loaded and visually verified in the local browser
+- [ ] **NOT TESTED** — Authenticated pages need live Google credentials for browser verification
 
 ### Docker Configuration (`docker/`)
 - [x] `docker-compose.yml` — Full stack: Neo4j, Postgres, API, MCP, Web (176 lines)
@@ -156,13 +160,14 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [ ] Email/password authentication
 - [ ] Password reset flow
 - [x] Persistent, revocable HttpOnly cookie sessions
-- [ ] Account settings page
+- [ ] Personal account settings page
 - [ ] Delete account functionality
-- [x] Team/org invitation links (email delivery and Web UI still missing)
+- [x] Team/org invitation links and acceptance Web UI (email delivery still missing)
 - [x] Backend roles: owner, admin, member, viewer
 
 ### Multi-tenancy
-- [ ] Org creation/management UI
+- [ ] Organization creation/rename UI
+- [x] Active organization switcher and member/role UI
 - [x] Membership and invitation API flow
 - [x] Multiple organizations per user with per-session active org
 - [ ] Org-scoped API keys
@@ -209,7 +214,7 @@ The local vertical slice is verified, but important boundaries are still open:
 ### 2. Authentication Is Not Enforced Yet
 The provider-free Google login and persistent session lifecycle work, but:
 - Live Google login has not been completed with real credentials
-- The Web UI has no login/session gate yet
+- The Web UI gate and organization screens exist, but authenticated browser flows need live Google credentials
 - Existing API endpoints still accept caller-provided `org_id` values
 - The active session organization is not yet enforced on existing brain API routes
 
@@ -331,7 +336,7 @@ Connected sources, organization settings, and approval requests now survive serv
 ┌─────────────────────────┐    ┌─────────────────────────────────┐
 │      MCP Server         │    │          Web UI                  │
 │  📝 Code exists         │    │  📝 Code exists                  │
-│  ❌ Never connected     │    │  ❌ Never loaded in browser      │
+│  ❌ Never connected     │    │  ✅ Auth gate browser-verified  │
 └─────────────────────────┘    └─────────────────────────────────┘
 
 Legend:
@@ -347,7 +352,7 @@ Legend:
 **The honest truth:** The local core loop and auth foundation are tested, but this is not yet a user-ready product. The path from here to "10 design partners using it daily" requires:
 
 1. **Enforcing sessions and org isolation across API routes**
-2. **Adding the Web login/session experience**
+2. **Completing live Google login and authenticated browser testing**
 3. **Testing live Google, Notion, and MCP integrations**
 4. **Deploying and operating it safely**
 

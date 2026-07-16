@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import AppLayout from '../../components/AppLayout'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 interface Source {
   id: string
@@ -24,21 +23,17 @@ export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [orgId, setOrgId] = useState('default-org')
+  const [orgId, setOrgId] = useState('')
   const [syncing, setSyncing] = useState<string | null>(null)
   const [disconnectModal, setDisconnectModal] = useState<DisconnectModal>({ source: null, loading: false })
 
   useEffect(() => {
-    // Get org ID from localStorage
-    const savedOrgId = localStorage.getItem('komponist_org_id')
-    if (savedOrgId) {
-      setOrgId(savedOrgId)
-    }
+    setOrgId(getActiveOrgId())
   }, [])
 
   const fetchSources = async () => {
     try {
-      const response = await fetch(`${API_URL}/sources?org_id=${orgId}`)
+      const response = await apiFetch(`${API_URL}/sources?org_id=${orgId}`)
       if (response.ok) {
         const data = await response.json()
         setSources(data.sources || [])
@@ -55,7 +50,7 @@ export default function SourcesPage() {
   }
 
   useEffect(() => {
-    fetchSources()
+    if (orgId) fetchSources()
   }, [orgId])
 
   const handleSync = async (sourceId: string) => {
@@ -63,7 +58,7 @@ export default function SourcesPage() {
     setError(null)
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/sources/${sourceId}/sync?org_id=${orgId}`,
         { method: 'POST' }
       )
@@ -94,7 +89,7 @@ export default function SourcesPage() {
       const sourceId = disconnectModal.source.id
       const url = `${API_URL}/sources/${sourceId}?org_id=${orgId}&remove_data=${removeData}`
 
-      const response = await fetch(url, { method: 'DELETE' })
+      const response = await apiFetch(url, { method: 'DELETE' })
       const data = await response.json()
 
       if (response.ok) {

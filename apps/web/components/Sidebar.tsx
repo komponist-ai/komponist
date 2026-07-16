@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
+import { useState } from 'react'
+import { useAuth } from './AuthProvider'
 
 const navigation = [
   {
@@ -25,6 +27,7 @@ const navigation = [
     title: 'Settings',
     items: [
       { name: 'General', href: '/settings', icon: '⚙' },
+      { name: 'Team & roles', href: '/settings/team', icon: '◎' },
       { name: 'API Keys', href: '/settings/api', icon: '⌘' },
       { name: 'Export', href: '/settings/export', icon: '↓' },
     ],
@@ -33,6 +36,18 @@ const navigation = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const { user, organizations, logout, switchOrganization } = useAuth()
+  const [switching, setSwitching] = useState(false)
+
+  const handleOrganizationChange = async (orgId: string) => {
+    setSwitching(true)
+    try {
+      await switchOrganization(orgId)
+      window.location.reload()
+    } finally {
+      setSwitching(false)
+    }
+  }
 
   return (
     <aside className="sidebar">
@@ -43,10 +58,27 @@ export default function Sidebar() {
             alt="K"
             width={32}
             height={32}
+            unoptimized
             className="rounded"
           />
           Komponist
         </Link>
+        <label className="org-switcher-label" htmlFor="organization-switcher">
+          Workspace
+        </label>
+        <select
+          id="organization-switcher"
+          className="org-switcher"
+          value={user?.org_id || ''}
+          disabled={switching}
+          onChange={(event) => handleOrganizationChange(event.target.value)}
+        >
+          {organizations.map((organization) => (
+            <option key={organization.id} value={organization.id}>
+              {organization.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <nav className="sidebar-nav">
@@ -68,8 +100,18 @@ export default function Sidebar() {
       </nav>
 
       <div className="sidebar-footer">
-        <div className="text-caption text-muted mb-1">Self-hosted</div>
-        <div className="text-small font-mono">v0.1.0</div>
+        <div className="sidebar-user">
+          <div className="user-avatar" aria-hidden="true">
+            {user?.name?.slice(0, 1).toUpperCase() || '?'}
+          </div>
+          <div className="sidebar-user-copy">
+            <div className="text-small sidebar-user-name">{user?.name}</div>
+            <div className="text-caption text-muted">{user?.role}</div>
+          </div>
+          <button className="sidebar-logout" onClick={logout} title="Sign out" aria-label="Sign out">
+            ↪
+          </button>
+        </div>
       </div>
     </aside>
   )

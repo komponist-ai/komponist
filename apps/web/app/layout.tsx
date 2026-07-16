@@ -1,6 +1,8 @@
 import '../styles/tokens.css'
 import '../styles/globals.css'
 import type { Metadata } from 'next'
+import { AuthProvider } from '../components/AuthProvider'
+import AuthGate from '../components/AuthGate'
 
 export const metadata: Metadata = {
   title: 'Komponist — The programmable company brain',
@@ -18,7 +20,11 @@ export default function RootLayout({
         <link rel="preconnect" href="https://rsms.me/" />
         <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
       </head>
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          <AuthGate>{children}</AuthGate>
+        </AuthProvider>
+      </body>
     </html>
   )
 }
