@@ -772,7 +772,7 @@ async def request_approval(
     """
     Request human approval for an action blocked by a constraint.
 
-    Posts to Slack approvals channel with Approve/Deny buttons.
+    Persists the request and posts Slack buttons when Slack is configured.
 
     Args:
         action: Action you want to take
@@ -803,7 +803,8 @@ async def request_approval(
             return f"❌ Error: {result.get('error')}"
 
         approval_id = result["approval_id"]
-        return f"📬 Approval requested in Slack.\n\nApproval ID: `{approval_id}`\n\nUse `get_approval_status('{approval_id}')` to check status."
+        delivery = " Sent to Slack." if result.get("delivery") == "slack" else ""
+        return f"📬 Approval request created.{delivery}\n\nApproval ID: `{approval_id}`\n\nUse `get_approval_status('{approval_id}')` to check status."
 
     except Exception as e:
         latency_ms = int((time.time() - start) * 1000)
@@ -828,7 +829,7 @@ async def get_approval_status(approval_id: str) -> str:
     start = time.time()
 
     try:
-        result = get_approval_status_impl(approval_id)
+        result = await get_approval_status_impl(approval_id, org_id=ORG_ID)
 
         latency_ms = int((time.time() - start) * 1000)
         await log_tool_call("get_approval_status", {
@@ -840,7 +841,7 @@ async def get_approval_status(approval_id: str) -> str:
         if status == "not_found":
             return f"❌ Approval ID not found: {approval_id}"
         elif status == "pending":
-            return f"⏳ Approval pending. Waiting for human review in Slack."
+            return "⏳ Approval pending. Waiting for human review."
         elif status == "approved":
             resolved_by = result.get("resolved_by", "unknown")
             return f"✅ **Approved** by {resolved_by}\n\nYou may proceed with the action."

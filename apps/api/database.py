@@ -119,6 +119,26 @@ class ConnectedSource(Base):
     )
 
 
+class ApprovalRequest(Base):
+    """Persistent human-approval request created by an MCP agent."""
+    __tablename__ = "approval_requests"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(50), index=True)
+    action: Mapped[str] = mapped_column(Text)
+    constraint_id: Mapped[str] = mapped_column(String(64), index=True)
+    constraint_statement: Mapped[str] = mapped_column(Text)
+    context: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    slack_ts: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 async def get_db() -> AsyncSession:
     """Dependency for getting database session."""
     async with async_session() as session:

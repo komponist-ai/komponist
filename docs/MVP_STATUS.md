@@ -12,7 +12,7 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 |----------|--------|----------|
 | Core Infrastructure | ✅ Locally verified | 85% |
 | Extraction Pipeline | ✅ Local-docs slice verified | 80% |
-| MCP Server | 🚧 Search and writeback verified | 75% |
+| MCP Server | 🚧 Core tools locally verified | 80% |
 | Integrations | 🚧 Code exists | 40% |
 | Web UI | 🚧 Builds and runs locally | 65% |
 | Chat Feature | ✅ Grounded local flow verified | 80% |
@@ -54,6 +54,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] MCP agent reports create idempotent Decision proposals in the review queue
 - [x] Organization settings and encrypted connected-source configs survive API restarts
 - [x] Notion, Slack, and Google OAuth callbacks persist allowlisted tokens encrypted
+- [x] MCP approval requests and immutable decisions survive MCP restarts
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -62,6 +63,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - `apps/api/tests/chat_e2e.py` — grounded chat, citations, streaming, and isolation (passing)
 - `apps/mcp/tests/search_context_e2e.py` — MCP discovery, cited search, and isolation (passing)
 - `apps/mcp/tests/report_result_e2e.py` — agent writeback, retry dedup, and review queue (passing)
+- `apps/mcp/tests/approval_persistence_e2e.py` — approval persistence, isolation, and restart (passing)
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
@@ -100,8 +102,9 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Search returns only confirmed, org-scoped facts with their exact Evidence
 - [x] `report_result` writes structured Decisions as proposed with agent-report Evidence
 - [x] `report_result` retries are idempotent and can link verified Work Packs
+- [x] Approval requests persist in Postgres and remain org-isolated across MCP restarts
 - [ ] **NOT TESTED** — Never connected to Claude Code or another external MCP client
-- [ ] **NOT TESTED** — Approval flow (Slack buttons) never tested
+- [ ] **NOT TESTED** — Real Slack delivery and button callbacks never tested
 
 ### API Server (`apps/api/`)
 - [x] `main.py` — FastAPI with ~50 endpoints (code complete):
@@ -165,8 +168,8 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] OAuth callback token responses stored encrypted in connected-source records
 - [x] Connected sources and encrypted connector configs stored in Postgres
 - [x] Org settings stored in Postgres
-- [ ] Approval requests stored in database (currently in-memory dict)
-- [ ] Approval state still does not survive restarts
+- [x] Approval requests and decisions stored in Postgres
+- [x] Approval state survives MCP restarts
 
 ### Komponist Cloud (Hosted Version)
 - [ ] Landing page / marketing website
@@ -181,7 +184,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [ ] One-command setup that actually works
 - [ ] Installation documentation that's been tested
 - [ ] Configuration wizard
-- [ ] **Docker compose exists but never tested**
+- [x] Docker Compose verified on the development Mac; clean-machine portability remains untested
 
 ### Observability
 - [ ] Metrics dashboard
@@ -207,10 +210,10 @@ There is no way to:
 - Protect API endpoints
 - Isolate user data
 
-### 3. Some Workflow State Is Still In-Memory
-Connected sources and organization settings now survive API restarts. Remaining gaps:
-- Pending approval requests are still process-local
+### 3. Real Provider Lifecycles Remain Unverified
+Connected sources, organization settings, and approval requests now survive service restarts. Remaining gaps:
 - Real provider OAuth exchanges and token refresh behavior remain unverified
+- Real Slack approval delivery and signed interaction callbacks remain unverified
 
 ### 4. Security Not Applied
 - `security.py` has utilities but they're not used
@@ -305,7 +308,7 @@ Connected sources and organization settings now survive API restarts. Remaining 
      ▼          ▼          ▼          ▼              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    API (FastAPI)                                 │
-│  📝 Code exists │ ❌ Not tested │ ❌ No auth │ ❌ No persistence │
+│  ✅ Locally tested │ ❌ No auth │ ✅ Postgres persistence       │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼

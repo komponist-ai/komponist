@@ -131,7 +131,7 @@ services:
       - KOMPONIST_EMBEDDING_MODEL=${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
       # Slack (for approvals)
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
-      - SLACK_APPROVAL_CHANNEL=${SLACK_APPROVAL_CHANNEL}
+      - SLACK_APPROVALS_CHANNEL=${SLACK_APPROVALS_CHANNEL}
     depends_on:
       neo4j:
         condition: service_healthy
