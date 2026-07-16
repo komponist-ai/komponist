@@ -431,6 +431,28 @@ async def google_webhook():
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 
+def _validated_oauth_org(org_id: str) -> str:
+    """Accept only org identifiers that are safe to persist and redirect."""
+    if not validate_org_id(org_id):
+        raise HTTPException(status_code=400, detail="Invalid organization ID")
+    return org_id
+
+
+def _oauth_redirect(source: str, org_id: str, status: str) -> RedirectResponse:
+    """Build a callback redirect without reflecting provider errors or secrets."""
+    from urllib.parse import urlencode
+
+    query = urlencode({"source": source, "status": status, "org": org_id})
+    return RedirectResponse(url=f"{FRONTEND_URL}/onboard?{query}")
+
+
+def _required_oauth_token(tokens: dict, provider: str) -> str:
+    token = tokens.get("access_token")
+    if not isinstance(token, str) or not token.strip():
+        raise ValueError(f"{provider} OAuth response contained no access token")
+    return token.strip()
+
+
 # =============================================================================
 # Notion connector endpoints
 # =============================================================================
@@ -439,6 +461,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 async def notion_auth_start(org: str):
     """Start Notion OAuth flow."""
     from integrations.notion import get_oauth_url, NOTION_CLIENT_ID
+    org = _validated_oauth_org(org)
     if not NOTION_CLIENT_ID:
         return {"error": "NOTION_CLIENT_ID not configured. Use token-based auth instead.", "use_token": True}
     url = get_oauth_url(state=org)
@@ -482,23 +505,32 @@ async def notion_token_connect(org_id: str, token: str):
 async def notion_auth_callback(code: str, state: str):
     """Handle Notion OAuth callback."""
     from integrations.notion import exchange_code
+    state = _validated_oauth_org(state)
     try:
         tokens = await exchange_code(code)
-        # TODO: Store tokens for org (state contains org_id)
-        # For now, redirect back to frontend with success
-        return RedirectResponse(
-            url=f"{FRONTEND_URL}/onboard?source=notion&status=connected&org={state}"
+        access_token = _required_oauth_token(tokens, "Notion")
+        await upsert_single_source_type(
+            org_id=state,
+            source_type="notion",
+            name=tokens.get("workspace_name") or "Notion Workspace",
+            config={
+                "token": access_token,
+                "workspace_id": tokens.get("workspace_id"),
+                "bot_id": tokens.get("bot_id"),
+                "oauth": True,
+            },
         )
-    except Exception as e:
-        return RedirectResponse(
-            url=f"{FRONTEND_URL}/onboard?source=notion&status=error&org={state}&error={str(e)}"
-        )
+        return _oauth_redirect("notion", state, "connected")
+    except Exception as error:
+        print(f"[Notion OAuth] Callback failed for org {state}: {type(error).__name__}")
+        return _oauth_redirect("notion", state, "error")
 
 
 @app.get("/auth/slack")
 async def slack_auth_start(org: str):
     """Start Slack OAuth flow."""
     from integrations.slack import get_oauth_url
+    org = _validated_oauth_org(org)
     url = get_oauth_url(state=org)
     return {"auth_url": url}
 
@@ -507,22 +539,34 @@ async def slack_auth_start(org: str):
 async def slack_auth_callback(code: str, state: str):
     """Handle Slack OAuth callback."""
     from integrations.slack import exchange_code
+    state = _validated_oauth_org(state)
     try:
         tokens = await exchange_code(code)
-        # TODO: Store tokens for org
-        return RedirectResponse(
-            url=f"{FRONTEND_URL}/onboard?source=slack&status=connected&org={state}"
+        access_token = _required_oauth_token(tokens, "Slack")
+        team = tokens.get("team") if isinstance(tokens.get("team"), dict) else {}
+        await upsert_single_source_type(
+            org_id=state,
+            source_type="slack",
+            name=team.get("name") or "Slack Workspace",
+            config={
+                "token": access_token,
+                "team_id": team.get("id"),
+                "bot_user_id": tokens.get("bot_user_id"),
+                "scope": tokens.get("scope"),
+                "oauth": True,
+            },
         )
-    except Exception as e:
-        return RedirectResponse(
-            url=f"{FRONTEND_URL}/onboard?source=slack&status=error&org={state}&error={str(e)}"
-        )
+        return _oauth_redirect("slack", state, "connected")
+    except Exception as error:
+        print(f"[Slack OAuth] Callback failed for org {state}: {type(error).__name__}")
+        return _oauth_redirect("slack", state, "error")
 
 
 @app.get("/auth/google")
 async def google_auth_start(org: str):
     """Start Google OAuth flow."""
     from integrations.google import get_oauth_url
+    org = _validated_oauth_org(org)
     url = get_oauth_url(state=org)
     return {"auth_url": url}
 
@@ -531,16 +575,31 @@ async def google_auth_start(org: str):
 async def google_auth_callback(code: str, state: str):
     """Handle Google OAuth callback."""
     from integrations.google import exchange_code
+    state = _validated_oauth_org(state)
     try:
         tokens = await exchange_code(code)
-        # TODO: Store tokens for org
-        return RedirectResponse(
-            url=f"{FRONTEND_URL}/onboard?source=google&status=connected&org={state}"
+        access_token = _required_oauth_token(tokens, "Google")
+        config = {
+            "access_token": access_token,
+            "expires_in": tokens.get("expires_in"),
+            "scope": tokens.get("scope"),
+            "token_type": tokens.get("token_type"),
+            "oauth": True,
+        }
+        refresh_token = tokens.get("refresh_token")
+        if isinstance(refresh_token, str) and refresh_token.strip():
+            config["refresh_token"] = refresh_token.strip()
+        await upsert_single_source_type(
+            org_id=state,
+            source_type="google",
+            name="Google Workspace",
+            config=config,
+            preserve_existing_config=True,
         )
-    except Exception as e:
-        return RedirectResponse(
-            url=f"{FRONTEND_URL}/onboard?source=google&status=error&org={state}&error={str(e)}"
-        )
+        return _oauth_redirect("google", state, "connected")
+    except Exception as error:
+        print(f"[Google OAuth] Callback failed for org {state}: {type(error).__name__}")
+        return _oauth_redirect("google", state, "error")
 
 
 # =============================================================================

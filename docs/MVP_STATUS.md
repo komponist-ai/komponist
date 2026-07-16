@@ -53,6 +53,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] MCP tool discovery and cited context search over Streamable HTTP
 - [x] MCP agent reports create idempotent Decision proposals in the review queue
 - [x] Organization settings and encrypted connected-source configs survive API restarts
+- [x] Notion, Slack, and Google OAuth callbacks persist allowlisted tokens encrypted
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -62,6 +63,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - `apps/mcp/tests/search_context_e2e.py` — MCP discovery, cited search, and isolation (passing)
 - `apps/mcp/tests/report_result_e2e.py` — agent writeback, retry dedup, and review queue (passing)
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
+- `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
 
 ---
@@ -160,11 +162,11 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [ ] **No code exists**
 
 ### Data Persistence
-- [ ] OAuth callback tokens stored in database (callbacks still need writeback)
+- [x] OAuth callback token responses stored encrypted in connected-source records
 - [x] Connected sources and encrypted connector configs stored in Postgres
 - [x] Org settings stored in Postgres
 - [ ] Approval requests stored in database (currently in-memory dict)
-- [ ] Approval state and OAuth callback credentials still do not survive restarts
+- [ ] Approval state still does not survive restarts
 
 ### Komponist Cloud (Hosted Version)
 - [ ] Landing page / marketing website
@@ -207,8 +209,8 @@ There is no way to:
 
 ### 3. Some Workflow State Is Still In-Memory
 Connected sources and organization settings now survive API restarts. Remaining gaps:
-- OAuth callback credentials are not written to persistent connector records yet
 - Pending approval requests are still process-local
+- Real provider OAuth exchanges and token refresh behavior remain unverified
 
 ### 4. Security Not Applied
 - `security.py` has utilities but they're not used

@@ -140,6 +140,7 @@ async def upsert_single_source_type(
     source_type: str,
     name: str,
     config: dict[str, Any],
+    preserve_existing_config: bool = False,
 ) -> dict[str, Any]:
     async with async_session() as session:
         row = (
@@ -162,6 +163,9 @@ async def upsert_single_source_type(
         else:
             row.name = name
             row.status = "connected"
+            if preserve_existing_config:
+                existing_config = _decrypt_config(row.config_ciphertext)
+                config = {**existing_config, **config}
             row.config_ciphertext = _encrypt_config(config)
             row.updated_at = datetime.utcnow()
         await session.commit()
