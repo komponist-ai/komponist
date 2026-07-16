@@ -10,19 +10,19 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 
 | Category | Status | Progress |
 |----------|--------|----------|
-| Core Infrastructure | ✅ Locally verified | 85% |
+| Core Infrastructure | ✅ Locally verified | 90% |
 | Extraction Pipeline | ✅ Local-docs slice verified | 80% |
-| MCP Server | 🚧 Core tools locally verified | 80% |
-| Integrations | 🚧 Code exists | 40% |
-| Web UI | 🚧 Auth gate browser-verified | 78% |
+| MCP Server | ✅ All six contracts locally verified | 93% |
+| Integrations | 🚧 Provider-free contracts verified | 55% |
+| Web UI | ✅ Production build and core flows verified | 88% |
 | Chat Feature | ✅ Grounded live OpenAI flow verified | 88% |
-| Auth & Security | 🚧 Google + password sessions and org roles | 62% |
-| User Management | 🚧 Multi-org membership UI | 70% |
+| Auth & Security | ✅ Session/API-key org isolation verified | 88% |
+| User Management | 🚧 Multi-org membership UI | 80% |
 | Deployment | ❌ Not implemented | 10% |
 
-**Overall MVP Readiness: ~54%**
+**Overall MVP Readiness: ~72%**
 
-**Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker, including a real OpenAI chat and embedding request. Live provider login, authenticated API isolation, MCP client interoperability, live extraction, and deployment are still unverified.
+**Reality check:** The local-documents → extraction → review → confirmed graph → cited chat/API/MCP loop runs end-to-end in Docker. Browser routes are session- and role-protected; programmatic routes and MCP derive the organization from revocable API keys. Live external provider OAuth/webhooks, an external MCP host such as Claude Code, clean-machine setup, and deployment remain unverified.
 
 ---
 
@@ -33,7 +33,7 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 - **Tested** = Someone ran it and verified it works
 - **Production-ready** = Tested + handles errors + documented
 
-Almost everything in this repo is in the "code exists" state. Very little has been tested.
+The core local slice now has broad contract and restart coverage. External provider and deployment boundaries remain in the "code exists" state until exercised with real credentials.
 
 ---
 
@@ -56,6 +56,13 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Organization settings and encrypted connected-source configs survive API restarts
 - [x] Notion, Slack, and Google OAuth callbacks persist allowlisted tokens encrypted
 - [x] MCP approval requests and immutable decisions survive MCP restarts
+- [x] All six authenticated MCP tools, the brain resource, project-scoped decisions, and deterministic constraint verdicts
+- [x] All organization brain routes enforce session membership and write/admin roles
+- [x] Organization API keys expose cited `/v1/context`, `/v1/brain`, and project-scoped `/v1/decisions`
+- [x] Revoked API keys fail immediately and unauthenticated MCP/REST access returns 401
+- [x] Connector OAuth state is opaque, short-lived, persisted, and single-use
+- [x] GitHub, Linear, Slack, and Google webhook endpoints reject unsigned requests by default
+- [x] Typed `@komponist/sdk` context client and its `{ data, error }` contract
 - [x] Provider-free Google user-login and persistent session lifecycle
 - [x] Multi-user organizations, role-checked invites, and per-session org switching
 - [x] Web login/session gate renders correctly in the local browser without console errors
@@ -69,8 +76,11 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - `apps/mcp/tests/search_context_e2e.py` — MCP discovery, cited search, and isolation (passing)
 - `apps/mcp/tests/report_result_e2e.py` — agent writeback, retry dedup, and review queue (passing)
 - `apps/mcp/tests/approval_persistence_e2e.py` — approval persistence, isolation, and restart (passing)
+- `apps/mcp/tests/tool_contract_e2e.py` — all tool discovery, brain resource, decision scope, and constraint verdicts (passing)
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
+- `apps/api/tests/platform_ai_and_api_keys_e2e.py` — API keys, cited programmatic context, project scope, graph stats, approvals, and revocation (passing)
+- `packages/sdk-js/tests/client.test.mjs` — typed client URLs, auth headers, scopes, validation, and errors (passing)
 - `apps/api/tests/auth_session_e2e.py` — Google login state, session, restart, and logout (passing)
 - `apps/api/tests/organization_membership_e2e.py` — two-user invite, roles, isolation, and org switching (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
@@ -110,6 +120,9 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `report_result` writes structured Decisions as proposed with agent-report Evidence
 - [x] `report_result` retries are idempotent and can link verified Work Packs
 - [x] Approval requests persist in Postgres and remain org-isolated across MCP restarts
+- [x] `get_active_decisions` applies real project scoping and requires cited decisions
+- [x] `check_constraint` has a provider-free deterministic fallback and validates live structured output
+- [x] All six tools and `company-brain://info` are covered through an authenticated FastMCP client
 - [ ] **NOT TESTED** — Never connected to Claude Code or another external MCP client
 - [ ] **NOT TESTED** — Real Slack delivery and button callbacks never tested
 
@@ -119,7 +132,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
   - OAuth flows for Notion, Slack, Google
   - Export/import endpoints
 - [x] `database.py` — SQLAlchemy models for Postgres (code complete)
-- [x] `security.py` — Security utilities exist but NOT wired to endpoints
+- [x] `security.py` — Login rate limiting and organization validation wired to boundaries
 - [x] `integrations/notion.py` — Notion OAuth + page extraction (code complete)
 - [x] `integrations/slack.py` — Slack OAuth + message extraction (code complete)
 - [x] `integrations/github.py` — GitHub webhook + PR extraction (code complete)
@@ -127,6 +140,10 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `integrations/google.py` — Google OAuth + Drive export (code complete)
 - [x] API starts in Docker and reports healthy Neo4j and Postgres connections
 - [x] Review lifecycle and grounded chat endpoints are E2E-tested
+- [x] Queue, entity, source, graph, settings, export/import, and approval routes enforce session roles
+- [x] API-key surface returns confirmed, cited context without caller-controlled organization IDs
+- [x] Webhook handlers verify signatures/tokens and reject malformed JSON
+- [x] Connector OAuth state is persisted and replay-protected
 - [ ] **NOT TESTED** — Webhooks never received real events
 - [ ] **NOT TESTED** — OAuth flows never completed
 
@@ -144,6 +161,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `lib/api.ts` — API client functions (85 lines)
 - [x] Components: AuthProvider, AuthGate, AppLayout, Sidebar, Nav, FactCard, ChatMessage, ChatInput, EvidenceChip
 - [x] Web app builds successfully and runs in the local Docker stack
+- [x] Landingpage and API settings show the real `@komponist/sdk` contract
 - [x] Signed-out auth gate loaded and visually verified in the local browser
 - [x] Email/password authenticated source and settings pages browser-verified
 
@@ -173,7 +191,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Active organization switcher and member/role UI
 - [x] Membership and invitation API flow
 - [x] Multiple organizations per user with per-session active org
-- [ ] Org-scoped API keys
+- [x] Org-scoped, hashed, revocable API keys
 
 ### Data Persistence
 - [x] OAuth callback token responses stored encrypted in connected-source records
@@ -183,13 +201,13 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Approval state survives MCP restarts
 
 ### Komponist Cloud (Hosted Version)
-- [ ] Landing page / marketing website
+- [x] Landing page / marketing website
 - [ ] Cloud infrastructure deployment
 - [ ] Multi-tenant data isolation
 - [ ] Billing & subscription (Stripe)
 - [ ] Usage limits & quotas
 - [ ] Terms of Service / Privacy Policy
-- [ ] **No code exists**
+- [ ] Hosted infrastructure and commercial operations are not implemented
 
 ### Komponist Self-Hosted (Local Version)
 - [ ] One-command setup that actually works
@@ -215,24 +233,22 @@ The local vertical slice is verified, but important boundaries are still open:
 - Live OpenAI grounded chat is verified with `gpt-5.6-luna`; live extraction is still unverified
 - No cloud deployment or multi-user workflow has been tested
 
-### 2. Authentication Is Only Partially Enforced
-The provider-free Google login and persistent session lifecycle work, but:
+### 2. Authentication Is Enforced Locally, but Production Hardening Remains
 - Live Google login has not been completed with real credentials
-- The Web UI gate and organization screens exist, but authenticated browser flows need live Google credentials
-- Existing API endpoints still accept caller-provided `org_id` values
-- The active session organization is not yet enforced on existing brain API routes
-- MCP now requires hashed, revocable organization API keys and derives the
-  organization from the authenticated key
+- Browser routes validate the requested organization against the session membership
+- Write routes require member-or-higher and management routes require owner/admin
+- REST and MCP programmatic access derive the organization from hashed, revocable API keys
+- Password reset, production rate limiting, and a formal migration system are still missing
 
 ### 3. Real Provider Lifecycles Remain Unverified
 Connected sources, organization settings, and approval requests now survive service restarts. Remaining gaps:
 - Real provider OAuth exchanges and token refresh behavior remain unverified
 - Real Slack approval delivery and signed interaction callbacks remain unverified
 
-### 4. Security Is Incomplete
-- `security.py` has utilities but they're not used
-- Legacy brain API endpoints still need session/API-key authentication
-- Org isolation decorator exists but isn't applied
+### 4. Security Follow-ups
+- Webhook secrets are global environment values rather than per-connection credentials
+- Production needs proxy-aware rate limiting, secret rotation procedures, and a formal security review
+- The accidental local diagnostic exposure of a development OpenAI key requires that key to be rotated
 
 ---
 
@@ -240,14 +256,12 @@ Connected sources, organization settings, and approval requests now survive serv
 
 | Task | Effort | Why |
 |------|--------|-----|
-| Run Docker and fix issues | 4-8 hours | Unknown bugs will surface |
 | Test Notion → Queue flow | 2-4 hours | Integration debugging |
 | Test MCP with Claude Code | 2-4 hours | Protocol debugging |
-| Wire auth into Web/API routes | 6-12 hours | Session-derived org isolation and UI states |
-| Persist tokens/settings to DB | 4-8 hours | Schema + migration + code |
 | Test full review queue flow | 2-4 hours | UI debugging |
 | Deploy to cloud | 8-16 hours | Infrastructure + debugging |
-| **Total to "barely working"** | **30-60 hours** | Optimistic estimate |
+| Add migrations + production rate limits | 6-10 hours | Deployment safety |
+| **Remaining to hosted pilot** | **20-40 hours** | Excludes provider approval delays |
 
 ---
 
@@ -264,8 +278,8 @@ Connected sources, organization settings, and approval requests now survive serv
 - [ ] MCP server connects to Claude Code (authenticated FastMCP client verified)
 - [x] `search_company_context` returns confirmed results with Evidence citations
 - [x] `report_result` sends new Decisions to the review queue without auto-confirming
-- [ ] `check_constraint` correctly blocks/allows actions
-- [ ] Data persists across server restarts
+- [x] `check_constraint` correctly blocks/allows/requires approval in deterministic contract tests
+- [x] Settings, encrypted source credentials, OAuth state, and approvals persist across server restarts
 
 ### Deployment:
 - [ ] Self-hosted: `docker compose up` on any machine
@@ -292,19 +306,19 @@ Connected sources, organization settings, and approval requests now survive serv
 ### Phase 2: Add Authentication (2-3 days)
 9. [x] Implement Google OAuth contract for users
 10. [x] Add persistent session management
-11. Protect API endpoints
+11. [x] Protect API endpoints
 12. [x] Persist hashed session tokens to database
 
 ### Phase 3: Test MCP (1-2 days)
 13. [ ] Configure MCP server in Claude Code (authenticated HTTP discovery verified)
-14. Test all 6 tools with real data
-15. Fix any protocol issues
+14. [x] Test all 6 tools with isolated graph data
+15. [x] Fix discovered protocol, citation, and project-scope issues
 
 ### Phase 4: Deploy (2-3 days)
 16. Deploy to Fly.io
 17. Set up AuraDB (Neo4j)
 18. Set up Neon (Postgres)
-19. Create landing page
+19. [x] Create landing page
 
 ---
 
@@ -322,27 +336,27 @@ Connected sources, organization settings, and approval requests now survive serv
      ▼          ▼          ▼          ▼              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    API (FastAPI)                                 │
-│ ✅ Tested │ 🚧 Auth foundation; routes open │ ✅ Persistence    │
+│ ✅ Tested │ ✅ Session/API-key isolation │ ✅ Persistence      │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │               Extraction Pipeline (LangGraph)                    │
-│  📝 Code exists │ ❌ Not tested with real data                   │
+│ ✅ Local-doc slice │ 🚧 Live extraction still unverified         │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Neo4j (Company Brain)                         │
-│  📝 Schema defined │ ❌ Not deployed │ ❌ No data                │
+│ ✅ Schema + local E2E data │ ❌ Not deployed                      │
 └────────────────────────────┬────────────────────────────────────┘
                              │
               ┌──────────────┴──────────────┐
               ▼                              ▼
 ┌─────────────────────────┐    ┌─────────────────────────────────┐
 │      MCP Server         │    │          Web UI                  │
-│  📝 Code exists         │    │  📝 Code exists                  │
-│  ❌ Never connected     │    │  ✅ Auth gate browser-verified  │
+│ ✅ Six tools + resource │    │ ✅ Production build             │
+│ 🚧 External host open   │    │ ✅ Auth/core flows verified     │
 └─────────────────────────┘    └─────────────────────────────────┘
 
 Legend:
@@ -355,11 +369,11 @@ Legend:
 
 ## Summary
 
-**The honest truth:** The local core loop and auth foundation are tested, but this is not yet a user-ready product. The path from here to "10 design partners using it daily" requires:
+**The honest truth:** The local core loop, authenticated API/MCP surface, SDK, and auth foundation are tested, but this is not yet a hosted user-ready product. The path from here to "10 design partners using it daily" requires:
 
-1. **Enforcing sessions and org isolation across API routes**
-2. **Completing live Google login and authenticated browser testing**
-3. **Testing live Google, Notion, and MCP integrations**
+1. **Completing live Google login and provider OAuth/webhook testing**
+2. **Connecting a real external MCP host**
+3. **Adding migrations, production rate limits, and operational monitoring**
 4. **Deploying and operating it safely**
 
 Estimated time to MVP: **2-4 weeks of focused work**, assuming no major surprises when testing reveals bugs.
