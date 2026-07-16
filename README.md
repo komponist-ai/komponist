@@ -209,6 +209,23 @@ keys.
 
 ## Development
 
+### Full stack with web hot reload
+
+Run the normal stack with the web development override:
+
+```bash
+docker compose --env-file .env \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.web-dev.yml \
+  up -d --build
+```
+
+Changes inside `apps/web` now appear at http://localhost:3000 without rebuilding
+the image. Next.js dependencies and generated `.next` files stay in Docker
+volumes, so they do not overwrite files on the host.
+
+### Run application services locally
+
 ```bash
 # Start databases only
 docker compose -f docker/docker-compose.dev.yml up -d
