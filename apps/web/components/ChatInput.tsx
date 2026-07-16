@@ -39,7 +39,7 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
     <div className="relative z-10 shrink-0 border-t border-line bg-paper/90 px-4 pb-4 pt-3 backdrop-blur-xl">
       <div className="mx-auto max-w-[880px]">
         <div className="flex items-end gap-3 rounded-xl border-2 border-ink bg-white p-2.5 shadow-[5px_5px_0_#201c15] transition-shadow focus-within:shadow-[7px_7px_0_#e8641b]">
-          <div className="grid size-10 shrink-0 place-items-center rounded-md border border-line bg-warning-soft text-orange-dark">
+          <div className={`grid size-10 shrink-0 place-items-center rounded-md border border-line bg-warning-soft text-orange-dark ${disabled ? 'animate-pulse' : ''}`}>
             <Sparkles className="size-4" />
           </div>
           <textarea
@@ -64,7 +64,10 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
           </Button>
         </div>
         <div className="flex items-center justify-between gap-4 px-2 pt-2 font-mono text-[9px] text-faint sm:text-[10px]">
-          <span className="flex items-center gap-1.5"><ShieldCheck className="size-3 text-teal" /> confirmed graph only</span>
+          <span className="flex items-center gap-1.5">
+            {disabled ? <LoaderCircle className="size-3 animate-spin text-orange" /> : <ShieldCheck className="size-3 text-teal" />}
+            {disabled ? 'Komponist is working on your answer' : 'confirmed graph only'}
+          </span>
           <span><kbd>Enter</kbd> send · <kbd>Shift</kbd> + <kbd>Enter</kbd> new line</span>
         </div>
       </div>

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   ArrowUpRight, CircleDot, FileKey2, FlaskConical, MessageSquareText,
-  Plus, ShieldCheck, Sparkles,
+  LoaderCircle, Plus, ShieldCheck, Sparkles,
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
 import StudioTopbar from '../../components/StudioTopbar'
@@ -49,9 +49,11 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const latestMessageContent = messages[messages.length - 1]?.content
+
   useEffect(() => {
     scrollToBottom()
-  }, [messages.length])
+  }, [isLoading, latestMessageContent, messages.length])
 
   useEffect(() => {
     let cancelled = false
@@ -76,12 +78,17 @@ export default function ChatPage() {
   const handleSendMessage = async (messageText: string) => {
     const orgId = getActiveOrgId()
 
-    // Add user message
+    // Add the user turn and the assistant placeholder immediately so the
+    // retrieval/generation state is visible before the server starts streaming.
     const userMessage: Message = { role: 'user', content: messageText }
-    setMessages((prev) => [...prev, userMessage])
+    setMessages((prev) => [
+      ...prev,
+      userMessage,
+      { role: 'assistant', content: '', sources: [] },
+    ])
     setIsLoading(true)
     setError(null)
-    let assistantAdded = false
+    let assistantAdded = true
 
     try {
       // Call chat API with streaming
@@ -100,14 +107,11 @@ export default function ChatPage() {
 
       // Handle streaming response
       const reader = response.body?.getReader()
+      if (!reader) throw new Error('The response stream could not be opened')
       const decoder = new TextDecoder()
 
       let assistantMessage = ''
       let sources: any[] = []
-
-      // Add empty assistant message for streaming
-      setMessages((prev) => [...prev, { role: 'assistant', content: '', sources: [] }])
-      assistantAdded = true
 
       let buffer = ''
 
@@ -135,7 +139,7 @@ export default function ChatPage() {
       }
 
       while (true) {
-        const { done, value } = await reader!.read()
+        const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
@@ -179,11 +183,12 @@ export default function ChatPage() {
           icon={MessageSquareText}
           actions={
             <>
-            <Badge variant="teal" className="hidden sm:inline-flex" title="Chat searches confirmed entities only">
-              <span className="size-1.5 rounded-full bg-teal" /> Confirmed only
+            <Badge variant={isLoading ? 'orange' : 'teal'} className="hidden sm:inline-flex" title="Chat searches confirmed entities only">
+              {isLoading ? <LoaderCircle className="size-3 animate-spin" /> : <span className="size-1.5 rounded-full bg-teal" />}
+              {isLoading ? 'Thinking' : 'Confirmed only'}
             </Badge>
             {messages.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => setMessages([])}>
+              <Button variant="outline" size="sm" onClick={() => setMessages([])} disabled={isLoading}>
                 <Plus /> New thread
               </Button>
             )}
@@ -283,7 +288,7 @@ export default function ChatPage() {
           <ChatInput
             onSend={handleSendMessage}
             disabled={isLoading}
-            placeholder="Ask a question about your company knowledge…"
+            placeholder={isLoading ? 'Komponist is thinking…' : 'Ask a question about your company knowledge…'}
           />
         </div>
       </div>
