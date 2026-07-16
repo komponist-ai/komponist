@@ -126,6 +126,21 @@ class OrgSettingsUpdate(BaseModel):
     auto_confirm: Optional[bool] = None
     parallel_batch_size: Optional[int] = None
 
+
+async def _get_entity_lifecycle(entity_id: str, org_id: str) -> dict:
+    """Load the lifecycle fields required by review mutations."""
+    result = await GraphClient.run_query(
+        """
+        MATCH (e:Entity {id: $entity_id, org_id: $org_id})
+        RETURN e.id AS id, e.entity_type AS entity_type, e.status AS status
+        """,
+        {"entity_id": entity_id, "org_id": org_id},
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    return result[0]
+
+
 @app.get("/queue")
 async def get_queue(org_id: str = "default-org"):
     """Get review queue (proposed entities)."""
@@ -252,12 +267,23 @@ async def confirm_entity(
     statement: Optional[str] = None,
 ):
     """Confirm a proposed entity."""
+    entity = await _get_entity_lifecycle(entity_id, org_id)
+    if entity["status"] != "proposed":
+        raise HTTPException(
+            status_code=409,
+            detail="Only proposed entities can be confirmed",
+        )
+
     edited_statement = payload.statement if payload else statement
+    if edited_statement is not None:
+        edited_statement = edited_statement.strip()
+        if not edited_statement:
+            raise HTTPException(status_code=422, detail="statement cannot be empty")
 
     # Update statement if provided
     if edited_statement:
         query = """
-        MATCH (e:Entity {id: $entity_id, org_id: $org_id})
+        MATCH (e:Entity {id: $entity_id, org_id: $org_id, status: 'proposed'})
         SET e.statement = $statement,
             e.status = 'confirmed',
             e.confirmed_at = datetime(),
@@ -271,7 +297,7 @@ async def confirm_entity(
         }
     else:
         query = """
-        MATCH (e:Entity {id: $entity_id, org_id: $org_id})
+        MATCH (e:Entity {id: $entity_id, org_id: $org_id, status: 'proposed'})
         SET e.status = 'confirmed',
             e.confirmed_at = datetime(),
             e.updated_at = datetime()
@@ -282,7 +308,7 @@ async def confirm_entity(
     result = await GraphClient.run_query(query, params)
 
     if not result:
-        return {"error": "Entity not found"}, 404
+        raise HTTPException(status_code=409, detail="Entity lifecycle changed")
 
     return result[0]
 
@@ -290,8 +316,15 @@ async def confirm_entity(
 @app.post("/entities/{entity_id}/reject")
 async def reject_entity(entity_id: str, org_id: str = "default-org"):
     """Reject a proposed entity."""
+    entity = await _get_entity_lifecycle(entity_id, org_id)
+    if entity["status"] != "proposed":
+        raise HTTPException(
+            status_code=409,
+            detail="Only proposed entities can be rejected",
+        )
+
     query = """
-    MATCH (e:Entity {id: $entity_id, org_id: $org_id})
+    MATCH (e:Entity {id: $entity_id, org_id: $org_id, status: 'proposed'})
     SET e.status = 'rejected',
         e.updated_at = datetime()
     RETURN e.id as id, e.status as status
@@ -300,7 +333,7 @@ async def reject_entity(entity_id: str, org_id: str = "default-org"):
     result = await GraphClient.run_query(query, {"entity_id": entity_id, "org_id": org_id})
 
     if not result:
-        return {"error": "Entity not found"}, 404
+        raise HTTPException(status_code=409, detail="Entity lifecycle changed")
 
     return result[0]
 
@@ -316,6 +349,26 @@ async def merge_entity(
     resolved_target_id = payload.target_id if payload else target_id
     if not resolved_target_id:
         raise HTTPException(status_code=422, detail="target_id is required")
+    if resolved_target_id == entity_id:
+        raise HTTPException(status_code=422, detail="Cannot merge an entity into itself")
+
+    source = await _get_entity_lifecycle(entity_id, org_id)
+    target = await _get_entity_lifecycle(resolved_target_id, org_id)
+    if source["status"] != "proposed":
+        raise HTTPException(
+            status_code=409,
+            detail="Only proposed entities can be merged",
+        )
+    if target["status"] not in {"proposed", "confirmed"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Merge target must be proposed or confirmed",
+        )
+    if source["entity_type"] != target["entity_type"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Entities must have the same type to be merged",
+        )
 
     # Attach the source entity's evidence to the target, then delete source
     query = """
@@ -324,10 +377,10 @@ async def merge_entity(
     OPTIONAL MATCH (source)-[:CITED_BY]->(ev:Evidence)
     WITH source, target, collect(ev) as evidences
     FOREACH (ev IN evidences |
-        CREATE (target)-[:CITED_BY]->(ev)
+        MERGE (target)-[:CITED_BY]->(ev)
     )
     DETACH DELETE source
-    RETURN target.id as target_id, count(evidences) as evidence_moved
+    RETURN target.id as target_id, size(evidences) as evidence_moved
     """
 
     result = await GraphClient.run_query(query, {
@@ -337,7 +390,7 @@ async def merge_entity(
     })
 
     if not result:
-        return {"error": "Entities not found"}, 404
+        raise HTTPException(status_code=409, detail="Entity lifecycle changed")
 
     return {
         "merged": entity_id,
