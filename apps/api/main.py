@@ -1594,31 +1594,99 @@ _CHAT_STOP_WORDS = {
     "who", "wie", "wir", "with",
 }
 
-_CHAT_ENTITY_TERMS = {
-    "decision": "decision", "decisions": "decision",
-    "goal": "goal", "goals": "goal",
-    "constraint": "constraint", "constraints": "constraint",
-    "project": "project", "projects": "project",
-    "entscheidung": "decision", "entscheidungen": "decision",
-    "ziel": "goal", "ziele": "goal",
-    "vorgabe": "constraint", "vorgaben": "constraint",
-    "projekt": "project", "projekte": "project",
+_CHAT_ENTITY_TYPES = ["Decision", "Goal", "Constraint", "Project"]
+
+_CHAT_QUERY_PLAN_SCHEMA = {
+    "title": "Komponist chat retrieval plan",
+    "type": "object",
+    "properties": {
+        "operation": {
+            "type": "string",
+            "enum": ["search", "list", "count", "overview"],
+            "description": (
+                "search for a factual question, list for an exhaustive set, "
+                "count for aggregate quantities, overview for a broad summary"
+            ),
+        },
+        "query": {
+            "type": "string",
+            "description": (
+                "A standalone semantic search query with pronouns resolved from "
+                "conversation history. Empty for count or unfiltered list operations."
+            ),
+        },
+        "entity_types": {
+            "type": "array",
+            "items": {"type": "string", "enum": _CHAT_ENTITY_TYPES},
+            "description": "Relevant graph entity types; empty means all types.",
+        },
+        "group_by": {
+            "type": "string",
+            "enum": ["none", "entity_type", "source"],
+            "description": "Grouping for count operations; otherwise none.",
+        },
+        "sort": {
+            "type": "string",
+            "enum": ["relevance", "newest", "oldest"],
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Requested result limit between 1 and 100.",
+        },
+        "language": {
+            "type": "string",
+            "enum": ["english", "german"],
+            "description": "English unless the user explicitly requests German.",
+        },
+        "expand_graph": {
+            "type": "boolean",
+            "description": (
+                "True only when relationships or connected implications are needed."
+            ),
+        },
+    },
+    "required": [
+        "operation", "query", "entity_types", "group_by", "sort", "limit",
+        "language", "expand_graph",
+    ],
+    "additionalProperties": False,
 }
 
-_CHAT_ENTITY_TYPES = {
-    "decision": "Decision",
-    "goal": "Goal",
-    "constraint": "Constraint",
-    "project": "Project",
+_GROUNDED_CHAT_ANSWER_SCHEMA = {
+    "title": "Komponist grounded chat answer",
+    "type": "object",
+    "properties": {
+        "blocks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["paragraph", "heading", "bullet"],
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Plain text without Markdown or citation markers.",
+                    },
+                    "citations": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "One-based source numbers supporting this block.",
+                    },
+                },
+                "required": ["kind", "text", "citations"],
+                "additionalProperties": False,
+            },
+        },
+        "insufficient_context": {
+            "type": "boolean",
+            "description": "True when the confirmed context cannot answer the question.",
+        },
+    },
+    "required": ["blocks", "insufficient_context"],
+    "additionalProperties": False,
 }
-
-_COUNT_QUESTION_PATTERN = re.compile(
-    r"\b(?:how\s+many|number\s+of|count\s+of|wie\s+viele)\s+"
-    r"(?:confirmed\s+|bestätigte[nr]?\s+)?"
-    r"(?P<entity>decisions?|goals?|constraints?|projects?|"
-    r"entscheidungen?|ziele?|vorgaben?|projekte?)\b",
-    flags=re.IGNORECASE,
-)
 
 _DURATION_PATTERN = re.compile(
     r"\b(?P<value>\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
@@ -1643,37 +1711,142 @@ def _chat_search_terms(message: str) -> List[str]:
 
     words = re.findall(r"[\w-]+", message.casefold(), flags=re.UNICODE)
     return list(dict.fromkeys(
-        _CHAT_ENTITY_TERMS.get(word, word)
-        for word in words if len(word) >= 3 and word not in _CHAT_STOP_WORDS
+        word for word in words if len(word) >= 3 and word not in _CHAT_STOP_WORDS
     ))[:12]
 
 
-def _chat_count_entity_type(message: str) -> Optional[str]:
-    match = _COUNT_QUESTION_PATTERN.search(message)
-    if not match:
-        return None
-    normalized = _CHAT_ENTITY_TERMS.get(match.group("entity").casefold())
-    return _CHAT_ENTITY_TYPES.get(normalized or "")
+def _chat_history_text(history: List[ChatMessage]) -> str:
+    if not history:
+        return "No previous conversation."
+    return "\n".join(
+        f"{message.role}: {message.content}"
+        for message in history[-6:]
+    )
 
 
-async def _exact_entity_type_chat_search(org_id: str, entity_type: str) -> List[dict]:
-    """Return every confirmed entity of a type for exact aggregate questions."""
+async def _plan_chat_query(
+    llm: Any,
+    message: str,
+    history: List[ChatMessage],
+) -> dict:
+    """Turn arbitrary phrasing into a validated, allowlisted graph query plan."""
+    plan = await llm.call_json(
+        prompt=(
+            f"Conversation:\n{_chat_history_text(history)}\n\n"
+            f"Current user question:\n{message}"
+        ),
+        system="""You plan read-only retrieval from a company knowledge graph.
+
+The confirmed graph has exactly four semantic entity types:
+- Decision: a chosen direction, policy, or architecture choice
+- Goal: an objective, target, desired outcome, or success criterion
+- Constraint: a restriction, requirement, rule, or boundary
+- Project: an initiative, pilot, program, or workstream
+
+Resolve synonyms and references such as "it", "that project", or "those goals"
+using the conversation. Choose count for totals or grouped quantities, list when
+the user asks for every matching item, overview for broad company-brain summaries,
+and search for focused factual questions. For requests covering several types,
+include every relevant type. Use group_by entity_type for per-type counts and
+source for counts by document/source. Never create Cypher or invent entity types.
+For exhaustive words such as all, every, complete, or entire, set limit to 100.
+Otherwise respect an explicitly requested number and use a focused default limit.
+Set expand_graph only for relationship, dependency, impact, or connected-context questions.
+English is the default response language; choose German only when explicitly asked.
+Return only the structured plan.""",
+        max_tokens=500,
+        schema=_CHAT_QUERY_PLAN_SCHEMA,
+    )
+    plan["entity_types"] = list(dict.fromkeys(plan.get("entity_types") or []))
+    plan["limit"] = max(1, min(int(plan.get("limit") or 12), 100))
+    # Language is a product preference, not a retrieval inference: English stays
+    # the default even when the question itself is written in German.
+    plan["language"] = "german" if _answer_in_german(message) else "english"
+    if plan["operation"] == "search" and not plan.get("query", "").strip():
+        plan["query"] = message
+    if plan["operation"] != "count":
+        plan["group_by"] = "none"
+    return plan
+
+
+def _fallback_chat_plan(message: str, broad: bool = False) -> dict:
+    """Safe retrieval fallback when the planner is unavailable."""
+    return {
+        "operation": "overview" if broad else "search",
+        "query": message,
+        "entity_types": [],
+        "group_by": "none",
+        "sort": "relevance",
+        "limit": 100 if broad else 12,
+        "language": "german" if _answer_in_german(message) else "english",
+        "expand_graph": False,
+    }
+
+
+async def _browse_chat_entities(
+    org_id: str,
+    entity_types: List[str],
+    limit: int,
+    sort: str = "newest",
+) -> List[dict]:
+    """Browse confirmed entities using only validated filters and sort modes."""
+    order_by = {
+        "oldest": "n.confirmed_at ASC, n.created_at ASC, n.id",
+        "newest": "n.confirmed_at DESC, n.created_at DESC, n.id",
+        "relevance": "n.confirmed_at DESC, n.created_at DESC, n.id",
+    }[sort]
     return await GraphClient.run_query(
-        """
-        MATCH (n:Entity {
-            org_id: $org_id, status: 'confirmed', entity_type: $entity_type
-        })
+        f"""
+        MATCH (n:Entity {{org_id: $org_id, status: 'confirmed'}})
+        WHERE size($entity_types) = 0 OR n.entity_type IN $entity_types
         RETURN n.id AS id, n.entity_type AS entity_type,
                n.statement AS statement, n.detail AS detail,
                n.status AS status, n.confidence AS confidence,
                1.0 AS score
-        ORDER BY n.confirmed_at DESC, n.created_at DESC, n.id
+        ORDER BY {order_by}
+        LIMIT $limit
         """,
-        {"org_id": org_id, "entity_type": entity_type},
+        {"org_id": org_id, "entity_types": entity_types, "limit": limit},
     )
 
 
-async def _literal_chat_search(org_id: str, message: str, k: int = 8) -> List[dict]:
+async def _count_chat_entities(
+    org_id: str,
+    entity_types: List[str],
+    group_by: str,
+) -> List[dict]:
+    """Run exact aggregate counts without letting the model generate database code."""
+    if group_by == "source":
+        return await GraphClient.run_query(
+            """
+            MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
+            WHERE size($entity_types) = 0 OR n.entity_type IN $entity_types
+            MATCH (n)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
+            WITH coalesce(e.reference, e.source, 'Unknown source') AS group,
+                 count(DISTINCT n) AS count
+            RETURN group, count
+            ORDER BY count DESC, group
+            """,
+            {"org_id": org_id, "entity_types": entity_types},
+        )
+
+    return await GraphClient.run_query(
+        """
+        MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE size($entity_types) = 0 OR n.entity_type IN $entity_types
+        RETURN n.entity_type AS group, count(n) AS count
+        ORDER BY group
+        """,
+        {"org_id": org_id, "entity_types": entity_types},
+    )
+
+
+async def _literal_chat_search(
+    org_id: str,
+    message: str,
+    k: int = 8,
+    entity_types: Optional[List[str]] = None,
+) -> List[dict]:
     """Search confirmed entities without relying on vector/full-text indexes."""
     terms = _chat_search_terms(message)
     if not terms:
@@ -1682,6 +1855,7 @@ async def _literal_chat_search(org_id: str, message: str, k: int = 8) -> List[di
     return await GraphClient.run_query(
         """
         MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE size($entity_types) = 0 OR n.entity_type IN $entity_types
         OPTIONAL MATCH (n)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
         WITH n, collect(DISTINCT evidence) AS evidence_items
         WITH n, evidence_items, [term IN $terms WHERE
@@ -1702,7 +1876,48 @@ async def _literal_chat_search(org_id: str, message: str, k: int = 8) -> List[di
         ORDER BY matches DESC, n.confirmed_at DESC
         LIMIT $k
         """,
-        {"org_id": org_id, "terms": terms, "k": k},
+        {
+            "org_id": org_id,
+            "terms": terms,
+            "k": k,
+            "entity_types": entity_types or [],
+        },
+    )
+
+
+async def _expand_chat_graph_context(
+    org_id: str,
+    seed_results: List[dict],
+    limit: int = 20,
+) -> List[dict]:
+    """Add confirmed one-hop neighbors so relationship questions have graph context."""
+    if not seed_results:
+        return []
+    return await GraphClient.run_query(
+        """
+        MATCH (seed:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE seed.id IN $seed_ids
+        MATCH (seed)-[relationship]-(neighbor:Entity {
+            org_id: $org_id, status: 'confirmed'
+        })
+        WHERE NOT neighbor.id IN $seed_ids
+        RETURN DISTINCT neighbor.id AS id,
+               neighbor.entity_type AS entity_type,
+               neighbor.statement AS statement,
+               neighbor.detail AS detail,
+               neighbor.status AS status,
+               neighbor.confidence AS confidence,
+               type(relationship) AS relationship_type,
+               seed.id AS related_seed_id,
+               0.0 AS score
+        ORDER BY neighbor.confirmed_at DESC, neighbor.created_at DESC
+        LIMIT $limit
+        """,
+        {
+            "org_id": org_id,
+            "seed_ids": [result["id"] for result in seed_results],
+            "limit": limit,
+        },
     )
 
 
@@ -1807,9 +2022,15 @@ def _chat_context_and_sources(search_results: List[dict]) -> tuple[str, List[dic
             )
 
         citations = " ".join(f"[{number}]" for number in citation_numbers)
+        relationship = ""
+        if result.get("relationship_type"):
+            relationship = (
+                f"\nGraph relation: {result['relationship_type']} with retrieved entity "
+                f"{result.get('related_seed_id')}."
+            )
         context_parts.append(
             f"[{result['entity_type']}] {result['statement']} {citations}\n"
-            f"Detail: {result.get('detail') or 'N/A'}\n"
+            f"Detail: {result.get('detail') or 'N/A'}{relationship}\n"
             + "\n".join(evidence_lines)
         )
     return "\n\n".join(context_parts), sources
@@ -1871,74 +2092,138 @@ def _mock_chat_answer(message: str, search_results: List[dict], sources: List[di
     return answer
 
 
-def _normalize_grounded_answer(
-    message: str,
-    answer: str,
-    search_results: List[dict],
+def _aggregate_count_answer(
+    plan: dict,
+    count_rows: List[dict],
     sources: List[dict],
 ) -> str:
-    """Make exact-value answers deterministic without changing general LLM prose."""
-    if not search_results or not re.search(
-        r"\b(wie\s+lange|dauer|dauert|how\s+long|duration)\b",
-        message.casefold(),
-    ):
-        return answer
+    """Render exact database aggregates independently of model wording."""
+    german = plan.get("language") == "german"
+    citation_limit = min(len(sources), 20)
+    citations = " ".join(f"[{index}]" for index in range(1, citation_limit + 1))
 
-    primary = search_results[0]
-    primary_text = " ".join(filter(None, [
-        primary.get("statement"), primary.get("detail"),
-    ]))
-    duration = _extract_duration(primary_text)
-    if not duration:
-        return answer
+    if plan.get("group_by") == "source":
+        source_types = plan.get("entity_types") or []
+        if len(source_types) == 1:
+            source_type = source_types[0]
+            source_labels = {
+                "Decision": ("Entscheidungen", "decisions"),
+                "Goal": ("Ziele", "goals"),
+                "Constraint": ("Vorgaben", "constraints"),
+                "Project": ("Projekte", "projects"),
+            }
+            german_subject, english_subject = source_labels[source_type]
+        else:
+            german_subject, english_subject = "Einträge", "items"
+        if not count_rows:
+            answer = (
+                f"Es gibt keine bestätigten {german_subject} mit Quellen."
+                if german else f"There are no confirmed {english_subject} with sources."
+            )
+        else:
+            items = [
+                f"{_human_source_label(str(row['group']))}: {row['count']}"
+                for row in count_rows
+            ]
+            heading = (
+                f"Bestätigte {german_subject} nach Quelle"
+                if german else f"Confirmed {english_subject} by source"
+            )
+            answer = f"{heading}: " + "; ".join(items) + "."
+        return answer + (f" {citations}" if citations else "")
 
-    german = _answer_in_german(message)
-    value, unit = duration
-    formatted = _format_duration(value, unit, german)
-    subject = _duration_subject(primary.get("statement") or "", german)
-    citation_numbers = [
-        index for index, source in enumerate(sources, 1)
-        if source.get("entity_id") == primary.get("id")
-    ]
-    citations = " ".join(f"[{index}]" for index in citation_numbers)
-    if german:
-        normalized = f"Der {subject} dauert {formatted}."
-    else:
-        normalized = f"The {subject} lasts {formatted}."
-    return normalized + (f" {citations}" if citations else "")
+    counts = {str(row["group"]): int(row["count"]) for row in count_rows}
+    requested_types = plan.get("entity_types") or _CHAT_ENTITY_TYPES
+    selected = [(entity_type, counts.get(entity_type, 0)) for entity_type in requested_types]
 
+    english_labels = {
+        "Decision": ("decision", "decisions"),
+        "Goal": ("goal", "goals"),
+        "Constraint": ("constraint", "constraints"),
+        "Project": ("project", "projects"),
+    }
+    german_labels = {
+        "Decision": ("Entscheidung", "Entscheidungen"),
+        "Goal": ("Ziel", "Ziele"),
+        "Constraint": ("Vorgabe", "Vorgaben"),
+        "Project": ("Projekt", "Projekte"),
+    }
 
-def _entity_count_answer(
-    message: str,
-    entity_type: str,
-    search_results: List[dict],
-    sources: List[dict],
-) -> str:
-    count = len(search_results)
-    german = _answer_in_german(message)
-    citation_numbers = list(dict.fromkeys(
-        index for index, source in enumerate(sources, 1)
-        if source.get("entity_id") in {result["id"] for result in search_results}
-    ))
-    citations = " ".join(f"[{index}]" for index in citation_numbers)
-
-    if german:
-        labels = {
-            "Decision": ("bestätigte Entscheidung", "bestätigte Entscheidungen"),
-            "Goal": ("bestätigtes Ziel", "bestätigte Ziele"),
-            "Constraint": ("bestätigte Vorgabe", "bestätigte Vorgaben"),
-            "Project": ("bestätigtes Projekt", "bestätigte Projekte"),
-        }
-        singular, plural = labels[entity_type]
-        answer = f"Im Company Brain gibt es {count} {singular if count == 1 else plural}."
-    else:
-        label = entity_type.casefold()
+    if len(selected) == 1:
+        entity_type, count = selected[0]
+        singular, plural = (german_labels if german else english_labels)[entity_type]
+        label = singular if count == 1 else plural
         answer = (
-            f"There {'is' if count == 1 else 'are'} {count} confirmed "
-            f"{label if count == 1 else label + 's'} in the company brain."
+            f"Im Company Brain gibt es {count} bestätigte {label}."
+            if german else
+            f"There {'is' if count == 1 else 'are'} {count} confirmed {label} in the company brain."
         )
+    else:
+        labels = german_labels if german else english_labels
+        parts = [
+            f"{count} {labels[entity_type][0] if count == 1 else labels[entity_type][1]}"
+            for entity_type, count in selected
+        ]
+        total = sum(count for _, count in selected)
+        answer = (
+            f"Im Company Brain gibt es insgesamt {total} bestätigte Einträge: "
+            if german else
+            f"There are {total} confirmed items in the company brain: "
+        ) + ", ".join(parts) + "."
 
     return answer + (f" {citations}" if citations else "")
+
+
+async def _generate_grounded_chat_answer(
+    llm: Any,
+    user_prompt: str,
+    system_prompt: str,
+    sources: List[dict],
+) -> str:
+    """Generate citation blocks and validate every source number server-side."""
+    payload = await llm.call_json(
+        prompt=user_prompt,
+        system=(
+            system_prompt
+            + "\n\nReturn a structured answer made of plain-text blocks. Every factual "
+            "paragraph or bullet must name at least one supporting source number. "
+            "Headings have no citations. Do not put [1]-style markers in block text."
+        ),
+        max_tokens=2048,
+        schema=_GROUNDED_CHAT_ANSWER_SCHEMA,
+    )
+
+    rendered: List[str] = []
+    for block in payload.get("blocks", []):
+        text = str(block.get("text") or "").strip()
+        if not text:
+            continue
+        kind = block.get("kind")
+        citations = list(dict.fromkeys(
+            int(index) for index in block.get("citations", [])
+            if isinstance(index, int) and 1 <= index <= len(sources)
+        ))
+
+        # Do not show factual prose whose claimed evidence does not exist.
+        if sources and kind != "heading" and not citations:
+            continue
+
+        markers = " ".join(f"[{index}]" for index in citations)
+        if kind == "heading":
+            line = f"{text}:"
+        elif kind == "bullet":
+            line = f"- {text}" + (f" {markers}" if markers else "")
+        else:
+            line = text + (f" {markers}" if markers else "")
+        rendered.append(line)
+
+    if rendered:
+        return "\n".join(rendered)
+
+    return (
+        "I couldn't find enough confirmed, cited information in the company brain "
+        "to answer that yet."
+    )
 
 
 def _human_source_label(reference: str) -> str:
@@ -2069,44 +2354,102 @@ async def chat_with_brain(request: ChatRequest):
 
     try:
         mock_mode = os.getenv("KOMPONIST_AI_MODE", "live").lower() == "mock"
-        count_entity_type = _chat_count_entity_type(request.message)
+        llm = None if mock_mode else get_llm()
+        if mock_mode:
+            plan = _fallback_chat_plan(request.message)
+        else:
+            try:
+                plan = await _plan_chat_query(
+                    llm, request.message, request.conversation_history
+                )
+            except Exception as planner_error:
+                print(f"Chat query planning failed: {planner_error}")
+                plan = _fallback_chat_plan(request.message, broad=True)
+
+        operation = plan["operation"]
+        retrieval_query = plan.get("query") or request.message
+        entity_types = plan.get("entity_types") or []
 
         # 1. Try to embed user query for semantic search
         query_embedding = None
-        if not mock_mode and not count_entity_type:
+        if not mock_mode and operation == "search":
             try:
-                query_embedding = await embed(request.message)
+                query_embedding = await embed(retrieval_query)
             except Exception as e:
                 print(f"Embedding failed: {e}")
 
-        # 2. Search the confirmed graph, with an index-independent literal fallback.
-        search_results = (
-            await _exact_entity_type_chat_search(request.org_id, count_entity_type)
-            if count_entity_type else []
-        )
-        if not mock_mode and not count_entity_type:
+        # 2. Execute the allowlisted plan against confirmed organization data.
+        count_rows: List[dict] = []
+        if operation in {"list", "overview", "count"}:
+            if operation in {"count", "overview"}:
+                count_rows = await _count_chat_entities(
+                    request.org_id, entity_types, plan.get("group_by", "none")
+                )
+            search_results = await _browse_chat_entities(
+                request.org_id,
+                entity_types,
+                limit=100 if operation in {"overview", "count"} else plan["limit"],
+                sort=plan.get("sort", "newest"),
+            )
+        else:
+            search_results = []
+
+        if not mock_mode and operation == "search":
             try:
                 search_results = await BrainQueries.hybrid_search(
                     org_id=request.org_id,
-                    query_text=request.message,
+                    query_text=retrieval_query,
                     query_embedding=query_embedding,
-                    k=8,  # Top 8 results
-                    status="confirmed"
+                    # A model-inferred type is a ranking hint, not an irreversible
+                    # pre-filter: preserving recall matters more for focused search.
+                    entity_types=None,
+                    k=min(plan["limit"], 20),
+                    status="confirmed",
                 )
             except Exception as search_error:
                 print(f"Hybrid search failed: {search_error}")
 
-        if not count_entity_type:
+        if operation == "search":
             try:
-                literal_results = await _literal_chat_search(
-                    request.org_id, request.message, k=8
-                )
+                literal_results: List[dict] = []
+                seen_literal_ids = set()
+                # Query expansion keeps named entities from the original wording
+                # while the standalone rewrite resolves pronouns in follow-ups.
+                for literal_query in dict.fromkeys([
+                    retrieval_query, request.message
+                ]):
+                    for result in await _literal_chat_search(
+                        request.org_id,
+                        literal_query,
+                        k=min(plan["limit"], 20),
+                        entity_types=None,
+                    ):
+                        if result["id"] not in seen_literal_ids:
+                            literal_results.append(result)
+                            seen_literal_ids.add(result["id"])
                 merged = {result["id"]: result for result in literal_results}
                 for result in search_results:
                     merged.setdefault(result["id"], result)
-                search_results = list(merged.values())[:8]
+                search_results = list(merged.values())[:min(plan["limit"], 20)]
+                if entity_types:
+                    search_results.sort(
+                        key=lambda result: result.get("entity_type") in entity_types,
+                        reverse=True,
+                    )
             except Exception as fallback_error:
                 print(f"Literal fallback search failed: {fallback_error}")
+
+            if plan.get("expand_graph"):
+                try:
+                    neighbors = await _expand_chat_graph_context(
+                        request.org_id, search_results, limit=8
+                    )
+                    expanded = {result["id"]: result for result in search_results}
+                    for neighbor in neighbors:
+                        expanded.setdefault(neighbor["id"], neighbor)
+                    search_results = list(expanded.values())[:20]
+                except Exception as expansion_error:
+                    print(f"Graph context expansion failed: {expansion_error}")
 
         await _attach_chat_evidence(request.org_id, search_results)
 
@@ -2137,23 +2480,32 @@ When answering:
 - If the context is empty or doesn't contain the answer, explain that the knowledge graph is empty or doesn't have that information yet
 - Suggest that the user should add sources to populate the knowledge graph (via the Onboard page)
 - Be concise but complete; use bullets only when the question asks for a list or several distinct items
+- The retrieval operation is {operation}; for a list, include every provided entity exactly once
+- For an overview, accurately describe the supplied type counts before summarizing the knowledge
+- Write the entire answer in {language}
 - Answer in English by default, even when the question is written in another language
 - Switch languages only when the user explicitly asks for a specific response language
+
+Exact confirmed counts (empty unless relevant):
+{counts}
 
 Context from knowledge graph:
 {context}"""
 
         user_prompt = f"{conversation_context}User question: {request.message}"
 
-        if count_entity_type:
-            answer = _entity_count_answer(
-                request.message, count_entity_type, search_results, sources
-            )
+        if operation == "count":
+            answer = _aggregate_count_answer(plan, count_rows, sources)
         else:
             answer = _mock_chat_answer(
                 request.message, search_results, sources
             ) if mock_mode else None
-        llm = None if answer is not None else get_llm()
+        formatted_system_prompt = system_prompt.format(
+            operation=operation,
+            language=plan["language"],
+            counts=json.dumps(count_rows, ensure_ascii=False),
+            context=context,
+        )
 
         if request.stream:
             # Streaming response
@@ -2165,17 +2517,10 @@ Context from knowledge graph:
                             "data": json.dumps({"content": answer})
                         }
                     else:
-                        generated_chunks = []
-                        async for chunk in llm.stream(
-                            prompt=user_prompt,
-                            system=system_prompt.format(context=context),
-                            max_tokens=2048,
-                        ):
-                            generated_chunks.append(chunk)
-                        generated_answer = _normalize_grounded_answer(
-                            request.message,
-                            "".join(generated_chunks),
-                            search_results,
+                        generated_answer = await _generate_grounded_chat_answer(
+                            llm,
+                            user_prompt,
+                            formatted_system_prompt,
                             sources,
                         )
                         yield {
@@ -2198,14 +2543,11 @@ Context from knowledge graph:
         else:
             # Non-streaming response
             if answer is None:
-                response = await llm.call(
-                    prompt=user_prompt,
-                    system=system_prompt.format(context=context),
-                    max_tokens=2048
-                )
-                answer = response["text"]
-                answer = _normalize_grounded_answer(
-                    request.message, answer, search_results, sources
+                answer = await _generate_grounded_chat_answer(
+                    llm,
+                    user_prompt,
+                    formatted_system_prompt,
+                    sources,
                 )
 
             return ChatResponse(

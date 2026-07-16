@@ -99,7 +99,10 @@ async def run() -> None:
     await seed()
 
     try:
-        async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        async with httpx.AsyncClient(
+            base_url="http://localhost:8000",
+            timeout=httpx.Timeout(120.0),
+        ) as client:
             response = await client.post(
                 "/chat",
                 json={
@@ -137,7 +140,7 @@ async def run() -> None:
                 "/chat",
                 json={
                     "org_id": ORG_ID,
-                    "message": "How many goals exist?",
+                    "message": "Give me the total number of objectives in our brain.",
                     "stream": False,
                 },
             )
@@ -146,6 +149,73 @@ async def run() -> None:
             assert "2 confirmed goals" in count_payload["response"], count_payload
             assert len(count_payload["sources"]) == 2, count_payload
             assert "confidential" not in count_payload["response"], count_payload
+
+            mixed_counts = await client.post(
+                "/chat",
+                json={
+                    "org_id": ORG_ID,
+                    "message": (
+                        "How many decisions, goals, constraints, and projects do we have?"
+                    ),
+                    "stream": False,
+                },
+            )
+            mixed_payload = mixed_counts.json()
+            assert "1 decision" in mixed_payload["response"], mixed_payload
+            assert "2 goals" in mixed_payload["response"], mixed_payload
+            assert "0 constraints" in mixed_payload["response"], mixed_payload
+            assert "1 project" in mixed_payload["response"], mixed_payload
+
+            goals_by_source = await client.post(
+                "/chat",
+                json={
+                    "org_id": ORG_ID,
+                    "message": "Which documents contain the most objectives?",
+                    "stream": False,
+                },
+            )
+            source_count_payload = goals_by_source.json()
+            assert "Confirmed goals by source" in source_count_payload["response"], source_count_payload
+            assert "Customer Interview: 1" in source_count_payload["response"], source_count_payload
+            assert "Product Strategy: 1" in source_count_payload["response"], source_count_payload
+
+            all_goals = await client.post(
+                "/chat",
+                json={
+                    "org_id": ORG_ID,
+                    "message": "List every confirmed objective.",
+                    "stream": False,
+                },
+            )
+            all_goals_payload = all_goals.json()
+            assert "50" in all_goals_payload["response"], all_goals_payload
+            assert any(
+                value in all_goals_payload["response"].lower()
+                for value in ("10", "ten")
+            ), all_goals_payload
+            assert len(all_goals_payload["sources"]) == 2, all_goals_payload
+
+            follow_up = await client.post(
+                "/chat",
+                json={
+                    "org_id": ORG_ID,
+                    "message": "How long is it?",
+                    "conversation_history": [
+                        {
+                            "role": "user",
+                            "content": "Tell me about the Northstar Labs pilot.",
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "It is a design-partner pilot.",
+                        },
+                    ],
+                    "stream": False,
+                },
+            )
+            follow_up_payload = follow_up.json()
+            assert "4 weeks" in follow_up_payload["response"], follow_up_payload
+            assert follow_up_payload["sources"][0]["id"] == "chat-pilot-evidence"
 
             german_duration = await client.post(
                 "/chat",

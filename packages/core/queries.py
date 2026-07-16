@@ -26,7 +26,7 @@ class BrainQueries:
         status: str = "confirmed"
     ) -> List[Dict[str, Any]]:
         """
-        Hybrid search: vector + fulltext, union, dedupe by id (max score wins).
+        Hybrid search: vector + fulltext, fused with reciprocal rank fusion.
 
         Args:
             org_id: Organization ID
@@ -39,20 +39,27 @@ class BrainQueries:
         Returns:
             List of entities with scores, sorted by score descending
         """
-        results = {}  # entity_id -> (entity, max_score)
+        entities: Dict[str, Dict[str, Any]] = {}
+        rank_scores: Dict[str, float] = {}
+
+        def add_ranked(items: List[Dict[str, Any]]) -> None:
+            # Raw vector and Lucene scores are not comparable. Reciprocal rank
+            # fusion combines their ordering without pretending the scales match.
+            for rank, item in enumerate(items, 1):
+                entity_id = item["id"]
+                entities.setdefault(entity_id, item)
+                rank_scores[entity_id] = (
+                    rank_scores.get(entity_id, 0.0) + 1.0 / (60 + rank)
+                )
 
         # Vector search (if embedding provided)
         if query_embedding:
-            type_filter = ""
-            if entity_types:
-                type_filter = f"AND node.entity_type IN {entity_types}"
-
-            vector_query = f"""
+            vector_query = """
             CALL db.index.vector.queryNodes('entity_embedding', $k, $query_embedding)
             YIELD node, score
             WHERE node.org_id = $org_id
               AND node.status = $status
-              {type_filter}
+              AND (size($entity_types) = 0 OR node.entity_type IN $entity_types)
             RETURN
                 node.id as id,
                 node.entity_type as entity_type,
@@ -73,28 +80,20 @@ class BrainQueries:
                     "org_id": org_id,
                     "status": status,
                     "k": k,
-                    "query_embedding": query_embedding
+                    "query_embedding": query_embedding,
+                    "entity_types": entity_types or [],
                 }
             )
-
-            for r in vector_results:
-                entity_id = r["id"]
-                if entity_id not in results or r["score"] > results[entity_id][1]:
-                    results[entity_id] = (r, r["score"])
+            add_ranked(vector_results)
 
         # Fulltext search (if text provided)
         if query_text:
-            type_filter = ""
-            if entity_types:
-                types_str = ", ".join(f"'{t}'" for t in entity_types)
-                type_filter = f"AND node.entity_type IN [{types_str}]"
-
-            fulltext_query = f"""
+            fulltext_query = """
             CALL db.index.fulltext.queryNodes('entity_text', $query_text)
             YIELD node, score
             WHERE node.org_id = $org_id
               AND node.status = $status
-              {type_filter}
+              AND (size($entity_types) = 0 OR node.entity_type IN $entity_types)
             RETURN
                 node.id as id,
                 node.entity_type as entity_type,
@@ -115,19 +114,16 @@ class BrainQueries:
                     "org_id": org_id,
                     "status": status,
                     "query_text": query_text,
-                    "k": k
+                    "k": k,
+                    "entity_types": entity_types or [],
                 }
             )
+            add_ranked(fulltext_results)
 
-            for r in fulltext_results:
-                entity_id = r["id"]
-                if entity_id not in results or r["score"] > results[entity_id][1]:
-                    results[entity_id] = (r, r["score"])
-
-        # Dedupe and sort by max score
+        # Dedupe and sort by fused rank score.
         dedupe_results = [
-            {**entity, "score": score}
-            for entity, score in results.values()
+            {**entity, "score": rank_scores[entity_id]}
+            for entity_id, entity in entities.items()
         ]
         dedupe_results.sort(key=lambda x: x["score"], reverse=True)
 
