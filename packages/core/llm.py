@@ -197,6 +197,24 @@ class BaseLLMClient(ABC):
 
         return data
 
+    async def stream(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        system: Optional[str] = None,
+        max_tokens: int = 4096,
+        temperature: float = 1.0,
+    ) -> AsyncGenerator[str, None]:
+        """Provide a safe one-chunk fallback for clients without native streaming."""
+        response = await self.call(
+            prompt=prompt,
+            model=model,
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        yield response["text"]
+
 
 class AnthropicClient(BaseLLMClient):
     """Anthropic Claude LLM client."""

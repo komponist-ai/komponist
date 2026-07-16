@@ -37,6 +37,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
     setError(null)
+    let assistantAdded = false
 
     try {
       // Call chat API with streaming
@@ -62,39 +63,46 @@ export default function ChatPage() {
 
       // Add empty assistant message for streaming
       setMessages((prev) => [...prev, { role: 'assistant', content: '', sources: [] }])
+      assistantAdded = true
+
+      let buffer = ''
+
+      const processLine = (rawLine: string) => {
+        const line = rawLine.replace(/\r$/, '')
+        if (!line.startsWith('data: ')) return
+
+        const payload = line.slice(6)
+        if (!payload) return
+
+        const data = JSON.parse(payload)
+        if (data.error) throw new Error(data.error)
+        if (data.content) assistantMessage += data.content
+        if (data.sources) sources = data.sources
+
+        setMessages((prev) => {
+          const updated = [...prev]
+          updated[updated.length - 1] = {
+            role: 'assistant',
+            content: assistantMessage,
+            sources
+          }
+          return updated
+        })
+      }
 
       while (true) {
         const { done, value } = await reader!.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
-
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (data.content) {
-                assistantMessage += data.content
-                // Update last message
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  updated[updated.length - 1] = {
-                    role: 'assistant',
-                    content: assistantMessage,
-                    sources: sources
-                  }
-                  return updated
-                })
-              } else if (data.sources) {
-                sources = data.sources
-              }
-            } catch (e) {
-              // Skip malformed JSON
-            }
-          }
+          processLine(line)
         }
       }
+      buffer += decoder.decode()
+      if (buffer) processLine(buffer)
 
       // Final update with sources
       setMessages((prev) => {
@@ -109,8 +117,9 @@ export default function ChatPage() {
 
     } catch (err: any) {
       setError(err.message || 'Failed to send message')
-      // Remove the empty assistant message on error
-      setMessages((prev) => prev.slice(0, -1))
+      if (assistantAdded) {
+        setMessages((prev) => prev.slice(0, -1))
+      }
     } finally {
       setIsLoading(false)
     }

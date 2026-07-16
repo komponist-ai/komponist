@@ -4,9 +4,14 @@ import EvidenceChip from './EvidenceChip'
 
 interface Source {
   id: string
+  entity_id: string
   type: string
   statement: string
-  score?: number
+  source: string
+  reference: string
+  url?: string
+  excerpt?: string
+  source_date?: string
 }
 
 interface ChatMessageProps {
@@ -36,9 +41,10 @@ export default function ChatMessage({ role, content, sources, isStreaming }: Cha
               {sources.map((source) => (
                 <EvidenceChip
                   key={source.id}
-                  source={source.type.toLowerCase()}
-                  reference={source.statement}
-                  url={`/entities/${source.id}`}
+                  source={source.source}
+                  reference={source.reference}
+                  url={source.url}
+                  date={source.source_date?.slice(0, 10)}
                 />
               ))}
             </div>

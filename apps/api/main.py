@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import sys
 sys.path.append("../../packages")
@@ -1127,7 +1127,6 @@ async def get_entity_neighbors(
 # Chat API endpoint
 # =============================================================================
 
-from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 import json
 from core.llm import get_llm
@@ -1144,7 +1143,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     org_id: str = "default-org"
-    conversation_history: List[ChatMessage] = []
+    conversation_history: List[ChatMessage] = Field(default_factory=list)
     stream: bool = True
 
 
@@ -1152,6 +1151,138 @@ class ChatResponse(BaseModel):
     response: str
     sources: List[Dict[str, Any]]
     conversation_id: Optional[str] = None
+
+
+_CHAT_STOP_WORDS = {
+    "about", "all", "are", "der", "die", "das", "do", "does", "for",
+    "from", "haben", "ist", "me", "our", "show", "the", "und", "use",
+    "was", "what", "welche", "which", "who", "wie", "wir", "with",
+}
+
+
+def _chat_search_terms(message: str) -> List[str]:
+    """Extract useful literal fallback terms from a natural-language question."""
+    import re
+
+    words = re.findall(r"[\w-]+", message.casefold(), flags=re.UNICODE)
+    return list(dict.fromkeys(
+        word for word in words if len(word) >= 3 and word not in _CHAT_STOP_WORDS
+    ))[:12]
+
+
+async def _literal_chat_search(org_id: str, message: str, k: int = 8) -> List[dict]:
+    """Search confirmed entities without relying on vector/full-text indexes."""
+    terms = _chat_search_terms(message)
+    if not terms:
+        return []
+
+    return await GraphClient.run_query(
+        """
+        MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE any(term IN $terms WHERE
+            toLower(coalesce(n.statement, '')) CONTAINS term OR
+            toLower(coalesce(n.detail, '')) CONTAINS term OR
+            toLower(coalesce(n.name, '')) CONTAINS term)
+        WITH n, size([term IN $terms WHERE
+            toLower(coalesce(n.statement, '')) CONTAINS term OR
+            toLower(coalesce(n.detail, '')) CONTAINS term OR
+            toLower(coalesce(n.name, '')) CONTAINS term]) AS matches
+        RETURN n.id AS id, n.entity_type AS entity_type,
+               n.statement AS statement, n.detail AS detail,
+               n.status AS status, n.confidence AS confidence,
+               toFloat(matches) AS score
+        ORDER BY matches DESC, n.confirmed_at DESC
+        LIMIT $k
+        """,
+        {"org_id": org_id, "terms": terms, "k": k},
+    )
+
+
+async def _attach_chat_evidence(org_id: str, entities: List[dict]) -> None:
+    """Attach provenance owned by the same organization to selected entities."""
+    if not entities:
+        return
+
+    rows = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE entity.id IN $entity_ids
+        OPTIONAL MATCH (entity)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+        RETURN entity.id AS entity_id,
+               collect(DISTINCT evidence{.id, .source, .reference, .url,
+                                         .excerpt, .source_date}) AS evidence
+        """,
+        {"org_id": org_id, "entity_ids": [entity["id"] for entity in entities]},
+    )
+    evidence_by_entity = {
+        row["entity_id"]: [item for item in row["evidence"] if item.get("id")]
+        for row in rows
+    }
+    for entity in entities:
+        entity["evidence"] = evidence_by_entity.get(entity["id"], [])
+
+
+def _chat_context_and_sources(search_results: List[dict]) -> tuple[str, List[dict]]:
+    """Build grounded model context and flattened UI citations."""
+    if not search_results:
+        return "No relevant confirmed information was found in the knowledge graph.", []
+
+    sources: List[dict] = []
+    context_parts = []
+    for result in search_results:
+        citation_numbers = []
+        evidence_lines = []
+        for evidence in result.get("evidence", []):
+            source_date = evidence.get("source_date")
+            source_date = str(source_date) if source_date is not None else None
+            sources.append({
+                "id": evidence["id"],
+                "entity_id": result["id"],
+                "type": result["entity_type"],
+                "statement": result["statement"],
+                "source": evidence.get("source") or "unknown",
+                "reference": evidence.get("reference") or "Unknown reference",
+                "url": evidence.get("url"),
+                "excerpt": evidence.get("excerpt"),
+                "source_date": source_date,
+            })
+            citation_numbers.append(str(len(sources)))
+            evidence_lines.append(
+                f"Source [{len(sources)}]: {sources[-1]['source']} — "
+                f"{sources[-1]['reference']}"
+            )
+
+        citations = " ".join(f"[{number}]" for number in citation_numbers)
+        context_parts.append(
+            f"[{result['entity_type']}] {result['statement']} {citations}\n"
+            f"Detail: {result.get('detail') or 'N/A'}\n"
+            + "\n".join(evidence_lines)
+        )
+    return "\n\n".join(context_parts), sources
+
+
+def _mock_chat_answer(search_results: List[dict], sources: List[dict]) -> str:
+    """Return a useful grounded answer while no external model is configured."""
+    if not search_results:
+        return (
+            "I couldn't find relevant confirmed information in the company brain yet. "
+            "Add or confirm a source first, then ask again."
+        )
+
+    citation_by_entity: Dict[str, List[int]] = {}
+    for index, source in enumerate(sources, 1):
+        citation_by_entity.setdefault(source["entity_id"], []).append(index)
+
+    lines = ["Based on the confirmed company brain:"]
+    for result in search_results:
+        citations = " ".join(
+            f"[{index}]" for index in citation_by_entity.get(result["id"], [])
+        )
+        lines.append(
+            f"- [{result['entity_type']}] {result['statement']}"
+            + (f" {citations}" if citations else "")
+        )
+    return "\n".join(lines)
 
 
 @app.post("/chat")
@@ -1163,74 +1294,45 @@ async def chat_with_brain(request: ChatRequest):
     from fastapi import HTTPException
 
     try:
+        mock_mode = os.getenv("KOMPONIST_AI_MODE", "mock").lower() == "mock"
+
         # 1. Try to embed user query for semantic search
         query_embedding = None
-        try:
-            query_embedding = await embed(request.message)
-        except Exception as e:
-            print(f"Embedding failed: {e}")
-
-        # 2. Hybrid search knowledge graph (text-only fallback if no embeddings)
-        search_results = []
-        try:
-            search_results = await BrainQueries.hybrid_search(
-                org_id=request.org_id,
-                query_text=request.message,
-                query_embedding=query_embedding,
-                k=8,  # Top 8 results
-                status="confirmed"
-            )
-        except Exception as search_error:
-            # Fallback: simple text match without indexes
-            print(f"Search error, using simple fallback: {search_error}")
+        if not mock_mode:
             try:
-                from core.graph import GraphClient
-                fallback_query = """
-                MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
-                WHERE toLower(n.statement) CONTAINS toLower($query)
-                   OR toLower(n.name) CONTAINS toLower($query)
-                   OR toLower(n.detail) CONTAINS toLower($query)
-                RETURN
-                    n.id as id,
-                    n.entity_type as entity_type,
-                    n.statement as statement,
-                    n.detail as detail,
-                    n.status as status,
-                    n.confidence as confidence,
-                    1.0 as score
-                LIMIT $k
-                """
-                results = await GraphClient.run_query(
-                    fallback_query,
-                    {"org_id": request.org_id, "query": request.message, "k": 8}
+                query_embedding = await embed(request.message)
+            except Exception as e:
+                print(f"Embedding failed: {e}")
+
+        # 2. Search the confirmed graph, with an index-independent literal fallback.
+        search_results = []
+        if not mock_mode:
+            try:
+                search_results = await BrainQueries.hybrid_search(
+                    org_id=request.org_id,
+                    query_text=request.message,
+                    query_embedding=query_embedding,
+                    k=8,  # Top 8 results
+                    status="confirmed"
                 )
-                search_results = results if results else []
-            except Exception as fallback_error:
-                print(f"Fallback search also failed: {fallback_error}")
-                search_results = []
+            except Exception as search_error:
+                print(f"Hybrid search failed: {search_error}")
+
+        try:
+            literal_results = await _literal_chat_search(
+                request.org_id, request.message, k=8
+            )
+            merged = {result["id"]: result for result in literal_results}
+            for result in search_results:
+                merged.setdefault(result["id"], result)
+            search_results = list(merged.values())[:8]
+        except Exception as fallback_error:
+            print(f"Literal fallback search failed: {fallback_error}")
+
+        await _attach_chat_evidence(request.org_id, search_results)
 
         # 3. Build context from results
-        if not search_results:
-            context = "No relevant information found in the knowledge graph."
-            sources = []
-        else:
-            context_parts = []
-            for idx, result in enumerate(search_results, 1):
-                context_parts.append(
-                    f"{idx}. [{result['entity_type']}] {result['statement']}\n"
-                    f"   Detail: {result.get('detail', 'N/A')}\n"
-                    f"   Confidence: {result.get('confidence', 'N/A')}"
-                )
-            context = "\n\n".join(context_parts)
-            sources = [
-                {
-                    "id": r["id"],
-                    "type": r["entity_type"],
-                    "statement": r["statement"],
-                    "score": r.get("score", 0)
-                }
-                for r in search_results
-            ]
+        context, sources = _chat_context_and_sources(search_results)
 
         # 4. Build conversation context
         conversation_context = ""
@@ -1247,7 +1349,8 @@ You have access to confirmed facts, decisions, goals, and relationships from the
 
 When answering:
 - Base your answers on the provided context from the knowledge graph
-- Cite specific entities when relevant (e.g., "According to [Decision] Use Neo4j...")
+- Cite claims with the numbered evidence markers included in the context, such as [1]
+- Never invent a citation or use information from proposed/rejected entities
 - If the context is empty or doesn't contain the answer, explain that the knowledge graph is empty or doesn't have that information yet
 - Suggest that the user should add sources to populate the knowledge graph (via the Onboard page)
 - Be concise but complete
@@ -1258,21 +1361,28 @@ Context from knowledge graph:
 
         user_prompt = f"{conversation_context}User question: {request.message}"
 
-        llm = get_llm()
+        answer = _mock_chat_answer(search_results, sources) if mock_mode else None
+        llm = None if mock_mode else get_llm()
 
         if request.stream:
             # Streaming response
             async def generate_stream():
                 try:
-                    async for chunk in llm.stream(
-                        prompt=user_prompt,
-                        system=system_prompt.format(context=context),
-                        max_tokens=2048
-                    ):
+                    if answer is not None:
                         yield {
                             "event": "message",
-                            "data": json.dumps({"content": chunk})
+                            "data": json.dumps({"content": answer})
                         }
+                    else:
+                        async for chunk in llm.stream(
+                            prompt=user_prompt,
+                            system=system_prompt.format(context=context),
+                            max_tokens=2048,
+                        ):
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({"content": chunk})
+                            }
                     # Send sources at the end
                     yield {
                         "event": "sources",
@@ -1288,14 +1398,16 @@ Context from knowledge graph:
             return EventSourceResponse(generate_stream())
         else:
             # Non-streaming response
-            response = await llm.call(
-                prompt=user_prompt,
-                system=system_prompt.format(context=context),
-                max_tokens=2048
-            )
+            if answer is None:
+                response = await llm.call(
+                    prompt=user_prompt,
+                    system=system_prompt.format(context=context),
+                    max_tokens=2048
+                )
+                answer = response["text"]
 
             return ChatResponse(
-                response=response["text"],
+                response=answer,
                 sources=sources,
                 conversation_id=None  # Can add conversation persistence later
             )

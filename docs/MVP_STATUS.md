@@ -10,19 +10,19 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 
 | Category | Status | Progress |
 |----------|--------|----------|
-| Core Infrastructure | 🚧 Code exists | 60% |
-| Extraction Pipeline | 🚧 Code exists | 70% |
+| Core Infrastructure | ✅ Locally verified | 80% |
+| Extraction Pipeline | ✅ Local-docs slice verified | 80% |
 | MCP Server | 🚧 Code exists | 50% |
 | Integrations | 🚧 Code exists | 40% |
-| Web UI | 🚧 Code exists | 50% |
-| Chat Feature | 🚧 Code exists | 40% |
+| Web UI | 🚧 Builds and runs locally | 65% |
+| Chat Feature | ✅ Grounded local flow verified | 80% |
 | Auth & Security | ❌ Not implemented | 5% |
 | User Management | ❌ Not implemented | 0% |
 | Deployment | ❌ Not implemented | 10% |
 
-**Overall MVP Readiness: ~35%**
+**Overall MVP Readiness: ~45%**
 
-**Reality check:** Code exists for many features but **nothing has been tested end-to-end**. No infrastructure is running. No user has ever used this system.
+**Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker. External integrations, authentication, MCP client interoperability, and deployment are still unverified.
 
 ---
 
@@ -45,11 +45,17 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] OpenAI embedding request contract and fixed 1536-dimensional output
 - [x] Deterministic no-model mock clients for LLM and embeddings
 - [x] Narrow extraction contracts for Decision, Goal, Constraint, and Project
-- [ ] **No user-facing flow has been end-to-end tested yet**
+- [x] Full Docker stack starts with healthy Neo4j, Postgres, API, MCP, and Web services
+- [x] Local documents create reviewable entities with stable source deduplication
+- [x] Confirm, reject, and merge lifecycle rules persist correctly in Neo4j
+- [x] Chat uses confirmed graph context and returns real Evidence citations
+- [x] Chat excludes proposed entities and data belonging to another organization
 
 ### Unit Tests:
-- `packages/core/tests/test_ai_clients.py` — 8 offline AI client contract tests (passing)
+- `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
 - `packages/pipelines/tests/test_contracts.py` — 3 extraction schema tests (passing)
+- `apps/api/tests/review_lifecycle_e2e.py` — review lifecycle against the Docker stack (passing)
+- `apps/api/tests/chat_e2e.py` — grounded chat, citations, streaming, and isolation (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
 
 ---
@@ -63,14 +69,15 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `models.py` — Pydantic models for entities (code complete)
 - [x] `llm.py` — OpenAI Responses API wrapper plus no-network mock mode (offline contract-tested)
 - [x] `embeddings.py` — OpenAI embeddings plus deterministic no-model mock mode (offline contract-tested)
-- [ ] **NOT TESTED** — None of this has been run against a real Neo4j instance
+- [x] Core schema, persistence, and confirmed-entity queries verified against local Neo4j
 
 ### Extraction Pipeline (`packages/pipelines/`)
 - [x] `extract.py` — LangGraph 6-node pipeline: classify → extract → embed → dedup → link → persist (code complete)
 - [x] `graph_extract.py` — Simpler single-LLM-call extraction (code complete)
 - [x] `compile.py` — Work Pack compiler pipeline (code complete)
 - [x] `eval/fixtures.py` — Test fixtures for evaluation (code complete)
-- [ ] **NOT TESTED** — Never run with real data
+- [x] Narrow extraction pipeline verified with local Markdown documents in mock mode
+- [ ] Live OpenAI extraction has not been tested with an API key
 
 ### MCP Server (`apps/mcp/`)
 - [x] `server.py` — FastMCP server with 6 tools (code complete):
@@ -96,7 +103,8 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `integrations/github.py` — GitHub webhook + PR extraction (code complete)
 - [x] `integrations/linear.py` — Linear webhook + issue extraction (code complete)
 - [x] `integrations/google.py` — Google OAuth + Drive export (code complete)
-- [ ] **NOT TESTED** — API server has never been started
+- [x] API starts in Docker and reports healthy Neo4j and Postgres connections
+- [x] Review lifecycle and grounded chat endpoints are E2E-tested
 - [ ] **NOT TESTED** — Webhooks never received real events
 - [ ] **NOT TESTED** — OAuth flows never completed
 
@@ -110,14 +118,14 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `app/settings/page.tsx` — Settings page (241 lines)
 - [x] `lib/api.ts` — API client functions (85 lines)
 - [x] Components: AppLayout, Sidebar, Nav, FactCard, ChatMessage, ChatInput, EvidenceChip
-- [ ] **NOT TESTED** — Web app has never been started
+- [x] Web app builds successfully and runs in the local Docker stack
 - [ ] **NOT TESTED** — No page has been loaded in a browser
 
 ### Docker Configuration (`docker/`)
 - [x] `docker-compose.yml` — Full stack: Neo4j, Postgres, API, MCP, Web (176 lines)
 - [x] `docker-compose.dev.yml` — Dev infrastructure only
 - [x] Dockerfiles for API, MCP, Web
-- [ ] **NOT TESTED** — `docker compose up` has never been run
+- [x] Docker Compose stack builds and starts successfully on the development Mac
 
 ---
 
@@ -173,13 +181,12 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 
 ## Critical Issues
 
-### 1. Nothing Has Been Tested
-The entire codebase is "code complete" but zero features have been verified working. This includes:
-- No one has run `docker compose up`
-- No one has connected a Notion workspace
-- No one has reviewed a fact in the queue
-- No one has used the MCP tools with Claude Code
-- No one has run the extraction pipeline on real data
+### 1. External Integrations and MCP Remain Untested
+The local vertical slice is verified, but important boundaries are still open:
+- No one has completed a real Notion OAuth flow
+- No one has used the MCP tools with Claude Code or another MCP client
+- No live OpenAI extraction/chat request has been run with an API key
+- No cloud deployment or multi-user workflow has been tested
 
 ### 2. No User Authentication
 There is no way to:
@@ -220,13 +227,13 @@ When the server restarts, you lose:
 ## Definition of Done (MVP)
 
 ### Must Work End-to-End:
-- [ ] `docker compose up` starts everything without errors
+- [x] `docker compose up` starts everything without errors on the development Mac
 - [ ] User can sign in with Google
 - [ ] User can connect Notion with a token
 - [ ] Syncing Notion creates entities in Neo4j
 - [ ] Review queue shows proposed entities
-- [ ] Confirming an entity persists to Neo4j
-- [ ] Chat returns answers from the knowledge graph
+- [x] Confirming an entity persists to Neo4j
+- [x] Chat returns answers from confirmed graph context with Evidence citations
 - [ ] MCP server connects to Claude Code
 - [ ] `search_company_context` returns results
 - [ ] `check_constraint` correctly blocks/allows actions
@@ -243,16 +250,16 @@ When the server restarts, you lose:
 ## Next Steps (In Order)
 
 ### Phase 0: Make It Run (1-2 days)
-1. Run `docker compose up` and fix all errors
-2. Apply Neo4j schema
-3. Seed test data
-4. Verify API health check passes
+1. [x] Run `docker compose up` and fix startup errors
+2. [x] Apply Neo4j schema
+3. [x] Seed isolated E2E test data
+4. [x] Verify API health check passes
 
 ### Phase 1: Test Core Loop (2-3 days)
 5. Connect Notion with real token
 6. Sync pages and verify entities created
 7. Open web UI and test review queue
-8. Verify chat returns results
+8. [x] Verify chat returns confirmed results with citations
 
 ### Phase 2: Add Authentication (2-3 days)
 9. Implement Google OAuth for users
