@@ -1908,6 +1908,39 @@ def _normalize_grounded_answer(
     return normalized + (f" {citations}" if citations else "")
 
 
+def _entity_count_answer(
+    message: str,
+    entity_type: str,
+    search_results: List[dict],
+    sources: List[dict],
+) -> str:
+    count = len(search_results)
+    german = _answer_in_german(message)
+    citation_numbers = list(dict.fromkeys(
+        index for index, source in enumerate(sources, 1)
+        if source.get("entity_id") in {result["id"] for result in search_results}
+    ))
+    citations = " ".join(f"[{index}]" for index in citation_numbers)
+
+    if german:
+        labels = {
+            "Decision": ("bestätigte Entscheidung", "bestätigte Entscheidungen"),
+            "Goal": ("bestätigtes Ziel", "bestätigte Ziele"),
+            "Constraint": ("bestätigte Vorgabe", "bestätigte Vorgaben"),
+            "Project": ("bestätigtes Projekt", "bestätigte Projekte"),
+        }
+        singular, plural = labels[entity_type]
+        answer = f"Im Company Brain gibt es {count} {singular if count == 1 else plural}."
+    else:
+        label = entity_type.casefold()
+        answer = (
+            f"There {'is' if count == 1 else 'are'} {count} confirmed "
+            f"{label if count == 1 else label + 's'} in the company brain."
+        )
+
+    return answer + (f" {citations}" if citations else "")
+
+
 def _human_source_label(reference: str) -> str:
     value = reference or "Company source"
     if value.startswith("upload:"):
@@ -2036,18 +2069,22 @@ async def chat_with_brain(request: ChatRequest):
 
     try:
         mock_mode = os.getenv("KOMPONIST_AI_MODE", "live").lower() == "mock"
+        count_entity_type = _chat_count_entity_type(request.message)
 
         # 1. Try to embed user query for semantic search
         query_embedding = None
-        if not mock_mode:
+        if not mock_mode and not count_entity_type:
             try:
                 query_embedding = await embed(request.message)
             except Exception as e:
                 print(f"Embedding failed: {e}")
 
         # 2. Search the confirmed graph, with an index-independent literal fallback.
-        search_results = []
-        if not mock_mode:
+        search_results = (
+            await _exact_entity_type_chat_search(request.org_id, count_entity_type)
+            if count_entity_type else []
+        )
+        if not mock_mode and not count_entity_type:
             try:
                 search_results = await BrainQueries.hybrid_search(
                     org_id=request.org_id,
@@ -2059,16 +2096,17 @@ async def chat_with_brain(request: ChatRequest):
             except Exception as search_error:
                 print(f"Hybrid search failed: {search_error}")
 
-        try:
-            literal_results = await _literal_chat_search(
-                request.org_id, request.message, k=8
-            )
-            merged = {result["id"]: result for result in literal_results}
-            for result in search_results:
-                merged.setdefault(result["id"], result)
-            search_results = list(merged.values())[:8]
-        except Exception as fallback_error:
-            print(f"Literal fallback search failed: {fallback_error}")
+        if not count_entity_type:
+            try:
+                literal_results = await _literal_chat_search(
+                    request.org_id, request.message, k=8
+                )
+                merged = {result["id"]: result for result in literal_results}
+                for result in search_results:
+                    merged.setdefault(result["id"], result)
+                search_results = list(merged.values())[:8]
+            except Exception as fallback_error:
+                print(f"Literal fallback search failed: {fallback_error}")
 
         await _attach_chat_evidence(request.org_id, search_results)
 
@@ -2107,8 +2145,15 @@ Context from knowledge graph:
 
         user_prompt = f"{conversation_context}User question: {request.message}"
 
-        answer = _mock_chat_answer(request.message, search_results, sources) if mock_mode else None
-        llm = None if mock_mode else get_llm()
+        if count_entity_type:
+            answer = _entity_count_answer(
+                request.message, count_entity_type, search_results, sources
+            )
+        else:
+            answer = _mock_chat_answer(
+                request.message, search_results, sources
+            ) if mock_mode else None
+        llm = None if answer is not None else get_llm()
 
         if request.stream:
             # Streaming response

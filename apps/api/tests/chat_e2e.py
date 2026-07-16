@@ -63,6 +63,32 @@ async def seed() -> None:
             source_date: datetime('2026-07-15T09:00:00Z'), created_at: datetime()
         })
         CREATE (pilot)-[:CITED_BY]->(pilot_evidence)
+        CREATE (goal_one:Entity:Goal {
+            id: 'chat-goal-one', org_id: $org_id, entity_type: 'Goal',
+            statement: 'Reduce repeated architecture questions by 50 percent.',
+            status: 'confirmed', confidence: 'high',
+            created_at: datetime(), updated_at: datetime(), confirmed_at: datetime()
+        })
+        CREATE (goal_two:Entity:Goal {
+            id: 'chat-goal-two', org_id: $org_id, entity_type: 'Goal',
+            statement: 'Recruit ten weekly design partners.',
+            status: 'confirmed', confidence: 'high',
+            created_at: datetime(), updated_at: datetime(), confirmed_at: datetime()
+        })
+        CREATE (goal_one_evidence:Evidence {
+            id: 'chat-goal-one-evidence', org_id: $org_id, source: 'upload',
+            reference: 'upload:03-customer-interview.txt:e2e',
+            excerpt: 'Goal: Reduce repeated architecture questions by 50 percent.',
+            created_at: datetime()
+        })
+        CREATE (goal_two_evidence:Evidence {
+            id: 'chat-goal-two-evidence', org_id: $org_id, source: 'upload',
+            reference: 'upload:01-product-strategy.md:e2e',
+            excerpt: 'Goal: Recruit ten weekly design partners.',
+            created_at: datetime()
+        })
+        CREATE (goal_one)-[:CITED_BY]->(goal_one_evidence)
+        CREATE (goal_two)-[:CITED_BY]->(goal_two_evidence)
         """,
         {"org_id": ORG_ID, "other_org": f"{ORG_ID}-other"},
     )
@@ -106,6 +132,20 @@ async def run() -> None:
             assert "4 weeks" in duration_payload["response"], duration_payload
             assert "[1]" in duration_payload["response"], duration_payload
             assert duration_payload["sources"][0]["id"] == "chat-pilot-evidence", duration_payload
+
+            count_goals = await client.post(
+                "/chat",
+                json={
+                    "org_id": ORG_ID,
+                    "message": "How many goals exist?",
+                    "stream": False,
+                },
+            )
+            assert count_goals.status_code == 200, count_goals.text
+            count_payload = count_goals.json()
+            assert "2 confirmed goals" in count_payload["response"], count_payload
+            assert len(count_payload["sources"]) == 2, count_payload
+            assert "confidential" not in count_payload["response"], count_payload
 
             german_duration = await client.post(
                 "/chat",
