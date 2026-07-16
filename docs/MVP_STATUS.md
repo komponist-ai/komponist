@@ -16,13 +16,13 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | Integrations | 🚧 Code exists | 40% |
 | Web UI | 🚧 Builds and runs locally | 65% |
 | Chat Feature | ✅ Grounded local flow verified | 80% |
-| Auth & Security | ❌ Not implemented | 5% |
-| User Management | ❌ Not implemented | 0% |
+| Auth & Security | 🚧 Google session foundation | 30% |
+| User Management | 🚧 User records on first login | 20% |
 | Deployment | ❌ Not implemented | 10% |
 
 **Overall MVP Readiness: ~50%**
 
-**Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker. External integrations, authentication, MCP client interoperability, and deployment are still unverified.
+**Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker. Live provider login, authenticated API isolation, MCP client interoperability, and deployment are still unverified.
 
 ---
 
@@ -55,6 +55,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Organization settings and encrypted connected-source configs survive API restarts
 - [x] Notion, Slack, and Google OAuth callbacks persist allowlisted tokens encrypted
 - [x] MCP approval requests and immutable decisions survive MCP restarts
+- [x] Provider-free Google user-login and persistent session lifecycle
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -66,6 +67,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - `apps/mcp/tests/approval_persistence_e2e.py` — approval persistence, isolation, and restart (passing)
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
+- `apps/api/tests/auth_session_e2e.py` — Google login state, session, restart, and logout (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
 
 ---
@@ -144,19 +146,18 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 
 ---
 
-## ❌ Not Implemented At All
+## Remaining and Partially Implemented MVP Areas
 
 ### User Management & Authentication
-- [ ] User registration
-- [ ] Sign in with Google
+- [x] User registration on first verified Google login
+- [x] Sign in with Google (provider-free contract tested; live Google untested)
 - [ ] Email/password authentication
 - [ ] Password reset flow
-- [ ] Session management (JWT/cookies)
+- [x] Persistent, revocable HttpOnly cookie sessions
 - [ ] Account settings page
 - [ ] Delete account functionality
 - [ ] Team/org invitations
 - [ ] Role-based permissions (admin, member, viewer)
-- [ ] **No code exists** — This is a complete gap
 
 ### Multi-tenancy
 - [ ] Org creation/management UI
@@ -203,12 +204,12 @@ The local vertical slice is verified, but important boundaries are still open:
 - No live OpenAI extraction/chat request has been run with an API key
 - No cloud deployment or multi-user workflow has been tested
 
-### 2. No User Authentication
-There is no way to:
-- Create an account
-- Log in
-- Protect API endpoints
-- Isolate user data
+### 2. Authentication Is Not Enforced Yet
+The provider-free Google login and persistent session lifecycle work, but:
+- Live Google login has not been completed with real credentials
+- The Web UI has no login/session gate yet
+- Existing API endpoints still accept caller-provided `org_id` values
+- Sessions are not yet used to authorize or isolate API requests
 
 ### 3. Real Provider Lifecycles Remain Unverified
 Connected sources, organization settings, and approval requests now survive service restarts. Remaining gaps:
@@ -229,7 +230,7 @@ Connected sources, organization settings, and approval requests now survive serv
 | Run Docker and fix issues | 4-8 hours | Unknown bugs will surface |
 | Test Notion → Queue flow | 2-4 hours | Integration debugging |
 | Test MCP with Claude Code | 2-4 hours | Protocol debugging |
-| Add user auth (Google OAuth) | 8-16 hours | New feature from scratch |
+| Wire auth into Web/API routes | 6-12 hours | Session-derived org isolation and UI states |
 | Persist tokens/settings to DB | 4-8 hours | Schema + migration + code |
 | Test full review queue flow | 2-4 hours | UI debugging |
 | Deploy to cloud | 8-16 hours | Infrastructure + debugging |
@@ -276,10 +277,10 @@ Connected sources, organization settings, and approval requests now survive serv
 8. [x] Verify chat returns confirmed results with citations
 
 ### Phase 2: Add Authentication (2-3 days)
-9. Implement Google OAuth for users
-10. Add session management
+9. [x] Implement Google OAuth contract for users
+10. [x] Add persistent session management
 11. Protect API endpoints
-12. Persist tokens to database
+12. [x] Persist hashed session tokens to database
 
 ### Phase 3: Test MCP (1-2 days)
 13. Configure MCP server in Claude Code
@@ -308,7 +309,7 @@ Connected sources, organization settings, and approval requests now survive serv
      ▼          ▼          ▼          ▼              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    API (FastAPI)                                 │
-│  ✅ Locally tested │ ❌ No auth │ ✅ Postgres persistence       │
+│ ✅ Tested │ 🚧 Auth foundation; routes open │ ✅ Persistence    │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -334,18 +335,18 @@ Connected sources, organization settings, and approval requests now survive serv
 Legend:
 📝 = Code written but untested
 ❌ = Not working / Not implemented
-✅ = Tested and working (none currently)
+✅ = Tested and working
 ```
 
 ---
 
 ## Summary
 
-**The honest truth:** This is a codebase, not a product. Significant code has been written, but none of it has been tested. The path from here to "10 design partners using it daily" requires:
+**The honest truth:** The local core loop and auth foundation are tested, but this is not yet a user-ready product. The path from here to "10 design partners using it daily" requires:
 
-1. **Making it run** (currently it doesn't)
-2. **Adding user auth** (currently nonexistent)
-3. **Testing everything** (currently nothing tested)
-4. **Deploying it** (currently only Docker files)
+1. **Enforcing sessions and org isolation across API routes**
+2. **Adding the Web login/session experience**
+3. **Testing live Google, Notion, and MCP integrations**
+4. **Deploying and operating it safely**
 
 Estimated time to MVP: **2-4 weeks of focused work**, assuming no major surprises when testing reveals bugs.

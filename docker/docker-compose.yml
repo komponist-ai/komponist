@@ -89,6 +89,11 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
+      - GOOGLE_AUTH_CLIENT_ID=${GOOGLE_AUTH_CLIENT_ID}
+      - GOOGLE_AUTH_CLIENT_SECRET=${GOOGLE_AUTH_CLIENT_SECRET}
+      - GOOGLE_AUTH_REDIRECT_URI=${GOOGLE_AUTH_REDIRECT_URI:-http://localhost:8000/auth/login/google/callback}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - KOMPONIST_COOKIE_SECURE=${KOMPONIST_COOKIE_SECURE:-false}
       # Local Documents
       - KOMPONIST_LOCAL_DOCS_PATH=/data/docs
       # CORS

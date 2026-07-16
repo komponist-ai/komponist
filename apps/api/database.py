@@ -47,6 +47,49 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class AuthIdentity(Base):
+    """External login identity linked to a Komponist user."""
+    __tablename__ = "auth_identities"
+    __table_args__ = (
+        UniqueConstraint("provider", "subject", name="uq_auth_identity_provider_subject"),
+        UniqueConstraint("provider", "user_id", name="uq_auth_identity_provider_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    provider: Mapped[str] = mapped_column(String(30), index=True)
+    subject: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(255))
+    avatar_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class AuthSession(Base):
+    """Revocable browser session. Only a hash of the bearer token is stored."""
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class OAuthLoginState(Base):
+    """Single-use state for the user-login OAuth flow."""
+    __tablename__ = "oauth_login_states"
+
+    state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    return_to: Mapped[str] = mapped_column(String(500), default="/")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class EventRaw(Base):
     """Raw webhook events landing zone."""
     __tablename__ = "events_raw"

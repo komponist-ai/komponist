@@ -9,7 +9,8 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+import httpx
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
@@ -429,6 +430,96 @@ async def google_webhook():
 
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+
+# =============================================================================
+# User authentication endpoints
+# =============================================================================
+
+@app.get("/auth/login/google")
+async def google_login_start(return_to: str = "/"):
+    """Start Google OIDC login for a Komponist user."""
+    import auth
+
+    if not auth.GOOGLE_AUTH_CLIENT_ID or not auth.GOOGLE_AUTH_CLIENT_SECRET:
+        raise HTTPException(status_code=503, detail="Google user login is not configured")
+    state = await auth.create_login_state(return_to)
+    response = RedirectResponse(auth.google_authorization_url(state))
+    response.set_cookie(
+        key=auth.LOGIN_STATE_COOKIE,
+        value=state,
+        max_age=auth.STATE_MINUTES * 60,
+        httponly=True,
+        secure=os.getenv("KOMPONIST_COOKIE_SECURE", "false").lower() == "true",
+        samesite="lax",
+        path="/auth/login/google/callback",
+    )
+    return response
+
+
+@app.get("/auth/login/google/callback")
+async def google_login_callback(request: Request, code: str, state: str):
+    """Complete Google login and issue a persistent HttpOnly session cookie."""
+    import auth
+
+    if not auth.login_state_matches(
+        state, request.cookies.get(auth.LOGIN_STATE_COOKIE)
+    ):
+        raise HTTPException(status_code=400, detail="Login state does not match browser")
+    return_to = await auth.consume_login_state(state)
+    if return_to is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired login state")
+    try:
+        tokens = await auth.exchange_google_code(code)
+        identity = await auth.fetch_google_identity(tokens["access_token"])
+        user = await auth.upsert_google_user(identity)
+        raw_token, _ = await auth.create_session(user.id)
+    except (httpx.HTTPError, ValueError) as error:
+        print(f"[User Auth] Google callback failed: {type(error).__name__}")
+        raise HTTPException(status_code=400, detail="Google login failed") from error
+
+    response = RedirectResponse(f"{FRONTEND_URL}{return_to}")
+    response.set_cookie(
+        key=auth.SESSION_COOKIE,
+        value=raw_token,
+        max_age=auth.SESSION_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=os.getenv("KOMPONIST_COOKIE_SECURE", "false").lower() == "true",
+        samesite="lax",
+        path="/",
+    )
+    response.delete_cookie(
+        auth.LOGIN_STATE_COOKIE,
+        path="/auth/login/google/callback",
+        secure=os.getenv("KOMPONIST_COOKIE_SECURE", "false").lower() == "true",
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@app.get("/auth/session")
+async def get_auth_session(request: Request):
+    """Return the current browser session without exposing its bearer token."""
+    import auth
+
+    user = await auth.authenticated_user(request.cookies.get(auth.SESSION_COOKIE))
+    return {"authenticated": user is not None, "user": user}
+
+
+@app.post("/auth/logout", status_code=204)
+async def logout(request: Request, response: Response):
+    """Revoke the current session and clear its browser cookie."""
+    import auth
+
+    await auth.revoke_session(request.cookies.get(auth.SESSION_COOKIE))
+    response.delete_cookie(
+        auth.SESSION_COOKIE,
+        path="/",
+        secure=os.getenv("KOMPONIST_COOKIE_SECURE", "false").lower() == "true",
+        httponly=True,
+        samesite="lax",
+    )
 
 
 def _validated_oauth_org(org_id: str) -> str:
