@@ -1,18 +1,22 @@
 """
 Embedding utilities.
 
-Supports multiple providers: OpenAI, Ollama.
-Default: OpenAI text-embedding-3-small (1536 dims)
+OpenAI ``text-embedding-3-small`` is the production default. In mock mode a
+deterministic hash vector exercises storage and retrieval contracts without
+calling a model or the network; it is not a semantic embedding.
 """
 
 import os
-from typing import List, Optional
+import hashlib
+import math
+from typing import Any, List, Optional
 from abc import ABC, abstractmethod
 from enum import Enum
 
 
 class EmbeddingProvider(str, Enum):
     """Supported embedding providers."""
+    MOCK = "mock"
     OPENAI = "openai"
     OLLAMA = "ollama"
 
@@ -40,15 +44,29 @@ class BaseEmbeddingClient(ABC):
 class OpenAIEmbeddingClient(BaseEmbeddingClient):
     """OpenAI embedding client."""
 
-    def __init__(self, api_key: Optional[str] = None):
-        from openai import AsyncOpenAI
-
+    def __init__(self, api_key: Optional[str] = None, client: Any = None):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OPENAI_API_KEY not set")
+        if client is None:
+            from openai import AsyncOpenAI
 
-        self.client = AsyncOpenAI(api_key=self.api_key)
+            if not self.api_key:
+                raise ValueError(
+                    "OPENAI_API_KEY is not set. Use KOMPONIST_AI_MODE=mock "
+                    "for offline development."
+                )
+            client = AsyncOpenAI(api_key=self.api_key)
+
+        self.client = client
         self.model = os.getenv("KOMPONIST_EMBEDDING_MODEL", "text-embedding-3-small")
+
+    @classmethod
+    def _validate_dimensions(cls, embedding: List[float]) -> List[float]:
+        if len(embedding) != cls.DIMENSIONS:
+            raise ValueError(
+                f"Embedding model returned {len(embedding)} dimensions; "
+                f"Neo4j expects {cls.DIMENSIONS}."
+            )
+        return embedding
 
     async def embed(self, text: str) -> List[float]:
         """
@@ -63,10 +81,11 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
         response = await self.client.embeddings.create(
             model=self.model,
             input=text,
-            dimensions=self.DIMENSIONS
+            dimensions=self.DIMENSIONS,
+            encoding_format="float",
         )
 
-        return response.data[0].embedding
+        return self._validate_dimensions(response.data[0].embedding)
 
     async def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """
@@ -78,15 +97,37 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
         Returns:
             List of embedding vectors
         """
+        if not texts:
+            return []
+
         response = await self.client.embeddings.create(
             model=self.model,
             input=texts,
-            dimensions=self.DIMENSIONS
+            dimensions=self.DIMENSIONS,
+            encoding_format="float",
         )
 
         # Sort by index to maintain order
         embeddings = sorted(response.data, key=lambda x: x.index)
-        return [e.embedding for e in embeddings]
+        return [self._validate_dimensions(e.embedding) for e in embeddings]
+
+
+class MockEmbeddingClient(BaseEmbeddingClient):
+    """Deterministic no-model embedding double for offline contract tests."""
+
+    model = "mock-hash-embedding"
+
+    async def embed(self, text: str) -> List[float]:
+        raw = hashlib.shake_256(text.encode("utf-8")).digest(self.DIMENSIONS * 2)
+        values = [
+            (int.from_bytes(raw[index:index + 2], "big") / 32767.5) - 1.0
+            for index in range(0, len(raw), 2)
+        ]
+        norm = math.sqrt(sum(value * value for value in values)) or 1.0
+        return [value / norm for value in values]
+
+    async def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        return [await self.embed(text) for text in texts]
 
 
 class OllamaEmbeddingClient(BaseEmbeddingClient):
@@ -156,15 +197,25 @@ def get_embedding_client(provider: Optional[str] = None) -> BaseEmbeddingClient:
     Get embedding client for the specified provider.
 
     Args:
-        provider: Provider name (openai, ollama).
-                  Defaults to KOMPONIST_EMBEDDING_PROVIDER env var or 'openai'.
+        provider: Provider name. Defaults to OpenAI. KOMPONIST_AI_MODE=mock
+                  always selects the deterministic offline test double.
 
     Returns:
         Configured embedding client
     """
-    provider = provider or os.getenv("KOMPONIST_EMBEDDING_PROVIDER", EmbeddingProvider.OPENAI)
+    ai_mode = os.getenv("KOMPONIST_AI_MODE", "mock").lower()
+    if ai_mode not in {"mock", "live"}:
+        raise ValueError("KOMPONIST_AI_MODE must be 'mock' or 'live'")
+    if ai_mode == "mock":
+        return MockEmbeddingClient()
 
-    if provider == EmbeddingProvider.OPENAI:
+    provider = provider or os.getenv(
+        "KOMPONIST_EMBEDDING_PROVIDER", EmbeddingProvider.OPENAI.value
+    )
+
+    if provider == EmbeddingProvider.MOCK:
+        return MockEmbeddingClient()
+    elif provider == EmbeddingProvider.OPENAI:
         return OpenAIEmbeddingClient()
     elif provider == EmbeddingProvider.OLLAMA:
         return OllamaEmbeddingClient()
@@ -186,6 +237,12 @@ def get_embedder() -> BaseEmbeddingClient:
     if _client is None:
         _client = get_embedding_client()
     return _client
+
+
+def reset_embedder() -> None:
+    """Reset the process-global client after configuration changes or in tests."""
+    global _client
+    _client = None
 
 
 # Backwards-compatible alias

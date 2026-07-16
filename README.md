@@ -47,7 +47,7 @@ docker compose -f docker/docker-compose.yml up
 - **Human-in-the-loop** — Review and confirm extracted facts before they enter the brain.
 - **MCP integration** — AI coding assistants query via standard MCP tools.
 - **Data portability** — Export/import your brain as YAML.
-- **Configurable LLMs** — Use Anthropic, OpenAI, or local Ollama.
+- **OpenAI-native AI layer** — Responses API and OpenAI embeddings, with no-network mocks for development.
 
 ## How It Works
 
@@ -151,23 +151,21 @@ Or connect directly:
 ### Environment Variables
 
 ```bash
-# LLM Provider (anthropic, openai, ollama)
-KOMPONIST_LLM_PROVIDER=anthropic
-KOMPONIST_LLM_MODEL=claude-sonnet-4-20250514
+# No key required: deterministic test doubles, not real AI
+KOMPONIST_AI_MODE=mock
 
-# Embeddings (openai, ollama)
+# Production providers
+KOMPONIST_LLM_PROVIDER=openai
+KOMPONIST_LLM_MODEL=gpt-5.6-terra
+KOMPONIST_OPENAI_STORE=false
 KOMPONIST_EMBEDDING_PROVIDER=openai
 KOMPONIST_EMBEDDING_MODEL=text-embedding-3-small
 
 # Local documents path
 KOMPONIST_LOCAL_DOCS_PATH=./docs
 
-# Ollama (for local models)
-OLLAMA_BASE_URL=http://ollama:11434
-
-# API Keys
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+# Leave empty in mock mode
+OPENAI_API_KEY=
 
 # OAuth (for connectors)
 NOTION_CLIENT_ID=...
@@ -178,21 +176,22 @@ SLACK_CLIENT_ID=...
 SLACK_CLIENT_SECRET=...
 ```
 
-### Local Models with Ollama
+### Develop Without OpenAI Credits
 
-Run entirely locally with Ollama:
+Mock mode exercises API, extraction-schema, embedding-dimension, and database
+contracts without a model or network call. Its hash vectors are deterministic
+test data and are **not** suitable for semantic search quality evaluation.
 
 ```bash
-# Pull models
-ollama pull llama3
-ollama pull nomic-embed-text
+KOMPONIST_AI_MODE=mock
+```
 
-# Configure .env
-KOMPONIST_LLM_PROVIDER=ollama
-KOMPONIST_LLM_MODEL=llama3
-KOMPONIST_EMBEDDING_PROVIDER=ollama
-KOMPONIST_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_BASE_URL=http://host.docker.internal:11434
+Switch to real OpenAI calls only after adding a project-scoped key to your local
+`.env` file:
+
+```bash
+KOMPONIST_AI_MODE=live
+OPENAI_API_KEY=sk-project-key-here
 ```
 
 ## Development

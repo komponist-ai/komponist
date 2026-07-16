@@ -89,7 +89,7 @@ fly secrets set -a komponist-api \
   NEO4J_USERNAME=neo4j \
   NEO4J_PASSWORD=<password> \
   DATABASE_URL=<neon_url> \
-  ANTHROPIC_API_KEY=<key> \
+  KOMPONIST_AI_MODE=live \
   OPENAI_API_KEY=<key>
 
 # Deploy API

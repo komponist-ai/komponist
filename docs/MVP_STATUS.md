@@ -40,9 +40,16 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 ## ✅ Actually Verified Working
 
 ### Only These Things Have Been Tested:
-- [ ] **Nothing has been end-to-end tested yet**
+- [x] OpenAI Responses API request contract via injected offline client
+- [x] Strict structured-output parsing and application-side schema validation
+- [x] OpenAI embedding request contract and fixed 1536-dimensional output
+- [x] Deterministic no-model mock clients for LLM and embeddings
+- [x] Narrow extraction contracts for Decision, Goal, Constraint, and Project
+- [ ] **No user-facing flow has been end-to-end tested yet**
 
-### Unit Tests Exist (But Not Run Recently):
+### Unit Tests:
+- `packages/core/tests/test_ai_clients.py` — 8 offline AI client contract tests (passing)
+- `packages/pipelines/tests/test_contracts.py` — 3 extraction schema tests (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
 
 ---
@@ -54,8 +61,8 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] `schema.py` — Graph schema definitions (code complete)
 - [x] `queries.py` — 5 core queries: hybrid search, active decisions, context expansion, supersedes chain, applicable constraints (code complete)
 - [x] `models.py` — Pydantic models for entities (code complete)
-- [x] `llm.py` — Multi-provider LLM wrapper: Anthropic, OpenAI, Ollama (code complete)
-- [x] `embeddings.py` — Embedding wrapper (code complete)
+- [x] `llm.py` — OpenAI Responses API wrapper plus no-network mock mode (offline contract-tested)
+- [x] `embeddings.py` — OpenAI embeddings plus deterministic no-model mock mode (offline contract-tested)
 - [ ] **NOT TESTED** — None of this has been run against a real Neo4j instance
 
 ### Extraction Pipeline (`packages/pipelines/`)

@@ -32,14 +32,18 @@ nano ~/.claude/mcp.json
         "NEO4J_URI": "bolt://localhost:7687",
         "NEO4J_USERNAME": "neo4j",
         "NEO4J_PASSWORD": "your-password",
-        "OPENAI_API_KEY": "your-openai-key",
-        "ANTHROPIC_API_KEY": "your-anthropic-key",
+        "KOMPONIST_AI_MODE": "mock",
+        "KOMPONIST_LLM_PROVIDER": "openai",
+        "KOMPONIST_EMBEDDING_PROVIDER": "openai",
         "DATABASE_URL": "postgresql+asyncpg://..."
       }
     }
   }
 }
 ```
+
+Mock mode makes no AI network calls. For live extraction and semantic search,
+set `KOMPONIST_AI_MODE` to `live` and add a project-scoped `OPENAI_API_KEY`.
 
 ### 3. Verify installation
 

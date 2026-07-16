@@ -71,13 +71,13 @@ services:
       - NEO4J_USERNAME=neo4j
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-komponist}
       # AI Providers
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - KOMPONIST_LLM_PROVIDER=${KOMPONIST_LLM_PROVIDER:-anthropic}
-      - KOMPONIST_LLM_MODEL=${KOMPONIST_LLM_MODEL:-claude-sonnet-4-20250514}
+      - KOMPONIST_AI_MODE=${KOMPONIST_AI_MODE:-mock}
+      - KOMPONIST_LLM_PROVIDER=${KOMPONIST_LLM_PROVIDER:-openai}
+      - KOMPONIST_LLM_MODEL=${KOMPONIST_LLM_MODEL:-gpt-5.6-terra}
+      - KOMPONIST_OPENAI_STORE=${KOMPONIST_OPENAI_STORE:-false}
       - KOMPONIST_EMBEDDING_PROVIDER=${KOMPONIST_EMBEDDING_PROVIDER:-openai}
       - KOMPONIST_EMBEDDING_MODEL=${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       # Connectors
       - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
@@ -121,13 +121,13 @@ services:
       - NEO4J_USERNAME=neo4j
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-komponist}
       # AI Providers
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - KOMPONIST_LLM_PROVIDER=${KOMPONIST_LLM_PROVIDER:-anthropic}
-      - KOMPONIST_LLM_MODEL=${KOMPONIST_LLM_MODEL:-claude-sonnet-4-20250514}
+      - KOMPONIST_AI_MODE=${KOMPONIST_AI_MODE:-mock}
+      - KOMPONIST_LLM_PROVIDER=${KOMPONIST_LLM_PROVIDER:-openai}
+      - KOMPONIST_LLM_MODEL=${KOMPONIST_LLM_MODEL:-gpt-5.6-terra}
+      - KOMPONIST_OPENAI_STORE=${KOMPONIST_OPENAI_STORE:-false}
       - KOMPONIST_EMBEDDING_PROVIDER=${KOMPONIST_EMBEDDING_PROVIDER:-openai}
       - KOMPONIST_EMBEDDING_MODEL=${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       # Slack (for approvals)
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
       - SLACK_APPROVAL_CHANNEL=${SLACK_APPROVAL_CHANNEL}
@@ -154,27 +154,11 @@ services:
     networks:
       - komponist
 
-  # =============================================================================
-  # Optional: Local LLM with Ollama
-  # =============================================================================
-
-  # Uncomment to use local models instead of API providers
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: komponist-ollama
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama_data:/root/.ollama
-  #   networks:
-  #     - komponist
-
 volumes:
   neo4j_data:
   neo4j_logs:
   neo4j_plugins:
   postgres_data:
-  # ollama_data:
 
 networks:
   komponist:

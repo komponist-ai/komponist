@@ -19,6 +19,7 @@ from core.llm import get_llm, get_llm_client
 from core.embeddings import embed, combine_for_embedding
 from core.graph import GraphClient
 from core.queries import BrainQueries
+from pipelines.contracts import CLASSIFICATION_SCHEMA, FACT_EXTRACTION_SCHEMA
 
 
 # Get the configured LLM client
@@ -78,7 +79,8 @@ Does this contain extractable information?"""
         result = await llm.call_json(
             prompt=prompt,
             system=system_prompt,
-            max_tokens=200
+            max_tokens=200,
+            schema=CLASSIFICATION_SCHEMA,
         )
 
         state["is_relevant"] = result.get("is_relevant", False)
@@ -116,23 +118,22 @@ async def extract_node(state: ExtractionState) -> ExtractionState:
 
     system_prompt = """You are extracting structured facts for a knowledge graph.
 
-Extract all useful information from the source. Categorize each fact as one of:
-- Fact: general information or knowledge
-- Decision: a choice or decision that was made
+Extract only the information needed by the Komponist MVP. Categorize each item as one of:
+- Decision: a choice that was made
 - Goal: an objective or target
-- Constraint: a rule or limitation
-- Instruction: how to do something
-- Note: a summary or observation
+- Constraint: a rule, limitation, or non-negotiable requirement
+- Project: an active work effort or initiative
 
 Rules:
 1. Statement: one sentence, self-contained (readable without context), present tense
 2. Detail: 1-3 sentences explaining more context
 3. Excerpt: verbatim quote from the source
 4. Confidence: high (explicit), medium (implicit), low (inferred)
+5. Relations hint: an array of potential relationships; use [] when none exist
 
 IMPORTANT: Always return a JSON object with a "facts" key containing an array:
 {"facts": [
-  {"type": "...", "statement": "...", "detail": "...", "excerpt": "...", "confidence": "..."},
+  {"type": "...", "statement": "...", "detail": "...", "excerpt": "...", "confidence": "...", "relations_hint": []},
   ...
 ]}
 
@@ -147,14 +148,15 @@ Author: {source_item.author or 'unknown'}
 Body:
 {source_item.body[:4000]}
 
-Extract all facts:"""
+Extract all relevant items:"""
 
     try:
         llm = get_extraction_llm()
         result = await llm.call_json(
             prompt=prompt,
             system=system_prompt,
-            max_tokens=3000
+            max_tokens=3000,
+            schema=FACT_EXTRACTION_SCHEMA,
         )
 
         # Result should be array or dict with "facts" key
