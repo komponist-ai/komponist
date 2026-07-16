@@ -13,7 +13,7 @@ These decisions will be the first Decision nodes in the Komponist brain (dogfood
 - Postgres with pgvector: poor graph traversal performance
 - MongoDB: weak graph semantics
 
-**Constraints:** Embedding dimension is fixed at initialization (e.g., 1536 for text-embedding-3-small). Changing dimensions later requires full reindex.
+**Constraints:** Embedding dimension is fixed at initialization (1024 for the local Qwen3 embedding model). Changing dimensions later requires full reindex.
 
 ## ADR-002: Postgres for App Data Only
 
@@ -33,11 +33,11 @@ These decisions will be the first Decision nodes in the Komponist brain (dogfood
 
 ## ADR-004: Single Embedding Model, Fixed Dimension
 
-**Decision:** One embedding model (text-embedding-3-small, 1536 dims), fixed at start. Never change.
+**Decision:** Use one active embedding model at a time and standardize the graph index at 1024 dimensions.
 
-**Why:** Vector indexes are immutable regarding dimensionality. Changing models mid-flight requires full graph reindex (expensive, error-prone). Pick once, commit.
+**Why:** Qwen3 Embedding 0.6B natively produces 1024-dimensional vectors and runs locally on the target MacBook. OpenAI embedding models can also be requested at the shared dimension. Vectors from different models must never be mixed; switching models requires re-embedding the graph.
 
-**Chosen:** OpenAI text-embedding-3-small (1536 dims, $0.02/1M tokens, excellent quality).
+**Chosen for local development:** Qwen3 Embedding 0.6B (1024 dims). OpenAI remains the hosted provider option.
 
 ## ADR-005: Centralized LLM Wrapper
 

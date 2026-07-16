@@ -6,10 +6,11 @@ Defines and applies the Komponist brain schema: nodes, relationships, constraint
 
 from typing import List, Dict, Any
 from core.graph import GraphClient
+from core.embeddings import EMBEDDING_DIMENSIONS
 
 
 # Schema version for tracking
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 class GraphSchema:
@@ -101,19 +102,47 @@ class GraphSchema:
             else:
                 raise
 
-        # Vector index for embeddings (Neo4j 5.x native)
+        # Vector index for embeddings (Neo4j 5.x native). Neo4j cannot change
+        # vector dimensions in place, so discard derived vectors and rebuild the
+        # index when the configured dimension changes.
         try:
-            await GraphClient.run_query("""
+            existing_indexes = await GraphClient.run_query("""
+                SHOW VECTOR INDEXES YIELD name, options
+                WHERE name = 'entity_embedding'
+                RETURN options
+            """)
+            if existing_indexes:
+                options = existing_indexes[0].get("options") or {}
+                index_config = options.get("indexConfig") or {}
+                current_dimensions = index_config.get("vector.dimensions")
+                if current_dimensions != EMBEDDING_DIMENSIONS:
+                    await GraphClient.run_query(
+                        "DROP INDEX entity_embedding IF EXISTS"
+                    )
+                    await GraphClient.run_query("""
+                        MATCH (e:Entity)
+                        WHERE e.embedding IS NOT NULL
+                        REMOVE e.embedding
+                    """)
+                    print(
+                        f"✓ Removed {current_dimensions}-dimensional vector index "
+                        f"and stale embeddings"
+                    )
+
+            await GraphClient.run_query(f"""
                 CREATE VECTOR INDEX entity_embedding IF NOT EXISTS
                 FOR (e:Entity) ON (e.embedding)
-                OPTIONS {
-                  indexConfig: {
-                    `vector.dimensions`: 1536,
+                OPTIONS {{
+                  indexConfig: {{
+                    `vector.dimensions`: {EMBEDDING_DIMENSIONS},
                     `vector.similarity_function`: 'cosine'
-                  }
-                }
+                  }}
+                }}
             """)
-            print("✓ Created vector index (1536 dims, cosine similarity)")
+            print(
+                f"✓ Created vector index ({EMBEDDING_DIMENSIONS} dims, "
+                "cosine similarity)"
+            )
         except Exception as e:
             if "already exists" in str(e).lower():
                 print("  Vector index already exists")

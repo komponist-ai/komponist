@@ -32,6 +32,7 @@ class Model(str, Enum):
     GPT4O = "gpt-4o"
     GPT35 = "gpt-3.5-turbo"
     # Ollama (common models)
+    QWEN35 = "qwen3.5:9b"
     LLAMA3 = "llama3"
     MISTRAL = "mistral"
     MIXTRAL = "mixtral"
@@ -49,6 +50,7 @@ class BaseLLMClient(ABC):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         json_mode: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
         max_retries: int = 3
     ) -> Dict[str, Any]:
         """Call the LLM."""
@@ -60,7 +62,8 @@ class BaseLLMClient(ABC):
         model: Optional[str] = None,
         system: Optional[str] = None,
         max_tokens: int = 4096,
-        schema: Optional[Dict[str, Any]] = None
+        schema: Optional[Dict[str, Any]] = None,
+        temperature: float = 0.0
     ) -> Dict[str, Any]:
         """
         Call LLM and parse JSON output.
@@ -83,7 +86,9 @@ class BaseLLMClient(ABC):
             model=model,
             system=system,
             max_tokens=max_tokens,
-            json_mode=True
+            temperature=temperature,
+            json_mode=True,
+            schema=schema
         )
 
         text = response["text"].strip()
@@ -132,14 +137,18 @@ class AnthropicClient(BaseLLMClient):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         json_mode: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
         max_retries: int = 3
     ) -> Dict[str, Any]:
         model = model or self.default_model
 
         messages = [{"role": "user", "content": prompt}]
 
-        if json_mode and system:
-            system += "\n\nYou must respond with valid JSON only. No markdown, no explanation."
+        system_prompt = system or ""
+        if json_mode:
+            system_prompt += "\n\nYou must respond with valid JSON only. No markdown, no explanation."
+        if schema:
+            system_prompt += f"\n\nThe response must match this JSON Schema:\n{json.dumps(schema)}"
 
         for attempt in range(max_retries):
             try:
@@ -149,7 +158,7 @@ class AnthropicClient(BaseLLMClient):
                     model=model,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    system=system or "",
+                    system=system_prompt,
                     messages=messages
                 )
 
@@ -238,15 +247,16 @@ class OpenAIClient(BaseLLMClient):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         json_mode: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
         max_retries: int = 3
     ) -> Dict[str, Any]:
         model = model or self.default_model
 
         messages = []
-        if system:
-            sys_prompt = system
-            if json_mode:
-                sys_prompt += "\n\nYou must respond with valid JSON only. No markdown, no explanation."
+        sys_prompt = system or ""
+        if json_mode:
+            sys_prompt += "\n\nYou must respond with valid JSON only. No markdown, no explanation."
+        if sys_prompt:
             messages.append({"role": "system", "content": sys_prompt})
         messages.append({"role": "user", "content": prompt})
 
@@ -261,7 +271,16 @@ class OpenAIClient(BaseLLMClient):
                     "messages": messages
                 }
 
-                if json_mode:
+                if json_mode and schema:
+                    kwargs["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "komponist_response",
+                            "strict": True,
+                            "schema": schema
+                        }
+                    }
+                elif json_mode:
                     kwargs["response_format"] = {"type": "json_object"}
 
                 response = await self.client.chat.completions.create(**kwargs)
@@ -295,7 +314,7 @@ class OllamaClient(BaseLLMClient):
         import httpx
 
         self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.default_model = os.getenv("KOMPONIST_LLM_MODEL", Model.LLAMA3)
+        self.default_model = os.getenv("KOMPONIST_LLM_MODEL", Model.QWEN35)
         self._httpx = httpx
 
     async def call(
@@ -306,35 +325,36 @@ class OllamaClient(BaseLLMClient):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         json_mode: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
         max_retries: int = 3
     ) -> Dict[str, Any]:
         model = model or self.default_model
-
-        full_prompt = ""
-        if system:
-            sys_prompt = system
-            if json_mode:
-                sys_prompt += "\n\nYou must respond with valid JSON only. No markdown, no explanation."
-            full_prompt = f"{sys_prompt}\n\n{prompt}"
-        else:
-            full_prompt = prompt
 
         for attempt in range(max_retries):
             try:
                 start = time.time()
 
+                payload = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "num_predict": max_tokens,
+                        "temperature": temperature
+                    }
+                }
+                if system:
+                    payload["system"] = system
+                if json_mode:
+                    payload["format"] = schema or "json"
+                    # Reasoning-capable local models may otherwise place the
+                    # structured object in Ollama's separate `thinking` field.
+                    payload["think"] = False
+
                 async with self._httpx.AsyncClient(timeout=120.0) as client:
                     response = await client.post(
                         f"{self.base_url}/api/generate",
-                        json={
-                            "model": model,
-                            "prompt": full_prompt,
-                            "stream": False,
-                            "options": {
-                                "num_predict": max_tokens,
-                                "temperature": temperature
-                            }
-                        }
+                        json=payload
                     )
                     response.raise_for_status()
                     data = response.json()

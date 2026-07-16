@@ -40,6 +40,7 @@ class SourceType(str, Enum):
     SLACK = "slack"
     NOTION = "notion"
     GOOGLE = "google"
+    LOCAL = "local"
     AGENT_REPORT = "agent_report"
     MANUAL = "manual"
 

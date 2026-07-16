@@ -169,7 +169,7 @@ Claude: Based on your company brain, you've decided to:
 
 **Use Neo4j 5.x as the company brain storage**
 - Neo4j's native vector indexes eliminate the need for a separate vector database
-- Embedding dimension is fixed at 1536 (text-embedding-3-small)
+- Embedding dimension is fixed at 1024 (local Qwen3 and hosted OpenAI-compatible)
 - Source: ADR-001 from GitHub
 
 This was confirmed on July 1, 2026 by sovin.

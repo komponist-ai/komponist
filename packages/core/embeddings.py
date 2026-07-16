@@ -2,7 +2,7 @@
 Embedding utilities.
 
 Supports multiple providers: OpenAI, Ollama.
-Default: OpenAI text-embedding-3-small (1536 dims)
+Local default: Qwen3 Embedding 0.6B (1024 dims)
 """
 
 import os
@@ -18,7 +18,7 @@ class EmbeddingProvider(str, Enum):
 
 
 # Fixed embedding dimensions for compatibility with Neo4j vector index
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_DIMENSIONS = 1024
 
 
 class BaseEmbeddingClient(ABC):
@@ -58,7 +58,7 @@ class OpenAIEmbeddingClient(BaseEmbeddingClient):
             text: Text to embed
 
         Returns:
-            Embedding vector (1536 dims)
+            Embedding vector (1024 dims)
         """
         response = await self.client.embeddings.create(
             model=self.model,
@@ -96,8 +96,41 @@ class OllamaEmbeddingClient(BaseEmbeddingClient):
         import httpx
 
         self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = os.getenv("KOMPONIST_EMBEDDING_MODEL", "nomic-embed-text")
+        self.model = os.getenv("KOMPONIST_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
         self._httpx = httpx
+
+    async def _embed_inputs(self, inputs: List[str]) -> List[List[float]]:
+        if not inputs:
+            return []
+
+        async with self._httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{self.base_url}/api/embed",
+                json={
+                    "model": self.model,
+                    "input": inputs,
+                    "dimensions": self.DIMENSIONS
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        embeddings = data.get("embeddings")
+        if not isinstance(embeddings, list) or len(embeddings) != len(inputs):
+            raise ValueError(
+                f"Ollama returned {len(embeddings) if isinstance(embeddings, list) else 0} "
+                f"embeddings for {len(inputs)} inputs"
+            )
+
+        for embedding in embeddings:
+            if not isinstance(embedding, list) or len(embedding) != self.DIMENSIONS:
+                actual = len(embedding) if isinstance(embedding, list) else 0
+                raise ValueError(
+                    f"Ollama model {self.model} returned {actual} dimensions; "
+                    f"expected {self.DIMENSIONS}"
+                )
+
+        return embeddings
 
     async def embed(self, text: str) -> List[float]:
         """
@@ -109,30 +142,12 @@ class OllamaEmbeddingClient(BaseEmbeddingClient):
         Returns:
             Embedding vector
         """
-        async with self._httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{self.base_url}/api/embeddings",
-                json={
-                    "model": self.model,
-                    "prompt": text
-                }
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        embedding = data.get("embedding", [])
-
-        # Pad or truncate to match expected dimensions
-        if len(embedding) < self.DIMENSIONS:
-            embedding.extend([0.0] * (self.DIMENSIONS - len(embedding)))
-        elif len(embedding) > self.DIMENSIONS:
-            embedding = embedding[:self.DIMENSIONS]
-
-        return embedding
+        embeddings = await self._embed_inputs([text])
+        return embeddings[0]
 
     async def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """
-        Embed multiple texts (sequentially for Ollama).
+        Embed multiple texts in one Ollama request.
 
         Args:
             texts: List of texts to embed
@@ -140,11 +155,7 @@ class OllamaEmbeddingClient(BaseEmbeddingClient):
         Returns:
             List of embedding vectors
         """
-        embeddings = []
-        for text in texts:
-            emb = await self.embed(text)
-            embeddings.append(emb)
-        return embeddings
+        return await self._embed_inputs(texts)
 
 
 # =============================================================================

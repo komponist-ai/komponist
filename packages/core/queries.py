@@ -31,7 +31,7 @@ class BrainQueries:
         Args:
             org_id: Organization ID
             query_text: Text query for fulltext search
-            query_embedding: Embedding vector for similarity search (1536 dims)
+            query_embedding: Embedding vector for similarity search (1024 dims)
             entity_types: Filter by entity types (e.g., ["Decision", "Goal"])
             k: Number of results per search method
             status: Entity status filter (default "confirmed")

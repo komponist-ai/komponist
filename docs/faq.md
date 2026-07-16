@@ -92,12 +92,12 @@ Graph relationships (supersedes, affects, supports, constrains) are first-class 
 
 ### What embedding model do you use?
 
-OpenAI `text-embedding-3-small` (1536 dimensions). **This is fixed at initialization** — changing models later requires reindexing the entire graph.
+Local development uses `qwen3-embedding:0.6b` at 1024 dimensions. OpenAI embeddings are requested at the same dimension. **The index dimension is fixed at initialization**; changing dimensions or models requires re-embedding the graph.
 
 ### What LLM model do you use?
 
-- Haiku (claude-haiku-4-5-20251001) for classification (cheap gate)
-- Sonnet (claude-sonnet-4) for extraction, selection, constraint adjudication (quality)
+- Local default: `qwen3.5:9b` through Ollama
+- Hosted option: a currently supported OpenAI model through the same provider wrapper
 
 ### How does deduplication work?
 
@@ -144,7 +144,7 @@ Lower the extraction quality threshold by tweaking the classify node prompt (pac
 Check:
 1. Do confirmed entities exist? `MATCH (e:Entity {status: 'confirmed'}) RETURN count(e)`
 2. Is your query specific enough? "auth" is too generic, "authentication library decision" is better
-3. Is the embedding dimension correct? Should be 1536 for text-embedding-3-small
+3. Is the embedding dimension correct? It should be 1024 for the configured local and OpenAI clients
 4. Is the org_id correct in your MCP config?
 
 ### check_constraint never blocks anything
@@ -172,7 +172,7 @@ Check:
 Things that must never be violated:
 - "Never auto-confirm extracted entities" (human-in-the-loop)
 - "All storage must go through Neo4j or Postgres" (no Redis, no MongoDB)
-- "Embedding dimension is fixed at 1536" (reindex is expensive)
+- "Embedding dimension is fixed at 1024" (reindex is expensive)
 - "Database migrations require approval" (safety)
 
 Not: "Write tests for new features" (that's a requirement, not a constraint)

@@ -30,7 +30,7 @@ We will use Neo4j 5.x with native vector indexes as the sole brain storage.
 
 ## Consequences
 - No separate vector database needed (Pinecone/Weaviate eliminated)
-- Embedding dimension is fixed at initialization (1536 for text-embedding-3-small)
+- Embedding dimension is fixed at initialization (1024 for the active model)
 - Graph traversal queries are native and fast
 - Operational complexity reduced to one database
 """,

@@ -10,6 +10,7 @@ const SOURCE_BADGES: Record<string, { abbr: string; className: string }> = {
   slack: { abbr: 'SL', className: 'source-badge-slack' },
   google: { abbr: 'GD', className: 'source-badge-google' },
   github: { abbr: 'GH', className: 'source-badge-github' },
+  local: { abbr: 'L', className: 'source-badge-manual' },
   agent_report: { abbr: 'AI', className: '' },
   manual: { abbr: 'M', className: '' },
 }

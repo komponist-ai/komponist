@@ -41,6 +41,45 @@ class ExtractionState(TypedDict):
 DEDUP_EXACT_THRESHOLD = 0.92  # Above this: don't create, attach evidence
 DEDUP_POSSIBLE_THRESHOLD = 0.80  # Above this: create with RELATES_TO edge
 
+CLASSIFICATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "is_relevant": {"type": "boolean"},
+        "reasoning": {"type": "string"}
+    },
+    "required": ["is_relevant", "reasoning"],
+    "additionalProperties": False
+}
+
+EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "facts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": ["Decision", "Goal", "Constraint", "Project"]
+                    },
+                    "statement": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "excerpt": {"type": "string"},
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                    }
+                },
+                "required": ["type", "statement", "detail", "excerpt", "confidence"],
+                "additionalProperties": False
+            }
+        }
+    },
+    "required": ["facts"],
+    "additionalProperties": False
+}
+
 
 async def classify_node(state: ExtractionState) -> ExtractionState:
     """
@@ -50,19 +89,18 @@ async def classify_node(state: ExtractionState) -> ExtractionState:
     """
     source_item = state["source_item"]
 
-    system_prompt = """You are a fact classifier for a knowledge graph.
+    system_prompt = """You are a knowledge classifier for a company memory graph.
 
-Your job: determine if this source contains any useful information worth storing, such as:
-- Facts, information, or knowledge
-- Goals or objectives
-- Decisions or choices made
-- Instructions or how-to guides
-- Notes or summaries
-- Any structured information
+Determine whether this source contains at least one:
+- Decision: a choice that was made
+- Goal: an objective or desired outcome
+- Constraint: a rule, limitation, or non-negotiable requirement
+- Project: a concrete work effort or initiative
 
 Respond with JSON: {"is_relevant": true/false, "reasoning": "one sentence"}
 
-Be generous - if there's ANY useful content, mark it as relevant. Only mark as not relevant if it's truly empty or meaningless.
+Do not mark general facts, instructions, notes, people, or tools as relevant unless they
+directly express one of the four entity types above.
 """
 
     prompt = f"""Source: {source_item.source} | {source_item.kind}
@@ -78,7 +116,8 @@ Does this contain extractable information?"""
         result = await llm.call_json(
             prompt=prompt,
             system=system_prompt,
-            max_tokens=200
+            max_tokens=200,
+            schema=CLASSIFICATION_SCHEMA
         )
 
         state["is_relevant"] = result.get("is_relevant", False)
@@ -100,7 +139,7 @@ async def extract_node(state: ExtractionState) -> ExtractionState:
     Node 2: Extract structured facts via LLM.
 
     Returns list of:
-    - type (Goal/Decision/Constraint/CustomerRequest)
+    - type (Decision/Goal/Constraint/Project)
     - statement (one sentence, self-contained, present tense)
     - detail (longer explanation)
     - owner_hint (if mentioned)
@@ -116,19 +155,19 @@ async def extract_node(state: ExtractionState) -> ExtractionState:
 
     system_prompt = """You are extracting structured facts for a knowledge graph.
 
-Extract all useful information from the source. Categorize each fact as one of:
-- Fact: general information or knowledge
+Extract only durable company knowledge. Categorize each item as one of:
 - Decision: a choice or decision that was made
 - Goal: an objective or target
 - Constraint: a rule or limitation
-- Instruction: how to do something
-- Note: a summary or observation
+- Project: a concrete work effort or initiative
 
 Rules:
 1. Statement: one sentence, self-contained (readable without context), present tense
 2. Detail: 1-3 sentences explaining more context
 3. Excerpt: verbatim quote from the source
 4. Confidence: high (explicit), medium (implicit), low (inferred)
+5. Ignore general facts, instructions, notes, people, tools, and customer requests
+   unless they directly state a Decision, Goal, Constraint, or Project
 
 IMPORTANT: Always return a JSON object with a "facts" key containing an array:
 {"facts": [
@@ -154,7 +193,8 @@ Extract all facts:"""
         result = await llm.call_json(
             prompt=prompt,
             system=system_prompt,
-            max_tokens=3000
+            max_tokens=3000,
+            schema=EXTRACTION_SCHEMA
         )
 
         # Result should be array or dict with "facts" key

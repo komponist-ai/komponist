@@ -32,10 +32,10 @@ Komponist is an open-source, self-hostable company brain for AI agents. Connect 
 git clone https://github.com/komponist-ai/komponist.git
 cd komponist
 cp .env.example .env
-# Add your API keys to .env
+# The local Ollama defaults need no API keys.
 
 # Start everything
-docker compose -f docker/docker-compose.yml up
+docker compose --env-file .env -f docker/docker-compose.yml up
 
 # Visit http://localhost:3000
 ```
@@ -152,18 +152,18 @@ Or connect directly:
 
 ```bash
 # LLM Provider (anthropic, openai, ollama)
-KOMPONIST_LLM_PROVIDER=anthropic
-KOMPONIST_LLM_MODEL=claude-sonnet-4-20250514
+KOMPONIST_LLM_PROVIDER=ollama
+KOMPONIST_LLM_MODEL=qwen3.5:9b
 
 # Embeddings (openai, ollama)
-KOMPONIST_EMBEDDING_PROVIDER=openai
-KOMPONIST_EMBEDDING_MODEL=text-embedding-3-small
+KOMPONIST_EMBEDDING_PROVIDER=ollama
+KOMPONIST_EMBEDDING_MODEL=qwen3-embedding:0.6b
 
 # Local documents path
 KOMPONIST_LOCAL_DOCS_PATH=./docs
 
 # Ollama (for local models)
-OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_BASE_URL=http://host.docker.internal:11434
 
 # API Keys
 ANTHROPIC_API_KEY=sk-ant-...
@@ -183,17 +183,32 @@ SLACK_CLIENT_SECRET=...
 Run entirely locally with Ollama:
 
 ```bash
-# Pull models
-ollama pull llama3
-ollama pull nomic-embed-text
+# Install and launch the Ollama macOS app first, then pull models.
+ollama pull qwen3.5:9b
+ollama pull qwen3-embedding:0.6b
 
 # Configure .env
 KOMPONIST_LLM_PROVIDER=ollama
-KOMPONIST_LLM_MODEL=llama3
+KOMPONIST_LLM_MODEL=qwen3.5:9b
 KOMPONIST_EMBEDDING_PROVIDER=ollama
-KOMPONIST_EMBEDDING_MODEL=nomic-embed-text
+KOMPONIST_EMBEDDING_MODEL=qwen3-embedding:0.6b
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 ```
+
+The embedding model is requested at 1024 dimensions so local and OpenAI
+embeddings fit the same Neo4j vector index. Switching to OpenAI later only
+requires changing the provider, model, and API key:
+
+```bash
+KOMPONIST_LLM_PROVIDER=openai
+KOMPONIST_LLM_MODEL=your-openai-model
+KOMPONIST_EMBEDDING_PROVIDER=openai
+KOMPONIST_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_API_KEY=your-openai-api-key
+```
+
+Re-embed existing entities when changing embedding models; vectors from
+different models must not be mixed in one index.
 
 ## Development
 

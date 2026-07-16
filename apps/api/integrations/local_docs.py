@@ -145,7 +145,7 @@ def normalize_local_doc(
 
     return SourceItem(
         org_id=org_id,
-        source=SourceType.MANUAL,  # Using MANUAL for local docs
+        source=SourceType.LOCAL,
         kind=kind,
         title=title,
         body=content,
@@ -266,24 +266,50 @@ async def backfill_local_docs(
     Returns:
         Summary of backfill results
     """
-    count = 0
+    documents_processed = 0
+    entities_proposed = 0
     errors = 0
+    results = []
+
+    # Imported lazily so status/scan discovery does not initialize the pipeline.
+    from pipelines.extract import extract_from_source
 
     async for source_item in scan_local_docs(org_id, docs_path):
         try:
-            # TODO: Route to extraction pipeline
-            # For now, just count
-            count += 1
+            extraction = await extract_from_source(source_item)
+            documents_processed += 1
+            entities_proposed += extraction.get("entities_created", 0)
+            results.append({
+                "reference": source_item.reference,
+                "success": extraction.get("success", False),
+                "facts_extracted": extraction.get("facts_extracted", 0),
+                "entities_proposed": extraction.get("entities_created", 0),
+                "error": extraction.get("error")
+            })
+            if not extraction.get("success", False):
+                errors += 1
         except Exception as e:
             print(f"[LocalDocs] Error processing: {e}")
             errors += 1
+            results.append({
+                "reference": source_item.reference,
+                "success": False,
+                "facts_extracted": 0,
+                "entities_proposed": 0,
+                "error": str(e)
+            })
 
-    print(f"[LocalDocs] Backfill complete: {count} documents, {errors} errors")
+    print(
+        f"[LocalDocs] Backfill complete: {documents_processed} documents, "
+        f"{entities_proposed} proposed entities, {errors} errors"
+    )
 
     return {
         "status": "complete",
-        "documents_processed": count,
-        "errors": errors
+        "documents_processed": documents_processed,
+        "entities_proposed": entities_proposed,
+        "errors": errors,
+        "results": results
     }
 
 
