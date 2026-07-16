@@ -24,12 +24,16 @@ from core.export import export_brain_yaml
 from core.import_ import import_brain_yaml
 from database import init_db, health_check_db
 from persistence import (
+    authenticate_api_key,
+    create_api_key,
     create_connected_source,
     delete_connected_source,
     get_connected_source,
     list_connected_sources,
+    list_api_keys,
     load_org_settings,
     save_org_settings,
+    revoke_api_key,
     update_connected_source,
     upsert_single_source_type,
 )
@@ -130,6 +134,28 @@ class MergeEntityRequest(BaseModel):
 class OrgSettingsUpdate(BaseModel):
     auto_confirm: Optional[bool] = None
     parallel_batch_size: Optional[int] = None
+
+
+class ApiKeyCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+async def _authorized_org_user(
+    request: Request, org_id: str, *, manage: bool = False
+) -> dict:
+    import auth
+
+    try:
+        user = await auth.authorize_organization(
+            request.cookies.get(auth.SESSION_COOKIE),
+            org_id,
+            {"owner", "admin"} if manage else None,
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user
 
 
 async def _get_entity_lifecycle(entity_id: str, org_id: str) -> dict:
@@ -1740,6 +1766,96 @@ async def update_settings(
         ),
     )
     return {**current, **saved}
+
+
+@app.get("/settings/ai")
+async def get_ai_settings(
+    request: Request, org_id: str = Query(...)
+):
+    """Return only non-secret status for the centrally managed provider."""
+    await _authorized_org_user(request, org_id)
+    mode = os.getenv("KOMPONIST_AI_MODE", "mock").lower()
+    return {
+        "mode": mode,
+        "provider": "openai" if mode == "live" else "mock",
+        "model": os.getenv("KOMPONIST_LLM_MODEL", "gpt-5.6-luna"),
+        "embedding_model": "text-embedding-3-small",
+        "configured": bool(os.getenv("OPENAI_API_KEY")) if mode == "live" else True,
+        "managed_by": "komponist",
+    }
+
+
+@app.post("/settings/ai/test")
+async def test_ai_settings(request: Request, org_id: str = Query(...)):
+    """Test the server-managed provider without exposing its API key."""
+    await _authorized_org_user(request, org_id, manage=True)
+    try:
+        if os.getenv("KOMPONIST_AI_MODE", "mock").lower() == "mock":
+            return {"status": "ok", "mode": "mock", "message": "Mock mode is ready"}
+        from core.embeddings import get_embedder
+        from core.llm import get_llm
+
+        llm_client = get_llm()
+        embedding_client = get_embedder()
+        response = await llm_client.call(
+            "Reply with exactly OK.", max_tokens=16, temperature=0, max_retries=1
+        )
+        vector = await embedding_client.embed("Komponist connection test")
+        return {
+            "status": "ok",
+            "mode": "live",
+            "model": response["model"],
+            "embedding_dimensions": len(vector),
+            "message": "OpenAI generation and embeddings are ready",
+        }
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/auth/organizations/{org_id}/api-keys")
+async def get_organization_api_keys(org_id: str, request: Request):
+    await _authorized_org_user(request, org_id, manage=True)
+    return {"keys": await list_api_keys(org_id)}
+
+
+@app.post("/auth/organizations/{org_id}/api-keys", status_code=201)
+async def add_organization_api_key(
+    org_id: str, payload: ApiKeyCreateRequest, request: Request
+):
+    user = await _authorized_org_user(request, org_id, manage=True)
+    return await create_api_key(org_id, payload.name.strip(), user["id"])
+
+
+@app.delete("/auth/organizations/{org_id}/api-keys/{key_id}", status_code=204)
+async def delete_organization_api_key(
+    org_id: str, key_id: str, request: Request
+):
+    await _authorized_org_user(request, org_id, manage=True)
+    if not await revoke_api_key(org_id, key_id):
+        raise HTTPException(status_code=404, detail="API key not found")
+
+
+@app.get("/v1/context")
+async def api_context_search(request: Request, query: str = Query(..., min_length=1)):
+    """Small API-key-authenticated context endpoint for external agents."""
+    authorization = request.headers.get("authorization", "")
+    raw_key = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+    org_id = await authenticate_api_key(raw_key)
+    if not org_id:
+        raise HTTPException(status_code=401, detail="Valid Bearer API key required")
+    terms = [word.casefold() for word in query.split() if len(word) >= 3][:12]
+    rows = await GraphClient.run_query(
+        """
+        MATCH (e:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE any(term IN $terms WHERE toLower(e.statement) CONTAINS term OR
+              toLower(coalesce(e.detail, '')) CONTAINS term)
+        RETURN e.id AS id, e.entity_type AS type, e.statement AS statement,
+               e.detail AS detail
+        LIMIT 20
+        """,
+        {"org_id": org_id, "terms": terms},
+    )
+    return {"items": rows, "total": len(rows)}
 
 
 if __name__ == "__main__":

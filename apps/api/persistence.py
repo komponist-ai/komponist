@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import secrets
 from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
@@ -11,7 +12,12 @@ from uuid import uuid4
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import delete, select
 
-from database import ConnectedSource, OrgSetting, async_session
+from database import (
+    ConnectedSource,
+    OrganizationApiKey,
+    OrgSetting,
+    async_session,
+)
 
 
 def _cipher() -> Fernet:
@@ -85,6 +91,79 @@ async def save_org_settings(
             "auto_confirm": row.auto_confirm,
             "parallel_batch_size": row.parallel_batch_size,
         }
+
+
+def _api_key_dict(row: OrganizationApiKey) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "prefix": row.token_prefix,
+        "created_at": row.created_at.isoformat(),
+        "last_used_at": row.last_used_at.isoformat() if row.last_used_at else None,
+        "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
+    }
+
+
+async def list_api_keys(org_id: str) -> list[dict[str, Any]]:
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(OrganizationApiKey)
+                .where(OrganizationApiKey.org_id == org_id)
+                .order_by(OrganizationApiKey.created_at.desc())
+            )
+        ).scalars().all()
+        return [_api_key_dict(row) for row in rows]
+
+
+async def create_api_key(
+    org_id: str, name: str, created_by_user_id: str
+) -> dict[str, Any]:
+    raw_key = f"komponist_sk_{secrets.token_urlsafe(32)}"
+    row = OrganizationApiKey(
+        id=str(uuid4()),
+        org_id=org_id,
+        name=name,
+        token_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+        token_prefix=f"{raw_key[:18]}…",
+        created_by_user_id=created_by_user_id,
+    )
+    async with async_session() as session:
+        session.add(row)
+        await session.commit()
+        return {**_api_key_dict(row), "key": raw_key}
+
+
+async def revoke_api_key(org_id: str, key_id: str) -> bool:
+    async with async_session() as session:
+        row = await session.get(OrganizationApiKey, key_id)
+        if row is None or row.org_id != org_id:
+            return False
+        if row.revoked_at is None:
+            row.revoked_at = datetime.utcnow()
+            await session.commit()
+        return True
+
+
+async def authenticate_api_key(raw_key: str) -> Optional[str]:
+    """Return the organization for an active API key and record its use."""
+    if not raw_key.startswith("komponist_sk_") or len(raw_key) > 200:
+        return None
+    token_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(OrganizationApiKey).where(
+                    OrganizationApiKey.token_hash == token_hash,
+                    OrganizationApiKey.revoked_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        row.last_used_at = datetime.utcnow()
+        await session.commit()
+        return row.org_id
 
 
 async def list_connected_sources(

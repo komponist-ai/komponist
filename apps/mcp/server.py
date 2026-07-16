@@ -8,19 +8,23 @@ import os
 import sys
 import hashlib
 import json
+from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
 sys.path.append("../../packages")
 
 from fastmcp import FastMCP
+from fastmcp.server.auth import AccessToken, TokenVerifier
+from fastmcp.server.dependencies import get_access_token
+from sqlalchemy import select
 from core.graph import GraphClient
 from core.queries import BrainQueries
 from core.embeddings import embed
 
 # Import database for tool call logging
 sys.path.append("../api")
-from database import async_session, ToolCall
+from database import async_session, OrganizationApiKey, ToolCall
 
 # Import constraint checking
 from constraints import check_constraint as check_constraint_impl
@@ -28,15 +32,52 @@ from constraints import request_approval as request_approval_impl
 from constraints import get_approval_status as get_approval_status_impl
 
 
-# Auth: org_id from environment (in production, use API key auth)
-ORG_ID = os.getenv("KOMPONIST_ORG_ID", "default-org")
+FALLBACK_ORG_ID = os.getenv("KOMPONIST_ORG_ID", "default-org")
+
+
+class KomponistTokenVerifier(TokenVerifier):
+    """Resolve hashed organization API keys without retaining plaintext keys."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if not token.startswith("komponist_sk_") or len(token) > 200:
+            return None
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        async with async_session() as session:
+            row = (
+                await session.execute(
+                    select(OrganizationApiKey).where(
+                        OrganizationApiKey.token_hash == token_hash,
+                        OrganizationApiKey.revoked_at.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            row.last_used_at = datetime.utcnow()
+            await session.commit()
+            return AccessToken(
+                token=token,
+                client_id=row.id,
+                subject=row.org_id,
+                scopes=["brain:read", "brain:write"],
+                claims={"org_id": row.org_id},
+            )
+
+
+def _org_id() -> str:
+    access_token = get_access_token()
+    if access_token is not None:
+        org_id = access_token.claims.get("org_id")
+        if isinstance(org_id, str) and org_id:
+            return org_id
+    return FALLBACK_ORG_ID
 
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Initialize and close shared connections with the MCP server."""
     GraphClient.initialize()
-    print(f"[MCP] Komponist server started for org: {ORG_ID}")
+    print("[MCP] Komponist server started with organization API-key auth")
     try:
         yield
     finally:
@@ -49,6 +90,7 @@ mcp = FastMCP(
     name="komponist",
     version="0.1.0",
     lifespan=lifespan,
+    auth=KomponistTokenVerifier(),
 )
 
 
@@ -63,7 +105,7 @@ async def log_tool_call(
     try:
         async with async_session() as session:
             call = ToolCall(
-                org_id=ORG_ID,
+                org_id=_org_id(),
                 tool=tool,
                 input=input_data,
                 output=output_data,
@@ -145,7 +187,7 @@ async def _literal_context_search(
         ORDER BY matches DESC, entity.confirmed_at DESC
         LIMIT $limit
         """,
-        {"org_id": ORG_ID, "types": types, "terms": terms, "limit": limit},
+        {"org_id": _org_id(), "types": types, "terms": terms, "limit": limit},
     )
 
 
@@ -163,7 +205,7 @@ async def _evidence_for_entities(entity_ids: List[str]) -> Dict[str, List[Dict[s
                collect(DISTINCT evidence{.id, .source, .reference, .url,
                                          .excerpt, .source_date}) AS evidence
         """,
-        {"org_id": ORG_ID, "entity_ids": entity_ids},
+        {"org_id": _org_id(), "entity_ids": entity_ids},
     )
     return {
         row["entity_id"]: [item for item in row["evidence"] if item.get("id")]
@@ -213,7 +255,7 @@ async def search_company_context(
             try:
                 query_embedding = await embed(query)
                 results = await BrainQueries.hybrid_search(
-                    org_id=ORG_ID,
+                    org_id=_org_id(),
                     query_text=query,
                     query_embedding=query_embedding,
                     entity_types=types,
@@ -329,7 +371,7 @@ async def get_active_decisions(
 
         # Query active decisions
         decisions = await BrainQueries.active_decisions(
-            org_id=ORG_ID,
+            org_id=_org_id(),
             topic_embedding=topic_embedding,
             k=20
         )
@@ -447,7 +489,7 @@ def _report_reference(
 ) -> str:
     """Create a stable retry key for an agent report payload."""
     payload = json.dumps({
-        "org_id": ORG_ID,
+        "org_id": _org_id(),
         "summary": summary,
         "decisions": decisions,
         "deviations": deviations,
@@ -467,7 +509,7 @@ async def _persist_reported_decision(
     detail = decision["detail"]
     normalized_statement = " ".join(statement.split()).casefold()
     fingerprint = hashlib.sha256(
-        f"{ORG_ID}\x1fagent_report\x1f{normalized_statement}\x1f{detail.casefold()}".encode("utf-8")
+        f"{_org_id()}\x1fagent_report\x1f{normalized_statement}\x1f{detail.casefold()}".encode("utf-8")
     ).hexdigest()
     entity_id = f"agent-decision-{fingerprint[:32]}"
     evidence_id = "ev-agent-" + hashlib.sha256(
@@ -486,7 +528,7 @@ async def _persist_reported_decision(
         LIMIT 1
         """,
         {
-            "org_id": ORG_ID,
+            "org_id": _org_id(),
             "fingerprint": fingerprint,
             "statement": normalized_statement,
         },
@@ -511,13 +553,13 @@ async def _persist_reported_decision(
             """,
             {
                 "entity_id": entity_id,
-                "org_id": ORG_ID,
+                "org_id": _org_id(),
                 "statement": statement,
                 "detail": detail or None,
                 "fingerprint": fingerprint,
             },
         )
-        if not created or created[0]["org_id"] != ORG_ID:
+        if not created or created[0]["org_id"] != _org_id():
             raise ValueError("Could not create an org-scoped decision proposal")
         status = created[0]["status"]
         if status not in {"proposed", "confirmed"}:
@@ -540,7 +582,7 @@ async def _persist_reported_decision(
         """,
         {
             "entity_id": target_id,
-            "org_id": ORG_ID,
+            "org_id": _org_id(),
             "evidence_id": evidence_id,
             "reference": reference,
             "excerpt": excerpt,
@@ -552,7 +594,7 @@ async def _persist_reported_decision(
 async def _work_pack_exists(work_pack_id: str) -> bool:
     result = await GraphClient.run_query(
         "MATCH (work_pack:WorkPack {id: $id, org_id: $org_id}) RETURN work_pack.id AS id",
-        {"id": work_pack_id, "org_id": ORG_ID},
+        {"id": work_pack_id, "org_id": _org_id()},
     )
     return bool(result)
 
@@ -576,7 +618,7 @@ async def _link_report_to_work_pack(
         """,
         {
             "work_pack_id": work_pack_id,
-            "org_id": ORG_ID,
+            "org_id": _org_id(),
             "entity_ids": entity_ids,
             "deviations": deviations,
             "unresolved_questions": unresolved_questions,
@@ -715,7 +757,7 @@ async def check_constraint(
         result = await check_constraint_impl(
             intended_action=intended_action,
             project=project,
-            org_id=ORG_ID
+            org_id=_org_id()
         )
 
         verdict = result["verdict"]
@@ -790,7 +832,7 @@ async def request_approval(
             action=action,
             constraint_id=constraint_id,
             context=context,
-            org_id=ORG_ID
+            org_id=_org_id()
         )
 
         latency_ms = int((time.time() - start) * 1000)
@@ -829,7 +871,7 @@ async def get_approval_status(approval_id: str) -> str:
     start = time.time()
 
     try:
-        result = await get_approval_status_impl(approval_id, org_id=ORG_ID)
+        result = await get_approval_status_impl(approval_id, org_id=_org_id())
 
         latency_ms = int((time.time() - start) * 1000)
         await log_tool_call("get_approval_status", {
@@ -868,14 +910,14 @@ async def brain_info() -> str:
             WITH count(e) as confirmed
             MATCH (p:Entity {org_id: $org_id, status: 'proposed'})
             RETURN confirmed, count(p) as proposed
-        """, {"org_id": ORG_ID})
+        """, {"org_id": _org_id()})
 
         if verification:
             confirmed = verification[0].get("confirmed", 0)
             proposed = verification[0].get("proposed", 0)
-            return f"Organization: {ORG_ID}\nConfirmed facts: {confirmed}\nPending review: {proposed}"
+            return f"Organization: {_org_id()}\nConfirmed facts: {confirmed}\nPending review: {proposed}"
         else:
-            return f"Organization: {ORG_ID}\nNo data yet."
+            return f"Organization: {_org_id()}\nNo data yet."
 
     except Exception as e:
         return f"Error: {e}"

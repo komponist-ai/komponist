@@ -140,7 +140,10 @@ Or connect directly:
 {
   "mcpServers": {
     "komponist": {
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KOMPONIST_API_KEY}"
+      }
     }
   }
 }
@@ -186,13 +189,23 @@ test data and are **not** suitable for semantic search quality evaluation.
 KOMPONIST_AI_MODE=mock
 ```
 
-Switch to real OpenAI calls only after adding a project-scoped key to your local
-`.env` file:
+Switch to centrally managed OpenAI calls only after adding a project-scoped key
+to the deployment `.env` file. Workspace users never enter or receive this key:
 
 ```bash
 KOMPONIST_AI_MODE=live
 OPENAI_API_KEY=sk-project-key-here
 ```
+
+When the compose file lives under `docker/`, explicitly load the root file:
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml up -d
+```
+
+Create separate, revocable Komponist access keys for agents under **Settings →
+API & MCP**. These keys authorize a single organization; they are not OpenAI
+keys.
 
 ## Development
 

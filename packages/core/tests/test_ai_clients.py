@@ -76,9 +76,20 @@ class OpenAIClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"items": []})
         self.assertEqual(responses.kwargs["max_output_tokens"], 200)
         self.assertFalse(responses.kwargs["store"])
+        self.assertNotIn("temperature", responses.kwargs)
         self.assertEqual(responses.kwargs["text"]["format"]["type"], "json_schema")
         self.assertTrue(responses.kwargs["text"]["format"]["strict"])
         self.assertEqual(responses.kwargs["text"]["format"]["schema"], TEST_SCHEMA)
+
+    async def test_legacy_model_keeps_temperature(self):
+        responses = FakeResponses(output_text="OK")
+        client = OpenAIClient(
+            api_key="test", client=SimpleNamespace(responses=responses)
+        )
+
+        await client.call("Hello", model="gpt-4.1", temperature=0.25)
+
+        self.assertEqual(responses.kwargs["temperature"], 0.25)
 
     async def test_application_validates_structured_output(self):
         responses = FakeResponses(output_text='{"unexpected": true}')

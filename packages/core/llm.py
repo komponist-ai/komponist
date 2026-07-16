@@ -389,7 +389,8 @@ class OpenAIClient(BaseLLMClient):
         }
         if instructions:
             kwargs["instructions"] = instructions
-        if temperature is not None:
+        # GPT-5 reasoning models reject the legacy sampling parameter.
+        if temperature is not None and not model.startswith("gpt-5"):
             kwargs["temperature"] = temperature
         if schema:
             kwargs["text"] = {

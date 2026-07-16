@@ -27,8 +27,9 @@ const navigation = [
     title: 'Settings',
     items: [
       { name: 'General', href: '/settings', icon: '⚙' },
+      { name: 'AI Provider', href: '/settings/ai', icon: '✦' },
       { name: 'Team & roles', href: '/settings/team', icon: '◎' },
-      { name: 'API Keys', href: '/settings/api', icon: '⌘' },
+      { name: 'API & MCP', href: '/settings/api', icon: '⌘' },
       { name: 'Export', href: '/settings/export', icon: '↓' },
     ],
   },

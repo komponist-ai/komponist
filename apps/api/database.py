@@ -200,6 +200,21 @@ class OrgSetting(Base):
     )
 
 
+class OrganizationApiKey(Base):
+    """Hashed API credential for one organization."""
+    __tablename__ = "organization_api_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(50), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_prefix: Mapped[str] = mapped_column(String(24))
+    created_by_user_id: Mapped[str] = mapped_column(String(36))
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ConnectedSource(Base):
     """Persistent connector metadata with encrypted private configuration."""
     __tablename__ = "connected_sources"

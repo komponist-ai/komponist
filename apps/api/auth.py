@@ -484,6 +484,35 @@ async def authenticated_user(raw_token: Optional[str]) -> Optional[dict[str, Any
         return _user_payload(user, identity, membership, org)
 
 
+async def authorize_organization(
+    raw_token: Optional[str],
+    org_id: str,
+    allowed_roles: Optional[set[str]] = None,
+) -> Optional[dict[str, Any]]:
+    """Authenticate a browser session and authorize membership in one org."""
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, identity, _, _, _ = principal
+        membership = (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.org_id == org_id,
+                    OrganizationMembership.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        org = await session.get(Org, org_id)
+        if membership is None or org is None:
+            raise PermissionError("User is not a member of this organization")
+        if allowed_roles and membership.role not in allowed_roles:
+            raise PermissionError("Owner or admin access is required")
+        await session.commit()
+        return _user_payload(user, identity, membership, org)
+
+
 async def list_organizations(raw_token: Optional[str]) -> Optional[list[dict[str, Any]]]:
     async with async_session() as session:
         principal = await _session_principal(session, raw_token)

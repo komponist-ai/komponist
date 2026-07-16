@@ -205,28 +205,31 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 
 ## Critical Issues
 
-### 1. External Integrations and MCP Remain Untested
+### 1. External Integrations Remain Partially Untested
 The local vertical slice is verified, but important boundaries are still open:
 - No one has completed a real Notion OAuth flow
-- No one has used the MCP tools with Claude Code or another MCP client
+- Authenticated Streamable HTTP discovery is verified with a real FastMCP client;
+  Claude Code interoperability is still unverified
 - No live OpenAI extraction/chat request has been run with an API key
 - No cloud deployment or multi-user workflow has been tested
 
-### 2. Authentication Is Not Enforced Yet
+### 2. Authentication Is Only Partially Enforced
 The provider-free Google login and persistent session lifecycle work, but:
 - Live Google login has not been completed with real credentials
 - The Web UI gate and organization screens exist, but authenticated browser flows need live Google credentials
 - Existing API endpoints still accept caller-provided `org_id` values
 - The active session organization is not yet enforced on existing brain API routes
+- MCP now requires hashed, revocable organization API keys and derives the
+  organization from the authenticated key
 
 ### 3. Real Provider Lifecycles Remain Unverified
 Connected sources, organization settings, and approval requests now survive service restarts. Remaining gaps:
 - Real provider OAuth exchanges and token refresh behavior remain unverified
 - Real Slack approval delivery and signed interaction callbacks remain unverified
 
-### 4. Security Not Applied
+### 4. Security Is Incomplete
 - `security.py` has utilities but they're not used
-- API endpoints have no authentication
+- Legacy brain API endpoints still need session/API-key authentication
 - Org isolation decorator exists but isn't applied
 
 ---
@@ -256,7 +259,7 @@ Connected sources, organization settings, and approval requests now survive serv
 - [ ] Review queue shows proposed entities
 - [x] Confirming an entity persists to Neo4j
 - [x] Chat returns answers from confirmed graph context with Evidence citations
-- [ ] MCP server connects to Claude Code
+- [ ] MCP server connects to Claude Code (authenticated FastMCP client verified)
 - [x] `search_company_context` returns confirmed results with Evidence citations
 - [x] `report_result` sends new Decisions to the review queue without auto-confirming
 - [ ] `check_constraint` correctly blocks/allows actions
@@ -291,7 +294,7 @@ Connected sources, organization settings, and approval requests now survive serv
 12. [x] Persist hashed session tokens to database
 
 ### Phase 3: Test MCP (1-2 days)
-13. Configure MCP server in Claude Code
+13. [ ] Configure MCP server in Claude Code (authenticated HTTP discovery verified)
 14. Test all 6 tools with real data
 15. Fix any protocol issues
 
