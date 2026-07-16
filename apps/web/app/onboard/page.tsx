@@ -2,9 +2,12 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, PlugZap } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { ArrowLeft, ArrowRight, CheckCircle2, FileText, LockKeyhole, PlugZap, Sparkles } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
+import SourceLogo from '../../components/SourceLogo'
 import StudioTopbar from '../../components/StudioTopbar'
+import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
@@ -16,6 +19,28 @@ type UploadResult = {
   status: 'processed' | 'error'
   entities_created?: number
   error?: string
+}
+
+const SOURCE_OPTIONS: Array<{
+  type: SourceType
+  title: string
+  description: string
+  meta: string
+  badge: string
+}> = [
+  { type: 'notion', title: 'Notion', description: 'Turn shared pages and databases into reviewed company context.', meta: 'Pages · databases · docs', badge: 'Integration token' },
+  { type: 'slack', title: 'Slack', description: 'Capture durable decisions and context from the channels you choose.', meta: 'Channels · threads · decisions', badge: 'OAuth' },
+  { type: 'google', title: 'Google Drive', description: 'Sync the Docs and workspace files your agents should understand.', meta: 'Docs · Sheets · Drive', badge: 'OAuth' },
+  { type: 'upload', title: 'Upload documents', description: 'Test the full extraction and review loop from your browser.', meta: 'Markdown · text · YAML', badge: 'Fastest start' },
+  { type: 'local', title: 'Local documents', description: 'Index mounted files without sending raw documents to another platform.', meta: 'Self-hosted folder', badge: 'Local' },
+]
+
+const SOURCE_TITLES: Record<SourceType, string> = {
+  notion: 'Notion',
+  slack: 'Slack',
+  google: 'Google Drive',
+  upload: 'Document uploads',
+  local: 'Local documents',
 }
 
 function OnboardContent() {
@@ -196,93 +221,50 @@ function OnboardContent() {
           icon={PlugZap}
         />
 
-        <div className="page-body">
-          <p className="text-muted mb-6">
-            Choose a source to connect to your company brain.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
-            {/* Notion */}
-            <button
-              onClick={() => setSelectedSource('notion')}
-              className="card hover:shadow-card transition-shadow text-left"
-            >
-              <div className="flex items-center gap-4">
-                <span className="source-badge source-badge-notion text-lg">NO</span>
-                <div>
-                  <h3 className="text-h3">Notion</h3>
-                  <p className="text-small text-muted">
-                    Pages, databases, docs
-                  </p>
+        <main className="min-h-[calc(100vh-78px)] bg-paper px-5 py-8 sm:px-8 lg:px-10 lg:py-12">
+          <div className="mx-auto max-w-[1180px]">
+            <div className="grid gap-7 lg:grid-cols-[0.72fr_1.28fr] lg:items-end">
+              <div>
+                <Badge variant="orange"><Sparkles className="size-3" /> Compose your context</Badge>
+                <h2 className="mt-5 text-[clamp(2.7rem,5vw,4.7rem)] leading-[0.9]">Connect where<br />your company thinks.</h2>
+              </div>
+              <div className="rounded-xl border-2 border-ink bg-ink p-5 text-white shadow-[5px_5px_0_#e8641b] sm:p-6">
+                <p className="text-sm leading-6 text-white/70">Komponist reads the sources you explicitly connect, extracts reusable facts, and sends them through human review before agents can rely on them.</p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  {[['01', 'Connect'], ['02', 'Review'], ['03', 'Use']].map(([number, label]) => <div key={number} className="border-t border-white/20 pt-3"><span className="font-mono text-[9px] text-orange">{number}</span><div className="mt-1 text-xs font-bold">{label}</div></div>)}
                 </div>
               </div>
-            </button>
+            </div>
 
-            {/* Slack */}
-            <button
-              onClick={() => setSelectedSource('slack')}
-              className="card hover:shadow-card transition-shadow text-left"
-            >
-              <div className="flex items-center gap-4">
-                <span className="source-badge source-badge-slack text-lg">SL</span>
-                <div>
-                  <h3 className="text-h3">Slack</h3>
-                  <p className="text-small text-muted">
-                    Channels, threads, decisions
-                  </p>
-                </div>
-              </div>
-            </button>
-
-            {/* Google */}
-            <button
-              onClick={() => setSelectedSource('google')}
-              className="card hover:shadow-card transition-shadow text-left"
-            >
-              <div className="flex items-center gap-4">
-                <span className="source-badge source-badge-google text-lg">GD</span>
-                <div>
-                  <h3 className="text-h3">Google Workspace</h3>
-                  <p className="text-small text-muted">
-                    Docs, Sheets, Drive
-                  </p>
-                </div>
-              </div>
-            </button>
-
-            {/* Local Docs */}
-            <button
-              onClick={() => setSelectedSource('upload')}
-              className="card hover:shadow-card transition-shadow text-left"
-            >
-              <div className="flex items-center gap-4">
-                <span className="text-2xl">↑</span>
-                <div>
-                  <h3 className="text-h3">Upload Documents</h3>
-                  <p className="text-small text-muted">
-                    Test the MVP directly from your browser
-                  </p>
-                </div>
-              </div>
-            </button>
-
-            {/* Local Docs */}
-            <button
-              onClick={() => setSelectedSource('local')}
-              className="card hover:shadow-card transition-shadow text-left"
-            >
-              <div className="flex items-center gap-4">
-                <span className="text-2xl">📁</span>
-                <div>
-                  <h3 className="text-h3">Local Documents</h3>
-                  <p className="text-small text-muted">
-                    Markdown, text, YAML files
-                  </p>
-                </div>
-              </div>
-            </button>
+            <section className="mt-9 grid gap-4 md:grid-cols-2" aria-label="Available source connectors">
+              {SOURCE_OPTIONS.map((source, index) => (
+                <motion.button
+                  key={source.type}
+                  type="button"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.04 }}
+                  whileHover={{ y: -3 }}
+                  onClick={() => setSelectedSource(source.type)}
+                  className={`group min-h-[190px] rounded-xl border-2 border-ink bg-white p-5 text-left shadow-[4px_4px_0_#d9cfc0] transition hover:bg-[#fffaf0] hover:shadow-[6px_6px_0_#201c15] ${source.type === 'upload' ? 'md:col-span-2' : ''}`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <SourceLogo type={source.type} />
+                    <Badge variant={source.type === 'upload' ? 'orange' : 'default'} className="px-2 py-0.5 text-[8px]">{source.badge}</Badge>
+                  </div>
+                  <div className="mt-6 flex items-end justify-between gap-4">
+                    <div>
+                      <h3 className="text-xl">{source.title}</h3>
+                      <p className="mt-2 max-w-md text-xs leading-5 text-muted">{source.description}</p>
+                      <p className="mt-3 font-mono text-[9px] uppercase tracking-wider text-faint">{source.meta}</p>
+                    </div>
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink bg-paper-2 transition group-hover:bg-orange group-hover:text-white"><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span>
+                  </div>
+                </motion.button>
+              ))}
+            </section>
           </div>
-        </div>
+        </main>
       </AppLayout>
     )
   }
@@ -313,8 +295,21 @@ function OnboardContent() {
         }
       />
 
-      <div className="page-body">
-        <div className="max-w-xl">
+      <main className="min-h-[calc(100vh-78px)] bg-paper px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
+        <div className="mx-auto grid max-w-[1040px] gap-7 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="h-fit rounded-xl border-2 border-ink bg-ink p-5 text-white shadow-[5px_5px_0_#e8641b] lg:sticky lg:top-6">
+            <SourceLogo type={selectedSource} className="shadow-[3px_3px_0_#e8641b]" />
+            <p className="mt-6 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-orange">New connection</p>
+            <h2 className="mt-2 text-2xl text-white">{SOURCE_TITLES[selectedSource]}</h2>
+            <p className="mt-3 text-xs leading-5 text-white/65">Only content you explicitly connect becomes available to Komponist.</p>
+            <div className="mt-6 space-y-3 border-t border-white/20 pt-5">
+              <div className="flex gap-2 text-[11px] text-white/70"><LockKeyhole className="mt-0.5 size-3.5 shrink-0 text-teal-light" /> Credentials stay server-side.</div>
+              <div className="flex gap-2 text-[11px] text-white/70"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-teal-light" /> Extracted facts enter review.</div>
+              <div className="flex gap-2 text-[11px] text-white/70"><FileText className="mt-0.5 size-3.5 shrink-0 text-teal-light" /> Synced documents remain manageable.</div>
+            </div>
+          </aside>
+
+          <div className="min-w-0 [&_.card]:border-2 [&_.card]:border-ink [&_.card]:bg-white [&_.card]:shadow-[4px_4px_0_#d9cfc0]">
           {/* Error message */}
           {error && (
             <div className="card mb-6" style={{ background: 'var(--color-danger-soft)', borderColor: 'var(--color-danger)' }}>
@@ -337,7 +332,7 @@ function OnboardContent() {
           {selectedSource === 'notion' && (
             <div className="card">
               <div className="flex items-center gap-3 mb-4">
-                <span className="source-badge source-badge-notion">NO</span>
+                <SourceLogo type="notion" className="size-9 rounded-lg shadow-none" />
                 <h2 className="text-h3">Notion Integration</h2>
               </div>
 
@@ -390,7 +385,7 @@ function OnboardContent() {
           {selectedSource === 'slack' && (
             <div className="card">
               <div className="flex items-center gap-3 mb-4">
-                <span className="source-badge source-badge-slack">SL</span>
+                <SourceLogo type="slack" className="size-9 rounded-lg shadow-none" />
                 <h2 className="text-h3">Slack Integration</h2>
               </div>
 
@@ -420,7 +415,7 @@ function OnboardContent() {
           {selectedSource === 'google' && (
             <div className="card">
               <div className="flex items-center gap-3 mb-4">
-                <span className="source-badge source-badge-google">GD</span>
+                <SourceLogo type="google" className="size-9 rounded-lg shadow-none" />
                 <h2 className="text-h3">Google Workspace</h2>
               </div>
 
@@ -450,7 +445,7 @@ function OnboardContent() {
           {selectedSource === 'upload' && (
             <div className="card">
               <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">↑</span>
+                <SourceLogo type="upload" className="size-9 rounded-lg shadow-none" />
                 <h2 className="text-h3">Upload Documents</h2>
               </div>
               <p className="text-muted mb-6">
@@ -494,7 +489,7 @@ function OnboardContent() {
           {selectedSource === 'local' && (
             <div className="card">
               <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">📁</span>
+                <SourceLogo type="local" className="size-9 rounded-lg shadow-none" />
                 <h2 className="text-h3">Local Documents</h2>
               </div>
 
@@ -538,8 +533,9 @@ function OnboardContent() {
               </button>
             </div>
           )}
+          </div>
         </div>
-      </div>
+      </main>
     </AppLayout>
   )
 }

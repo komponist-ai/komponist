@@ -1004,11 +1004,169 @@ async def import_brain_endpoint(
 # Sources management
 # =============================================================================
 
+SOURCE_EVIDENCE_TYPES = {
+    "notion": ["notion"],
+    "slack": ["slack"],
+    "google": ["google"],
+    "local": ["manual"],
+    "upload": ["upload"],
+}
+
+
+def _source_evidence_types(source_type: str) -> list[str]:
+    return SOURCE_EVIDENCE_TYPES.get(source_type.lower(), [source_type.lower()])
+
+
+def _document_title(reference: str) -> str:
+    """Create a human label for legacy evidence without a persisted title."""
+    if reference.startswith("upload:"):
+        parts = reference.split(":")
+        if len(parts) > 2:
+            return ":".join(parts[1:-1])
+    if reference.startswith(("local:", "manual:")):
+        return Path(reference.split(":", 1)[1]).name
+    return reference
+
+
 @app.get("/sources")
 async def list_sources(org_id: str = Query("default-org")):
     """List connected sources for an organization."""
     org_sources = await list_connected_sources(org_id)
     return {"sources": org_sources, "total": len(org_sources)}
+
+
+@app.get("/sources/{source_id}/documents")
+async def list_source_documents(
+    request: Request,
+    source_id: str,
+    org_id: str = Query("default-org"),
+):
+    """List document-level evidence stored by Komponist for one connector."""
+    await _authorized_org_user(request, org_id)
+    source = await get_connected_source(org_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    rows = await GraphClient.run_query(
+        """
+        MATCH (ev:Evidence {org_id: $org_id})
+        WHERE toLower(ev.source) IN $source_types
+        OPTIONAL MATCH (entity:Entity {org_id: $org_id})-[:CITED_BY]->(ev)
+        RETURN
+            ev.reference AS reference,
+            head(collect(DISTINCT ev.title)) AS title,
+            head(collect(DISTINCT ev.url)) AS url,
+            toString(max(ev.source_date)) AS synced_at,
+            count(DISTINCT ev) AS evidence_count,
+            count(DISTINCT entity) AS entity_count,
+            collect(DISTINCT entity.status) AS entity_statuses
+        ORDER BY synced_at DESC, reference
+        """,
+        {
+            "org_id": org_id,
+            "source_types": _source_evidence_types(source["type"]),
+        },
+    )
+
+    documents = []
+    for row in rows:
+        reference = row.get("reference")
+        if not reference:
+            continue
+        statuses = [status for status in row.get("entity_statuses", []) if status]
+        if "proposed" in statuses and "confirmed" in statuses:
+            review_status = "mixed"
+        elif "proposed" in statuses:
+            review_status = "proposed"
+        elif statuses:
+            review_status = "confirmed"
+        else:
+            review_status = "empty"
+        documents.append({
+            "id": hashlib.sha256(
+                f"{source_id}\0{reference}".encode("utf-8")
+            ).hexdigest()[:20],
+            "title": row.get("title") or _document_title(reference),
+            "reference": reference,
+            "url": row.get("url"),
+            "synced_at": row.get("synced_at"),
+            "evidence_count": row.get("evidence_count", 0),
+            "entity_count": row.get("entity_count", 0),
+            "review_status": review_status,
+        })
+
+    return {"documents": documents, "total": len(documents)}
+
+
+@app.delete("/sources/{source_id}/documents")
+async def remove_source_document(
+    request: Request,
+    source_id: str,
+    org_id: str = Query("default-org"),
+    reference: str = Query(..., min_length=1, max_length=2048),
+):
+    """Delete one document's derived Komponist data, never the upstream file."""
+    await _authorized_org_user(request, org_id, manage=True)
+    source = await get_connected_source(org_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    matches = await GraphClient.run_query(
+        """
+        MATCH (ev:Evidence {org_id: $org_id, reference: $reference})
+        WHERE toLower(ev.source) IN $source_types
+        OPTIONAL MATCH (entity:Entity {org_id: $org_id})-[:CITED_BY]->(ev)
+        RETURN
+            collect(DISTINCT ev.id) AS evidence_ids,
+            collect(DISTINCT entity.id) AS entity_ids
+        """,
+        {
+            "org_id": org_id,
+            "reference": reference,
+            "source_types": _source_evidence_types(source["type"]),
+        },
+    )
+    evidence_ids = matches[0].get("evidence_ids", []) if matches else []
+    entity_ids = matches[0].get("entity_ids", []) if matches else []
+    if not evidence_ids:
+        raise HTTPException(status_code=404, detail="Synced document not found")
+
+    await GraphClient.run_query(
+        """
+        MATCH (ev:Evidence {org_id: $org_id})
+        WHERE ev.id IN $evidence_ids
+        DETACH DELETE ev
+        """,
+        {"org_id": org_id, "evidence_ids": evidence_ids},
+    )
+
+    orphan_result = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id})
+        WHERE entity.id IN $entity_ids
+          AND NOT (entity)-[:CITED_BY]->(:Evidence)
+        WITH collect(entity) AS orphans
+        WITH orphans, size(orphans) AS deleted
+        FOREACH (entity IN orphans | DETACH DELETE entity)
+        RETURN deleted
+        """,
+        {"org_id": org_id, "entity_ids": entity_ids},
+    )
+    entities_deleted = orphan_result[0].get("deleted", 0) if orphan_result else 0
+
+    await update_connected_source(
+        org_id,
+        source_id,
+        item_count=max(0, source.get("itemCount", 0) - 1),
+    )
+
+    return {
+        "status": "removed",
+        "reference": reference,
+        "evidence_deleted": len(evidence_ids),
+        "entities_deleted": entities_deleted,
+        "platform_unchanged": True,
+    }
 
 
 @app.post("/sources")
@@ -1053,19 +1211,20 @@ async def remove_source(
 
     if remove_data and source:
         source_type = source.get("type", "").lower()
+        evidence_types = _source_evidence_types(source_type)
 
         try:
             # Step 1: Delete entities that came from this source
             # (delete entities that have CITED_BY relationship to evidence from this source)
             delete_entities_query = """
             MATCH (e:Entity {org_id: $org_id})-[:CITED_BY]->(ev:Evidence)
-            WHERE toLower(ev.source) = $source_type
+            WHERE toLower(ev.source) IN $evidence_types
             DETACH DELETE e
             RETURN count(e) as deleted
             """
             result = await GraphClient.run_query(delete_entities_query, {
                 "org_id": org_id,
-                "source_type": source_type
+                "evidence_types": evidence_types
             })
             if result:
                 entities_deleted = result[0].get("deleted", 0)
@@ -1073,13 +1232,13 @@ async def remove_source(
             # Step 2: Delete evidence from this source
             delete_evidence_query = """
             MATCH (ev:Evidence {org_id: $org_id})
-            WHERE toLower(ev.source) = $source_type
+            WHERE toLower(ev.source) IN $evidence_types
             DETACH DELETE ev
             RETURN count(ev) as deleted
             """
             result = await GraphClient.run_query(delete_evidence_query, {
                 "org_id": org_id,
-                "source_type": source_type
+                "evidence_types": evidence_types
             })
             if result:
                 evidence_deleted = result[0].get("deleted", 0)

@@ -1,10 +1,28 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Database, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  Clock3,
+  Database,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  Unplug,
+  X,
+} from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
+import SourceLogo from '../../components/SourceLogo'
 import StudioTopbar from '../../components/StudioTopbar'
+import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
@@ -17,66 +35,109 @@ interface Source {
   itemCount: number
 }
 
+interface SyncedDocument {
+  id: string
+  title: string
+  reference: string
+  url?: string
+  synced_at?: string
+  evidence_count: number
+  entity_count: number
+  review_status: 'proposed' | 'confirmed' | 'mixed' | 'empty'
+}
+
 interface DisconnectModal {
   source: Source | null
   loading: boolean
 }
 
+type DeleteDocumentModal = {
+  source: Source
+  document: SyncedDocument
+} | null
+
+const SOURCE_COPY: Record<Source['type'], { label: string; description: string }> = {
+  notion: { label: 'Notion', description: 'Pages and databases shared with Komponist' },
+  slack: { label: 'Slack', description: 'Channel conversations, threads, and decisions' },
+  google: { label: 'Google Drive', description: 'Docs, Sheets, and workspace files' },
+  local: { label: 'Local documents', description: 'Files mounted from your own infrastructure' },
+  upload: { label: 'Document uploads', description: 'Files uploaded directly through the browser' },
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return 'Never'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Unknown'
+  return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'short', year: 'numeric' }).format(date)
+}
+
+function canOpenUrl(value?: string) {
+  return Boolean(value && /^https?:\/\//i.test(value))
+}
+
 export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([])
+  const [documents, setDocuments] = useState<Record<string, SyncedDocument[]>>({})
+  const [documentsLoading, setDocumentsLoading] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [orgId, setOrgId] = useState('')
   const [syncing, setSyncing] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
   const [disconnectModal, setDisconnectModal] = useState<DisconnectModal>({ source: null, loading: false })
+  const [deleteModal, setDeleteModal] = useState<DeleteDocumentModal>(null)
+  const [deletingDocument, setDeletingDocument] = useState(false)
 
-  useEffect(() => {
-    setOrgId(getActiveOrgId())
-  }, [])
+  useEffect(() => setOrgId(getActiveOrgId()), [])
 
-  const fetchSources = async () => {
+  const fetchDocuments = useCallback(async (sourceId: string) => {
+    if (!orgId) return
+    setDocumentsLoading((current) => ({ ...current, [sourceId]: true }))
+    try {
+      const response = await apiFetch(`${API_URL}/sources/${sourceId}/documents?org_id=${orgId}`)
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Could not load synced documents')
+      setDocuments((current) => ({ ...current, [sourceId]: payload.documents ?? [] }))
+    } catch (loadError) {
+      console.error('Failed to fetch source documents:', loadError)
+      setDocuments((current) => ({ ...current, [sourceId]: [] }))
+    } finally {
+      setDocumentsLoading((current) => ({ ...current, [sourceId]: false }))
+    }
+  }, [orgId])
+
+  const fetchSources = useCallback(async () => {
+    if (!orgId) return
+    setError(null)
     try {
       const response = await apiFetch(`${API_URL}/sources?org_id=${orgId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setSources(data.sources || [])
-      } else {
-        setSources([])
-      }
-    } catch (err) {
-      console.error('Failed to fetch sources:', err)
-      setError('Could not connect to API')
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Could not load sources')
+      const nextSources: Source[] = payload.sources ?? []
+      setSources(nextSources)
+      setExpanded((current) => current ?? nextSources[0]?.id ?? null)
+      await Promise.all(nextSources.map((source) => fetchDocuments(source.id)))
+    } catch (loadError) {
+      console.error('Failed to fetch sources:', loadError)
+      setError(loadError instanceof Error ? loadError.message : 'Could not connect to API')
       setSources([])
     } finally {
       setLoading(false)
     }
-  }
+  }, [fetchDocuments, orgId])
 
-  useEffect(() => {
-    if (orgId) fetchSources()
-  }, [orgId])
+  useEffect(() => { void fetchSources() }, [fetchSources])
 
-  const handleSync = async (sourceId: string) => {
-    setSyncing(sourceId)
+  const handleSync = async (source: Source) => {
+    setSyncing(source.id)
     setError(null)
-
     try {
-      const response = await apiFetch(
-        `${API_URL}/sources/${sourceId}/sync?org_id=${orgId}`,
-        { method: 'POST' }
-      )
-      const data = await response.json()
-
-      if (response.ok) {
-        console.log('Sync result:', data)
-        // Refresh sources to get updated status
-        await fetchSources()
-      } else {
-        throw new Error(data.error || 'Sync failed')
-      }
-    } catch (err: any) {
-      console.error('Sync error:', err)
-      setError(err.message || 'Failed to sync source')
+      const response = await apiFetch(`${API_URL}/sources/${source.id}/sync?org_id=${orgId}`, { method: 'POST' })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || payload.error || 'Sync failed')
+      await fetchSources()
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : 'Failed to sync source')
     } finally {
       setSyncing(null)
     }
@@ -84,253 +145,225 @@ export default function SourcesPage() {
 
   const handleDisconnect = async (removeData: boolean) => {
     if (!disconnectModal.source) return
-
-    setDisconnectModal(m => ({ ...m, loading: true }))
+    setDisconnectModal((current) => ({ ...current, loading: true }))
     setError(null)
-
     try {
-      const sourceId = disconnectModal.source.id
-      const url = `${API_URL}/sources/${sourceId}?org_id=${orgId}&remove_data=${removeData}`
-
-      const response = await apiFetch(url, { method: 'DELETE' })
-      const data = await response.json()
-
-      if (response.ok) {
-        console.log('Disconnect result:', data)
-        setDisconnectModal({ source: null, loading: false })
-        await fetchSources()
-      } else {
-        throw new Error(data.error || 'Failed to disconnect')
-      }
-    } catch (err: any) {
-      console.error('Disconnect error:', err)
-      setError(err.message || 'Failed to disconnect source')
-      setDisconnectModal(m => ({ ...m, loading: false }))
+      const response = await apiFetch(
+        `${API_URL}/sources/${disconnectModal.source.id}?org_id=${orgId}&remove_data=${removeData}`,
+        { method: 'DELETE' },
+      )
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || payload.error || 'Failed to disconnect')
+      setDisconnectModal({ source: null, loading: false })
+      await fetchSources()
+    } catch (disconnectError) {
+      setError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect source')
+      setDisconnectModal((current) => ({ ...current, loading: false }))
     }
   }
 
-  const getSourceIcon = (type: string) => {
-    switch (type) {
-      case 'notion': return 'NO'
-      case 'slack': return 'SL'
-      case 'google': return 'GD'
-      case 'local': return '📁'
-      case 'upload': return '↑'
-      default: return '?'
+  const handleDeleteDocument = async () => {
+    if (!deleteModal) return
+    setDeletingDocument(true)
+    setError(null)
+    try {
+      const response = await apiFetch(
+        `${API_URL}/sources/${deleteModal.source.id}/documents?org_id=${orgId}&reference=${encodeURIComponent(deleteModal.document.reference)}`,
+        { method: 'DELETE' },
+      )
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Could not remove document')
+      setDeleteModal(null)
+      await fetchSources()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Could not remove document')
+    } finally {
+      setDeletingDocument(false)
     }
   }
 
-  const getSourceClass = (type: string) => {
-    switch (type) {
-      case 'notion': return 'source-badge-notion'
-      case 'slack': return 'source-badge-slack'
-      case 'google': return 'source-badge-google'
-      case 'local': return 'source-badge-manual'
-      case 'upload': return 'source-badge-manual'
-      default: return ''
-    }
-  }
+  const totalDocuments = useMemo(
+    () => Object.values(documents).reduce((total, sourceDocuments) => total + sourceDocuments.length, 0),
+    [documents],
+  )
+  const totalEntities = useMemo(
+    () => Object.values(documents).flat().reduce((total, document) => total + document.entity_count, 0),
+    [documents],
+  )
 
   return (
     <AppLayout>
       <StudioTopbar
         section="Sources"
         title="Connected Sources"
-        description={loading ? 'Loading source connections…' : `${sources.length} source${sources.length === 1 ? '' : 's'} connected`}
+        description="See exactly what Komponist has synced into this workspace"
         icon={Database}
         actions={<Button asChild size="sm"><Link href="/onboard"><Plus /> Add source</Link></Button>}
       />
 
-      <div className="page-body">
-        {error && (
-          <div className="card mb-6" style={{ background: 'var(--color-danger-soft)', borderColor: 'var(--color-danger)' }}>
-            <p className="text-small" style={{ color: 'var(--color-danger)' }}>
-              ⚠ {error}
-            </p>
-          </div>
-        )}
-
-        {!loading && sources.length === 0 ? (
-          <div className="card">
-            <div className="empty-state">
-              <div className="empty-state-icon">↗</div>
-              <h3 className="empty-state-title">No sources connected</h3>
-              <p className="empty-state-description">
-                Connect your first source to start building your company brain.
-                We support Notion, Slack, Google Workspace, and local documents.
-              </p>
-              <Link href="/onboard" className="btn btn-primary">
-                Add Your First Source →
-              </Link>
+      <main className="min-h-[calc(100vh-78px)] bg-paper px-5 py-7 sm:px-8 lg:px-10 lg:py-10">
+        <div className="mx-auto max-w-[1180px]">
+          {error && (
+            <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border-2 border-danger bg-danger-soft px-4 py-3 text-sm font-semibold text-danger" role="alert">
+              <span className="flex items-center gap-3"><CircleAlert className="size-4" /> {error}</span>
+              <button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X className="size-4" /></button>
             </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
-            {sources.map((source) => (
-              <div key={source.id} className="card">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <span className={`source-badge ${getSourceClass(source.type)}`}>
-                      {getSourceIcon(source.type)}
-                    </span>
-                    <div>
-                      <h3 className="text-h3">{source.name}</h3>
-                      <p className="text-caption text-muted capitalize">{source.type}</p>
-                    </div>
-                  </div>
-                  <span className={`badge ${source.status === 'connected' ? 'badge-teal' : source.status === 'syncing' ? 'badge-orange' : ''}`}>
-                    {source.status}
-                  </span>
-                </div>
+          )}
 
-                <div className="flex justify-between text-small text-muted pt-3 border-t border-line">
-                  <span>{source.itemCount} items synced</span>
-                  <span>
-                    {source.lastSync
-                      ? `Last sync: ${new Date(source.lastSync).toLocaleDateString()}`
-                      : 'Never synced'}
-                  </span>
-                </div>
-
-                <div className="flex gap-2 mt-4">
-                  {source.type !== 'upload' && <button
-                      onClick={() => handleSync(source.id)}
-                      className="btn btn-secondary btn-sm"
-                      disabled={syncing === source.id}
-                    >
-                      {syncing === source.id ? 'Syncing...' : 'Sync Now'}
-                    </button>}
-                  <button
-                    onClick={() => setDisconnectModal({ source, loading: false })}
-                    className="btn btn-ghost btn-sm text-muted"
-                  >
-                    Disconnect
-                  </button>
-                </div>
+          <section className="mb-7 grid overflow-hidden rounded-xl border-2 border-ink bg-ink sm:grid-cols-3">
+            {[
+              ['Connections', sources.length, 'Active data sources'],
+              ['Documents', totalDocuments, 'Visible inside Komponist'],
+              ['Extracted facts', totalEntities, 'Linked to these documents'],
+            ].map(([label, value, copy], index) => (
+              <div key={String(label)} className="border-b-2 border-ink bg-white p-5 last:border-b-0 sm:border-b-0 sm:border-r-2 sm:last:border-r-0">
+                <div className="flex items-start justify-between"><span className="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">{label}</span><span className="font-mono text-[9px] text-faint">0{index + 1}</span></div>
+                <div className="mt-4 font-display text-4xl font-black tracking-[-0.06em]">{loading ? '—' : value}</div>
+                <p className="mt-1 text-xs text-muted">{copy}</p>
               </div>
             ))}
-          </div>
-        )}
+          </section>
 
-        {/* Quick add cards when there are some sources */}
-        {!loading && sources.length > 0 && sources.length < 4 && (
-          <div className="mt-8 pt-6 border-t border-line">
-            <p className="text-small text-muted mb-4">Add more sources:</p>
-            <div className="flex flex-wrap gap-3">
-              {!sources.find(s => s.type === 'notion') && (
-                <Link href="/onboard" className="card hover:shadow-card transition-shadow p-4">
-                  <div className="flex items-center gap-2">
-                    <span className="source-badge source-badge-notion text-micro">NO</span>
-                    <span className="text-small">Notion</span>
-                  </div>
-                </Link>
-              )}
-              {!sources.find(s => s.type === 'slack') && (
-                <Link href="/onboard" className="card hover:shadow-card transition-shadow p-4">
-                  <div className="flex items-center gap-2">
-                    <span className="source-badge source-badge-slack text-micro">SL</span>
-                    <span className="text-small">Slack</span>
-                  </div>
-                </Link>
-              )}
-              {!sources.find(s => s.type === 'google') && (
-                <Link href="/onboard" className="card hover:shadow-card transition-shadow p-4">
-                  <div className="flex items-center gap-2">
-                    <span className="source-badge source-badge-google text-micro">GD</span>
-                    <span className="text-small">Google</span>
-                  </div>
-                </Link>
-              )}
-              {!sources.find(s => s.type === 'local') && (
-                <Link href="/onboard" className="card hover:shadow-card transition-shadow p-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-micro">📁</span>
-                    <span className="text-small">Local Docs</span>
-                  </div>
-                </Link>
-              )}
+          <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-orange-dark">Workspace inputs</p>
+              <h2 className="mt-1 text-3xl">Your knowledge sources</h2>
+              <p className="mt-2 text-sm text-muted">Expand a connection to inspect and manage every synced document.</p>
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-[11px] text-muted">
+              <ShieldCheck className="size-4 text-teal" /> Deleting here never deletes the original
             </div>
           </div>
-        )}
-      </div>
 
-      {/* Disconnect Confirmation Modal */}
-      {disconnectModal.source && (
-        <div className="modal-overlay" onClick={() => !disconnectModal.loading && setDisconnectModal({ source: null, loading: false })}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2 className="text-h2 mb-2">Disconnect {disconnectModal.source.name}?</h2>
-            <p className="text-small text-muted mb-6">
-              Choose what happens to the knowledge extracted from this source:
-            </p>
-
-            <div className="space-y-3 mb-6">
-              <button
-                onClick={() => handleDisconnect(false)}
-                disabled={disconnectModal.loading}
-                className="w-full text-left p-4 border border-line rounded-lg hover:border-teal hover:bg-paper-2 transition-colors"
-              >
-                <p className="text-small font-medium mb-1">Keep knowledge</p>
-                <p className="text-caption text-muted">
-                  Stop syncing but keep all extracted entities in your brain.
-                  You can reconnect later without duplicating data.
-                </p>
-              </button>
-
-              <button
-                onClick={() => handleDisconnect(true)}
-                disabled={disconnectModal.loading}
-                className="w-full text-left p-4 border border-line rounded-lg hover:border-danger transition-colors"
-                style={{ borderColor: 'var(--color-line)' }}
-              >
-                <p className="text-small font-medium mb-1" style={{ color: 'var(--color-danger)' }}>
-                  Remove all data
-                </p>
-                <p className="text-caption text-muted">
-                  Delete all entities and evidence that came from this source.
-                  This cannot be undone.
-                </p>
-              </button>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setDisconnectModal({ source: null, loading: false })}
-                disabled={disconnectModal.loading}
-                className="btn btn-ghost"
-              >
-                Cancel
-              </button>
-            </div>
-
-            {disconnectModal.loading && (
-              <div className="absolute inset-0 bg-paper/80 flex items-center justify-center rounded-lg">
-                <p className="text-small text-muted">Disconnecting...</p>
+          {loading ? (
+            <div className="space-y-4">{[0, 1].map((index) => <div key={index} className="h-36 animate-pulse rounded-xl border-2 border-line bg-white" />)}</div>
+          ) : sources.length === 0 ? (
+            <div className="grid min-h-[420px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[5px_5px_0_#d9cfc0]">
+              <div>
+                <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-warning-soft text-orange-dark shadow-[4px_4px_0_#201c15]"><Database className="size-7" /></span>
+                <h2 className="mt-6 text-3xl">Bring in your first source.</h2>
+                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">Connect Notion, Slack, Google Drive, local files, or upload documents directly.</p>
+                <Button asChild className="mt-6"><Link href="/onboard"><Plus /> Add source</Link></Button>
               </div>
-            )}
-          </div>
-        </div>
-      )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {sources.map((source, sourceIndex) => {
+                const copy = SOURCE_COPY[source.type]
+                const sourceDocuments = documents[source.id] ?? []
+                const isExpanded = expanded === source.id
+                const isSyncing = syncing === source.id
+                return (
+                  <motion.article key={source.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: sourceIndex * 0.04 }} className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
+                    <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-4">
+                        <SourceLogo type={source.type} />
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-xl">{source.name || copy.label}</h3>
+                            <Badge variant={source.status === 'connected' ? 'teal' : source.status === 'error' ? 'orange' : 'default'} className="px-2 py-0.5 text-[9px]">
+                              <span className={`size-1.5 rounded-full ${source.status === 'connected' ? 'bg-teal' : source.status === 'syncing' ? 'animate-pulse bg-orange' : 'bg-danger'}`} /> {source.status}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-muted">{copy.description}</p>
+                        </div>
+                      </div>
 
-      <style jsx>{`
-        .modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 100;
-        }
-        .modal {
-          position: relative;
-          background: var(--color-paper);
-          border-radius: 12px;
-          padding: 24px;
-          max-width: 480px;
-          width: 90%;
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-        }
-      `}</style>
+                      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                        <div className="mr-2 hidden text-right lg:block">
+                          <div className="text-xs font-bold">{sourceDocuments.length} document{sourceDocuments.length === 1 ? '' : 's'}</div>
+                          <div className="mt-0.5 text-[10px] text-muted">Last sync {formatDate(source.lastSync)}</div>
+                        </div>
+                        {source.type !== 'upload' && (
+                          <Button variant="outline" size="sm" onClick={() => void handleSync(source)} disabled={isSyncing}>
+                            {isSyncing ? <Loader2 className="animate-spin" /> : <RefreshCw />} {isSyncing ? 'Syncing' : 'Sync'}
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" title="Disconnect source" aria-label={`Disconnect ${source.name}`} onClick={() => setDisconnectModal({ source, loading: false })}><Unplug /></Button>
+                        <Button variant="subtle" size="icon" title="Show synced documents" aria-label={`Show documents from ${source.name}`} aria-expanded={isExpanded} onClick={() => setExpanded(isExpanded ? null : source.id)}>
+                          <ChevronDown className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <AnimatePresence initial={false}>
+                      {isExpanded && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t-2 border-ink bg-paper-2">
+                          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                            <span>Synced documents</span>
+                            <span>{sourceDocuments.length} in Komponist</span>
+                          </div>
+                          {documentsLoading[source.id] ? (
+                            <div className="flex items-center gap-2 px-5 py-8 text-sm text-muted"><Loader2 className="size-4 animate-spin" /> Loading documents…</div>
+                          ) : sourceDocuments.length === 0 ? (
+                            <div className="px-5 py-8 text-center"><FileText className="mx-auto size-6 text-faint" /><p className="mt-3 text-sm font-semibold">No synced documents found</p><p className="mt-1 text-xs text-muted">Run a sync or upload a document to populate this connection.</p></div>
+                          ) : (
+                            <div className="divide-y divide-line">
+                              {sourceDocuments.map((document) => (
+                                <div key={document.id} className="grid gap-4 bg-white px-4 py-4 transition hover:bg-[#fffaf0] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+                                  <div className="flex min-w-0 items-start gap-3">
+                                    <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-paper-2"><FileText className="size-4" /></span>
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="truncate text-sm font-bold text-ink">{document.title}</p>
+                                        <Badge variant={document.review_status === 'confirmed' ? 'teal' : document.review_status === 'proposed' ? 'orange' : 'default'} className="px-2 py-0.5 text-[8px]">{document.review_status}</Badge>
+                                      </div>
+                                      <p className="mt-1 truncate font-mono text-[9px] text-faint" title={document.reference}>{document.reference}</p>
+                                      <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted">
+                                        <span>{document.entity_count} extracted fact{document.entity_count === 1 ? '' : 's'}</span>
+                                        <span className="flex items-center gap-1"><Clock3 className="size-3" /> {formatDate(document.synced_at)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1 sm:justify-end">
+                                    {canOpenUrl(document.url) && <Button asChild variant="ghost" size="icon" title="Open original"><a href={document.url} target="_blank" rel="noreferrer"><ExternalLink /></a></Button>}
+                                    <Button variant="ghost" size="icon" title="Remove from Komponist" aria-label={`Remove ${document.title} from Komponist`} className="text-danger hover:bg-danger-soft hover:text-danger" onClick={() => setDeleteModal({ source, document })}><Trash2 /></Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.article>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </main>
+
+      <AnimatePresence>
+        {deleteModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] grid place-items-center bg-ink/60 p-4" onMouseDown={() => !deletingDocument && setDeleteModal(null)}>
+            <motion.div initial={{ opacity: 0, y: 14, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.98 }} className="w-full max-w-lg overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_#e8641b]" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="border-b-2 border-ink bg-danger-soft p-5"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-lg border-2 border-ink bg-white"><Trash2 className="size-5 text-danger" /></span><div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-danger">Remove from Komponist</p><h2 className="mt-1 text-xl">Delete synced document?</h2></div></div></div>
+              <div className="p-5">
+                <p className="text-sm font-bold text-ink">{deleteModal.document.title}</p>
+                <p className="mt-2 text-sm leading-6 text-muted">This removes its evidence and any facts that have no other source.</p>
+                <div className="mt-4 flex gap-3 rounded-lg border border-teal bg-success-soft p-3 text-xs leading-5 text-teal"><ShieldCheck className="mt-0.5 size-4 shrink-0" /><span>The original document in {SOURCE_COPY[deleteModal.source.type].label} is not changed or deleted.</span></div>
+              </div>
+              <div className="flex justify-end gap-2 border-t-2 border-ink bg-paper-2 p-4"><Button variant="ghost" onClick={() => setDeleteModal(null)} disabled={deletingDocument}>Cancel</Button><Button className="bg-danger" onClick={() => void handleDeleteDocument()} disabled={deletingDocument}>{deletingDocument ? <Loader2 className="animate-spin" /> : <Trash2 />} Remove from Komponist</Button></div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {disconnectModal.source && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] grid place-items-center bg-ink/60 p-4" onMouseDown={() => !disconnectModal.loading && setDisconnectModal({ source: null, loading: false })}>
+            <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-lg overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15]" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="flex items-center gap-4 border-b-2 border-ink p-5"><SourceLogo type={disconnectModal.source.type} /><div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">Disconnect source</p><h2 className="mt-1 text-xl">{disconnectModal.source.name}</h2></div></div>
+              <div className="space-y-3 p-5">
+                <button type="button" className="w-full rounded-lg border-2 border-line p-4 text-left transition hover:border-ink" onClick={() => void handleDisconnect(false)} disabled={disconnectModal.loading}><p className="text-sm font-bold">Disconnect and keep knowledge</p><p className="mt-1 text-xs leading-5 text-muted">Stop future syncs while keeping extracted facts and evidence.</p></button>
+                <button type="button" className="w-full rounded-lg border-2 border-danger bg-danger-soft p-4 text-left transition hover:bg-white" onClick={() => void handleDisconnect(true)} disabled={disconnectModal.loading}><p className="text-sm font-bold text-danger">Disconnect and remove Komponist data</p><p className="mt-1 text-xs leading-5 text-muted">Delete derived facts and evidence. The original platform remains untouched.</p></button>
+              </div>
+              <div className="flex justify-end border-t-2 border-ink bg-paper-2 p-4"><Button variant="ghost" onClick={() => setDisconnectModal({ source: null, loading: false })} disabled={disconnectModal.loading}>{disconnectModal.loading ? <Loader2 className="animate-spin" /> : <X />} Cancel</Button></div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </AppLayout>
   )
 }

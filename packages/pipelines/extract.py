@@ -509,6 +509,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
             ON CREATE SET
                 e.org_id = $org_id,
                 e.source = $source,
+                e.title = $title,
                 e.reference = $reference,
                 e.url = $url,
                 e.excerpt = $excerpt,
@@ -520,6 +521,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                 "id": evidence_id,
                 "org_id": source_item.org_id,
                 "source": source_item.source.value,
+                "title": source_item.title,
                 "reference": source_item.reference,
                 "url": source_item.url,
                 "excerpt": fact.get("excerpt", ""),
