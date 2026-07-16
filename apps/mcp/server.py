@@ -85,17 +85,92 @@ def format_evidence(evidence: List[Dict[str, Any]]) -> str:
         return ""
 
     citations = []
-    for e in evidence:
-        source = e.get("source", "")
-        ref = e.get("reference", "")
-        url = e.get("url", "")
+    for index, e in enumerate(evidence, 1):
+        source = e.get("source") or "unknown"
+        ref = e.get("reference") or "unknown reference"
+        url = e.get("url")
+        excerpt = (e.get("excerpt") or "").strip()
+        source_date = e.get("source_date")
 
-        if url:
-            citations.append(f"  📎 {source} · {ref} · {url}")
-        else:
-            citations.append(f"  📎 {source} · {ref}")
+        label = f"{source} · {ref}"
+        citation = f"  {index}. [{label}]({url})" if url else f"  {index}. {label}"
+        if source_date:
+            citation += f" · {str(source_date)[:10]}"
+        if excerpt:
+            citation += f"\n     > {excerpt}"
+        citations.append(citation)
 
     return "\n" + "\n".join(citations)
+
+
+_SEARCHABLE_ENTITY_TYPES = {"Decision", "Goal", "Constraint", "Project"}
+_SEARCH_STOP_WORDS = {
+    "about", "all", "are", "der", "die", "das", "do", "does", "for",
+    "from", "haben", "ist", "our", "show", "the", "und", "use", "was",
+    "what", "welche", "which", "who", "wie", "wir", "with",
+}
+
+
+def _search_terms(query: str) -> List[str]:
+    """Extract stable terms for no-model and index-independent search."""
+    import re
+
+    words = re.findall(r"[\w-]+", query.casefold(), flags=re.UNICODE)
+    return list(dict.fromkeys(
+        word for word in words if len(word) >= 3 and word not in _SEARCH_STOP_WORDS
+    ))[:12]
+
+
+async def _literal_context_search(
+    query: str,
+    types: Optional[List[str]],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """Search confirmed entities without embeddings or Neo4j indexes."""
+    terms = _search_terms(query)
+    if not terms:
+        return []
+
+    return await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE ($types IS NULL OR entity.entity_type IN $types)
+          AND any(term IN $terms WHERE
+              toLower(coalesce(entity.statement, '')) CONTAINS term OR
+              toLower(coalesce(entity.detail, '')) CONTAINS term)
+        WITH entity, size([term IN $terms WHERE
+            toLower(coalesce(entity.statement, '')) CONTAINS term OR
+            toLower(coalesce(entity.detail, '')) CONTAINS term]) AS matches
+        RETURN entity.id AS id, entity.entity_type AS entity_type,
+               entity.statement AS statement, entity.detail AS detail,
+               entity.confidence AS confidence, toFloat(matches) AS score
+        ORDER BY matches DESC, entity.confirmed_at DESC
+        LIMIT $limit
+        """,
+        {"org_id": ORG_ID, "types": types, "terms": terms, "limit": limit},
+    )
+
+
+async def _evidence_for_entities(entity_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """Load exact, org-scoped provenance for each confirmed result."""
+    if not entity_ids:
+        return {}
+
+    rows = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE entity.id IN $entity_ids
+        OPTIONAL MATCH (entity)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+        RETURN entity.id AS entity_id,
+               collect(DISTINCT evidence{.id, .source, .reference, .url,
+                                         .excerpt, .source_date}) AS evidence
+        """,
+        {"org_id": ORG_ID, "entity_ids": entity_ids},
+    )
+    return {
+        row["entity_id"]: [item for item in row["evidence"] if item.get("id")]
+        for row in rows
+    }
 
 
 @mcp.tool()
@@ -108,7 +183,7 @@ async def search_company_context(
     Search the company brain for relevant context.
 
     Performs hybrid search (vector + fulltext) across goals, decisions,
-    constraints, and customer requests. Returns cited facts only.
+    constraints, and projects. Returns confirmed, cited facts only.
 
     Args:
         query: Natural language query (e.g., "what auth approach do we use?")
@@ -123,18 +198,38 @@ async def search_company_context(
     start = time.time()
 
     try:
-        # Embed query
-        query_embedding = await embed(query)
+        result_limit = max(1, min(limit, 20))
+        if types:
+            invalid_types = sorted(set(types) - _SEARCHABLE_ENTITY_TYPES)
+            if invalid_types:
+                allowed = ", ".join(sorted(_SEARCHABLE_ENTITY_TYPES))
+                return (
+                    f"Unsupported entity type(s): {', '.join(invalid_types)}. "
+                    f"Allowed types: {allowed}."
+                )
 
-        # Search
-        results = await BrainQueries.hybrid_search(
-            org_id=ORG_ID,
-            query_text=query,
-            query_embedding=query_embedding,
-            entity_types=types,
-            k=min(limit, 20),
-            status="confirmed"
-        )
+        mock_mode = os.getenv("KOMPONIST_AI_MODE", "mock").lower() == "mock"
+        results: List[Dict[str, Any]] = []
+
+        if not mock_mode:
+            try:
+                query_embedding = await embed(query)
+                results = await BrainQueries.hybrid_search(
+                    org_id=ORG_ID,
+                    query_text=query,
+                    query_embedding=query_embedding,
+                    entity_types=types,
+                    k=result_limit,
+                    status="confirmed"
+                )
+            except Exception as search_error:
+                print(f"[MCP] Hybrid search failed, using literal fallback: {search_error}")
+
+        literal_results = await _literal_context_search(query, types, result_limit)
+        merged = {result["id"]: result for result in literal_results}
+        for result in results:
+            merged.setdefault(result["id"], result)
+        results = list(merged.values())[:result_limit]
 
         if not results:
             latency_ms = int((time.time() - start) * 1000)
@@ -145,22 +240,7 @@ async def search_company_context(
             }, {"results": 0}, latency_ms)
             return "No context found for this query."
 
-        # Expand to get evidence
-        seed_ids = [r["id"] for r in results]
-        expansion = await BrainQueries.context_expansion(
-            org_id=ORG_ID,
-            seed_ids=seed_ids,
-            max_hops=1
-        )
-
-        # Build evidence map
-        evidence_map = {}
-        for e in expansion["evidence"]:
-            entity_id = None
-            # Find which entity this evidence belongs to
-            for seed in expansion["seeds"]:
-                # This is simplified; in practice we'd query the relationship
-                evidence_map.setdefault(seed["id"], []).append(e)
+        evidence_map = await _evidence_for_entities([result["id"] for result in results])
 
         # Format output
         output = []
@@ -168,18 +248,22 @@ async def search_company_context(
         TOKEN_LIMIT = 2000
 
         for r in results:
+            entity_id = r["id"]
+            entity_evidence = evidence_map.get(entity_id, [])
+            if not entity_evidence:
+                continue
+
             entity_type = r["entity_type"]
             statement = r["statement"]
             detail = r.get("detail", "")
 
             # Build fact section
             fact = f"**[{entity_type}]** {statement}"
+            fact += f"\n  Entity ID: `{entity_id}`"
             if detail:
                 fact += f"\n  {detail}"
 
             # Add citations
-            entity_id = r["id"]
-            entity_evidence = evidence_map.get(entity_id, [])
             citations = format_evidence(entity_evidence)
             fact += citations
 
@@ -193,6 +277,8 @@ async def search_company_context(
             token_count += fact_tokens
 
         markdown = "\n\n".join(output)
+        if not markdown:
+            markdown = "No cited confirmed context found for this query."
 
         latency_ms = int((time.time() - start) * 1000)
         await log_tool_call("search_company_context", {
