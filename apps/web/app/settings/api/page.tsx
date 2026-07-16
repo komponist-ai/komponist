@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { KeyRound } from 'lucide-react'
 import AppLayout from '../../../components/AppLayout'
+import StudioTopbar from '../../../components/StudioTopbar'
 import { API_URL, apiFetch, getActiveOrgId } from '../../../lib/api'
 
 type ApiKey = { id: string; name: string; prefix: string; created_at: string; last_used_at: string | null; revoked_at: string | null }
@@ -42,9 +44,7 @@ export default function ApiConnectPage() {
   const copy = async (value: string) => { await navigator.clipboard.writeText(value); setMessage('Copied to clipboard.') }
 
   return <AppLayout>
-    <div className="page-header"><div><h1 className="page-title">API & MCP</h1>
-      <p className="text-small text-muted">Connect coding agents to this workspace with revocable, scoped credentials.</p>
-    </div></div>
+    <StudioTopbar section="Settings" title="API & MCP" description="Revocable, organization-scoped credentials for agents" icon={KeyRound} />
     <div className="page-body max-w-3xl space-y-6">
       {message && <div className="card"><p className="text-small">{message}</p></div>}
       {newKey && <div className="card key-reveal"><div><p className="text-small font-medium mb-2">New API key</p><code>{newKey}</code></div><button className="btn btn-primary" onClick={() => copy(newKey)}>Copy</button></div>}

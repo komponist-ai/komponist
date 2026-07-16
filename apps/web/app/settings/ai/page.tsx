@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { Sparkles } from 'lucide-react'
 import AppLayout from '../../../components/AppLayout'
+import StudioTopbar from '../../../components/StudioTopbar'
 import { API_URL, apiFetch, getActiveOrgId } from '../../../lib/api'
 
 type AIStatus = {
@@ -40,9 +42,7 @@ export default function AISettingsPage() {
   }
 
   return <AppLayout>
-    <div className="page-header"><div><h1 className="page-title">AI Provider</h1>
-      <p className="text-small text-muted">Komponist manages the AI provider centrally for every workspace.</p>
-    </div></div>
+    <StudioTopbar section="Settings" title="AI Provider" description="Centrally managed generation and embeddings for every workspace" icon={Sparkles} />
     <div className="page-body max-w-2xl space-y-6">
       {message && <div className="card"><p className="text-small">{message}</p></div>}
       <div className="card">

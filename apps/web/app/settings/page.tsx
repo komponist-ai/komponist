@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { Settings } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
 import { useAuth } from '../../components/AuthProvider'
+import StudioTopbar from '../../components/StudioTopbar'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 interface OrgSettings {
@@ -65,14 +67,12 @@ export default function SettingsPage() {
 
   return (
     <AppLayout>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Settings</h1>
-          <p className="text-small text-muted">
-            Configure how your company brain works
-          </p>
-        </div>
-      </div>
+      <StudioTopbar
+        section="Settings"
+        title="General"
+        description="Configure how your company brain works"
+        icon={Settings}
+      />
 
       <div className="page-body max-w-2xl">
         {message && (

@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { Database, Plus } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
+import StudioTopbar from '../../components/StudioTopbar'
+import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 interface Source {
@@ -130,17 +133,13 @@ export default function SourcesPage() {
 
   return (
     <AppLayout>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Connected Sources</h1>
-          <p className="text-small text-muted">
-            {loading ? 'Loading...' : `${sources.length} source${sources.length === 1 ? '' : 's'} connected`}
-          </p>
-        </div>
-        <Link href="/onboard" className="btn btn-primary btn-sm">
-          + Add Source
-        </Link>
-      </div>
+      <StudioTopbar
+        section="Sources"
+        title="Connected Sources"
+        description={loading ? 'Loading source connections…' : `${sources.length} source${sources.length === 1 ? '' : 's'} connected`}
+        icon={Database}
+        actions={<Button asChild size="sm"><Link href="/onboard"><Plus /> Add source</Link></Button>}
+      />
 
       <div className="page-body">
         {error && (

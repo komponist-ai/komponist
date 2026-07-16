@@ -11,7 +11,6 @@ import {
   CircleDashed,
   FileCheck2,
   FolderKanban,
-  Layers3,
   ListChecks,
   Search,
   ShieldCheck,
@@ -22,6 +21,7 @@ import {
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
 import FactCard from '../../components/FactCard'
+import StudioTopbar from '../../components/StudioTopbar'
 import { Button } from '../../components/ui/button'
 import { confirmEntity, fetchQueue, mergeEntity, rejectEntity } from '../../lib/api'
 
@@ -188,7 +188,22 @@ export default function QueuePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-paper">
-        <header className="overflow-hidden border-b-2 border-ink bg-white">
+        <StudioTopbar
+          section="Company brain"
+          title="Review Queue"
+          description="Approve what becomes trusted company context"
+          icon={ListChecks}
+          actions={
+            <>
+              <div className="hidden rounded-lg border-2 border-ink bg-paper-2 px-3 py-1.5 shadow-[2px_2px_0_#201c15] sm:block">
+                <span className="font-display text-lg font-bold">{isLoading ? '—' : data?.total ?? items.length}</span>
+                <span className="ml-2 font-mono text-[9px] uppercase tracking-wider text-muted">Pending</span>
+              </div>
+              <Button asChild size="sm"><Link href="/onboard">Add source <ArrowUpRight /></Link></Button>
+            </>
+          }
+        />
+        <section className="overflow-hidden border-b-2 border-ink bg-white">
           <div className="mx-auto grid max-w-[1320px] lg:grid-cols-[minmax(0,1fr)_340px]">
             <div className="px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
               <div className="mb-3 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-orange-dark">
@@ -200,14 +215,6 @@ export default function QueuePage() {
               <p className="mt-5 max-w-2xl text-sm leading-6 text-muted sm:text-base">
                 Every extracted fact waits here before it joins the company brain. Confirm what is right, edit what needs nuance, and reject the noise.
               </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button asChild>
-                  <Link href="/onboard">Add source <ArrowUpRight /></Link>
-                </Button>
-                <Button asChild variant="outline">
-                  <Link href="/entities">Browse entities <Layers3 /></Link>
-                </Button>
-              </div>
             </div>
 
             <div className="relative flex min-h-[250px] flex-col justify-between border-t-2 border-ink bg-ink p-6 text-white lg:border-l-2 lg:border-t-0 lg:p-8">
@@ -233,7 +240,7 @@ export default function QueuePage() {
               </div>
             </div>
           </div>
-        </header>
+        </section>
 
         <main className="mx-auto max-w-[1320px] px-5 py-7 sm:px-8 lg:px-10 lg:py-10">
           {error && (

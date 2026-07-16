@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
 import EvidenceChip from '../../components/EvidenceChip'
+import StudioTopbar from '../../components/StudioTopbar'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { fetchEntities } from '../../lib/api'
@@ -156,8 +157,23 @@ export default function EntitiesPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-paper">
-        <header className="border-b-2 border-ink bg-white px-5 py-7 sm:px-8 lg:px-10">
-          <div className="mx-auto flex max-w-[1320px] flex-col justify-between gap-6 lg:flex-row lg:items-end">
+        <StudioTopbar
+          section="Company brain"
+          title="Entities"
+          description="Reviewed facts your team and agents can rely on"
+          icon={Layers3}
+          actions={
+            <>
+              <div className="hidden rounded-lg border-2 border-ink bg-paper-2 px-3 py-1.5 shadow-[2px_2px_0_#201c15] sm:block">
+                <span className="font-display text-lg font-bold">{isLoading ? '—' : data?.total ?? 0}</span>
+                <span className="ml-2 font-mono text-[9px] uppercase tracking-wider text-muted">{selectedStatusLabel}</span>
+              </div>
+              <Button asChild size="sm"><Link href="/onboard">Add source <ArrowUpRight /></Link></Button>
+            </>
+          }
+        />
+        <section className="border-b-2 border-ink bg-white px-5 py-7 sm:px-8 lg:px-10">
+          <div className="mx-auto max-w-[1320px]">
             <div>
               <div className="mb-3 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-orange-dark">
                 <Layers3 className="size-3.5" /> Company brain / entity library
@@ -167,17 +183,8 @@ export default function EntitiesPage() {
                 Browse the reviewed building blocks your team and agents can rely on. Every entity keeps its status and evidence attached.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="rounded-lg border-2 border-ink bg-paper-2 px-4 py-2.5 shadow-[3px_3px_0_#201c15]">
-                <span className="font-display text-2xl font-bold">{isLoading ? '—' : data?.total ?? 0}</span>
-                <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-muted">{selectedStatusLabel}</span>
-              </div>
-              <Button asChild>
-                <Link href="/onboard">Add source <ArrowUpRight /></Link>
-              </Button>
-            </div>
           </div>
-        </header>
+        </section>
 
         <div className="mx-auto max-w-[1320px] px-5 py-7 sm:px-8 lg:px-10 lg:py-10">
           {error && (

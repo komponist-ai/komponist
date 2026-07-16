@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { RefreshCw } from 'lucide-react'
+import { Network, RefreshCw } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
+import StudioTopbar from '../../components/StudioTopbar'
 import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
@@ -161,9 +162,12 @@ export default function GraphPage() {
 
   return (
     <AppLayout>
-      <div className="page-header">
-        <h1 className="page-title">Knowledge Graph</h1>
-        <div className="flex gap-2">
+      <StudioTopbar
+        section="Company brain"
+        title="Knowledge Graph"
+        description="Explore the entities and relationships behind every answer"
+        icon={Network}
+        actions={
           <Button
             onClick={fetchGraph}
             variant="subtle"
@@ -173,8 +177,8 @@ export default function GraphPage() {
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {loading ? 'Loading…' : 'Refresh'}
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="page-body" style={{ height: 'calc(100vh - 180px)', overflow: 'hidden', padding: '0' }}>
         {error && (

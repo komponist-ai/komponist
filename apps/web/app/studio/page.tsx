@@ -8,6 +8,7 @@ import {
   Plus, ShieldCheck, Sparkles,
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
+import StudioTopbar from '../../components/StudioTopbar'
 import ChatMessage from '../../components/ChatMessage'
 import ChatInput from '../../components/ChatInput'
 import { Badge } from '../../components/ui/badge'
@@ -171,17 +172,13 @@ export default function ChatPage() {
   return (
     <AppLayout>
       <div className="flex h-screen min-h-[680px] flex-col overflow-hidden bg-paper text-ink">
-        <header className="flex min-h-[72px] items-center justify-between gap-4 border-b border-line bg-white px-5 sm:px-8">
-          <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-lg border-2 border-ink bg-orange text-white shadow-[2px_2px_0_#201c15]">
-              <MessageSquareText className="size-5" />
-            </div>
-            <div>
-              <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Studio / Company brain</div>
-              <h1 className="mt-0.5 text-xl font-bold tracking-tight sm:text-2xl">Ask Komponist</h1>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
+        <StudioTopbar
+          section="Company brain"
+          title="Ask Komponist"
+          description="Grounded answers from confirmed company context"
+          icon={MessageSquareText}
+          actions={
+            <>
             <Badge variant="teal" className="hidden sm:inline-flex" title="Chat searches confirmed entities only">
               <span className="size-1.5 rounded-full bg-teal" /> Confirmed only
             </Badge>
@@ -190,8 +187,9 @@ export default function ChatPage() {
                 <Plus /> New thread
               </Button>
             )}
-          </div>
-        </header>
+            </>
+          }
+        />
 
         <div className="flex min-h-0 flex-1 flex-col">
           {error && (

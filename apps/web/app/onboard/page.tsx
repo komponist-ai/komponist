@@ -2,7 +2,10 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { ArrowLeft, PlugZap } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
+import StudioTopbar from '../../components/StudioTopbar'
+import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 type SourceType = 'notion' | 'slack' | 'google' | 'local' | 'upload'
@@ -186,9 +189,12 @@ function OnboardContent() {
   if (!selectedSource) {
     return (
       <AppLayout>
-        <div className="page-header">
-          <h1 className="page-title">Add Source</h1>
-        </div>
+        <StudioTopbar
+          section="Sources"
+          title="Add Source"
+          description="Connect the tools and documents that hold company context"
+          icon={PlugZap}
+        />
 
         <div className="page-body">
           <p className="text-muted mb-6">
@@ -284,26 +290,28 @@ function OnboardContent() {
   // Connection form view
   return (
     <AppLayout>
-      <div className="page-header">
-        <div>
-          <button
+      <StudioTopbar
+        section="Sources"
+        title={`Connect ${selectedSource === 'notion' ? 'Notion' :
+          selectedSource === 'slack' ? 'Slack' :
+          selectedSource === 'google' ? 'Google Workspace' :
+          selectedSource === 'upload' ? 'Upload Documents' : 'Local Documents'}`}
+        description="Configure the connection, then sync company knowledge"
+        icon={PlugZap}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setSelectedSource(null)
               setStatus('idle')
               setError(null)
             }}
-            className="text-small text-muted hover:text-ink mb-2 flex items-center gap-1"
           >
-            ← Back to sources
-          </button>
-          <h1 className="page-title">
-            Connect {selectedSource === 'notion' ? 'Notion' :
-                     selectedSource === 'slack' ? 'Slack' :
-                     selectedSource === 'google' ? 'Google Workspace' :
-                     selectedSource === 'upload' ? 'Upload Documents' : 'Local Documents'}
-          </h1>
-        </div>
-      </div>
+            <ArrowLeft /> All sources
+          </Button>
+        }
+      />
 
       <div className="page-body">
         <div className="max-w-xl">
@@ -540,9 +548,7 @@ export default function OnboardPage() {
   return (
     <Suspense fallback={
       <AppLayout>
-        <div className="page-header">
-          <h1 className="page-title">Add Source</h1>
-        </div>
+        <StudioTopbar section="Sources" title="Add Source" description="Loading source connectors…" icon={PlugZap} />
         <div className="page-body">
           <div className="card">
             <p className="text-muted">Loading...</p>

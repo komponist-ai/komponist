@@ -1,8 +1,10 @@
 'use client'
 
 import { FormEvent, useCallback, useEffect, useState } from 'react'
+import { UsersRound } from 'lucide-react'
 import AppLayout from '../../../components/AppLayout'
 import { useAuth } from '../../../components/AuthProvider'
+import StudioTopbar from '../../../components/StudioTopbar'
 import { API_URL, apiFetch } from '../../../lib/api'
 
 interface Member {
@@ -77,15 +79,13 @@ export default function TeamSettingsPage() {
 
   return (
     <AppLayout>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Team & roles</h1>
-          <p className="text-small text-muted">
-            Manage access to {user?.organization.name}
-          </p>
-        </div>
-        <span className="badge badge-orange">Your role: {user?.role}</span>
-      </div>
+      <StudioTopbar
+        section="Settings"
+        title="Team & roles"
+        description={`Manage access to ${user?.organization.name ?? 'this workspace'}`}
+        icon={UsersRound}
+        actions={<span className="badge badge-orange hidden sm:inline-flex">Your role: {user?.role}</span>}
+      />
 
       <div className="page-body team-page">
         {error && <div className="team-alert" role="alert">{error}</div>}
