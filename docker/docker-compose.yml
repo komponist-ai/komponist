@@ -89,11 +89,11 @@ services:
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
       # Local Documents
-      - KOMPONIST_LOCAL_DOCS_PATH=${KOMPONIST_LOCAL_DOCS_PATH:-/data/docs}
+      - KOMPONIST_LOCAL_DOCS_PATH=/data/docs
       # CORS
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
     volumes:
-      - ${KOMPONIST_LOCAL_DOCS_PATH:-./docs}:/data/docs:ro
+      - ${KOMPONIST_LOCAL_DOCS_HOST_PATH:-../docs}:/data/docs:ro
     depends_on:
       neo4j:
         condition: service_healthy
@@ -116,6 +116,7 @@ services:
       - "8080:8080"
     environment:
       # Database
+      - DATABASE_URL=postgresql+asyncpg://komponist:${POSTGRES_PASSWORD:-komponist}@postgres:5432/komponist
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USERNAME=neo4j
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-komponist}
@@ -132,6 +133,8 @@ services:
       - SLACK_APPROVAL_CHANNEL=${SLACK_APPROVAL_CHANNEL}
     depends_on:
       neo4j:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - komponist

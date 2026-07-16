@@ -6,6 +6,7 @@ FastMCP server providing tools for coding agents to interact with the company br
 
 import os
 import sys
+from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import asyncio
@@ -29,16 +30,28 @@ from constraints import request_approval as request_approval_impl
 from constraints import get_approval_status as get_approval_status_impl
 
 
+# Auth: org_id from environment (in production, use API key auth)
+ORG_ID = os.getenv("KOMPONIST_ORG_ID", "default-org")
+
+
+@asynccontextmanager
+async def lifespan(server: FastMCP):
+    """Initialize and close shared connections with the MCP server."""
+    GraphClient.initialize()
+    print(f"[MCP] Komponist server started for org: {ORG_ID}")
+    try:
+        yield
+    finally:
+        await GraphClient.close()
+        print("[MCP] Komponist server stopped")
+
+
 # Initialize MCP server
 mcp = FastMCP(
     name="komponist",
     version="0.1.0",
-    dependencies=["neo4j", "openai", "anthropic"]
+    lifespan=lifespan,
 )
-
-
-# Auth: org_id from environment (in production, use API key auth)
-ORG_ID = os.getenv("KOMPONIST_ORG_ID", "default-org")
 
 
 async def log_tool_call(
@@ -574,21 +587,6 @@ async def brain_info() -> str:
 
     except Exception as e:
         return f"Error: {e}"
-
-
-# Lifecycle hooks
-@mcp.on_startup()
-async def startup():
-    """Initialize connections on startup."""
-    GraphClient.initialize()
-    print(f"[MCP] Komponist server started for org: {ORG_ID}")
-
-
-@mcp.on_shutdown()
-async def shutdown():
-    """Close connections on shutdown."""
-    await GraphClient.close()
-    print("[MCP] Komponist server stopped")
 
 
 if __name__ == "__main__":

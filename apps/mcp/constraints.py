@@ -382,7 +382,8 @@ def resolve_approval(approval_id: str, approved: bool, resolved_by: str):
         "resolved_by": resolved_by
     })
 
-    print(f"[Approval] {approval_id} {'approved' by resolved_by if approved else 'denied'}")
+    status = "approved" if approved else "denied"
+    print(f"[Approval] {approval_id} {status} by {resolved_by}")
 
 
 # TODO: Slack interaction webhook handler

@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, String, DateTime, Integer, Text, Boolean
+from sqlalchemy import JSON, String, DateTime, Integer, Text, Boolean, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -102,7 +102,7 @@ async def health_check_db() -> dict:
     """Check database connection health."""
     try:
         async with async_session() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
             return {"status": "healthy", "url": DATABASE_URL.split("@")[1] if "@" in DATABASE_URL else "hidden"}
     except Exception as e:
         return {"status": "error", "error": str(e)}

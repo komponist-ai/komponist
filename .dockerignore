@@ -1,0 +1,11 @@
+.git
+.env
+**/.DS_Store
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/node_modules
+**/.next
+**/dist
+**/build

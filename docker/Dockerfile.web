@@ -9,7 +9,8 @@ WORKDIR /app
 COPY apps/web/package.json apps/web/package-lock.json* ./
 
 # Install dependencies
-RUN npm ci
+RUN npm install --global npm@11.12.1
+RUN npm ci --no-audit --no-fund
 
 # Stage 2: Build
 FROM node:20-alpine AS builder

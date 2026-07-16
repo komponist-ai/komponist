@@ -17,6 +17,7 @@ import sys
 sys.path.append("../../packages")
 
 from core.graph import GraphClient
+from core.schema import GraphSchema
 from core.export import export_brain_yaml
 from core.import_ import import_brain_yaml
 from database import init_db, health_check_db
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
     # Startup
     GraphClient.initialize()
     await init_db()
+    await GraphSchema.apply_schema()
     print("✓ Databases initialized")
 
     yield
