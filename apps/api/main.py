@@ -436,6 +436,14 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 # User authentication endpoints
 # =============================================================================
 
+class OrganizationInvitationRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    role: str = Field(default="member", max_length=20)
+
+
+class AcceptInvitationRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+
 @app.get("/auth/login/google")
 async def google_login_start(return_to: str = "/"):
     """Start Google OIDC login for a Komponist user."""
@@ -520,6 +528,101 @@ async def logout(request: Request, response: Response):
         httponly=True,
         samesite="lax",
     )
+
+
+@app.get("/auth/organizations")
+async def get_auth_organizations(request: Request):
+    """List all organizations the signed-in user belongs to."""
+    import auth
+
+    organizations = await auth.list_organizations(
+        request.cookies.get(auth.SESSION_COOKIE)
+    )
+    if organizations is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return {"organizations": organizations}
+
+
+@app.post("/auth/organizations/{org_id}/select")
+async def select_auth_organization(org_id: str, request: Request):
+    """Switch the active organization for the current browser session."""
+    import auth
+
+    try:
+        user = await auth.select_organization(
+            request.cookies.get(auth.SESSION_COOKIE), org_id
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return {"user": user}
+
+
+@app.get("/auth/organizations/{org_id}/members")
+async def get_organization_members(org_id: str, request: Request):
+    """List active members of an organization visible to the signed-in user."""
+    import auth
+
+    try:
+        members = await auth.list_organization_members(
+            request.cookies.get(auth.SESSION_COOKIE), org_id
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    if members is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return {"members": members}
+
+
+@app.post("/auth/organizations/{org_id}/invitations", status_code=201)
+async def invite_organization_member(
+    org_id: str,
+    payload: OrganizationInvitationRequest,
+    request: Request,
+):
+    """Create a single-use invite link. Email delivery will be added later."""
+    import auth
+    from urllib.parse import urlencode
+
+    try:
+        invitation = await auth.create_organization_invitation(
+            request.cookies.get(auth.SESSION_COOKIE),
+            org_id,
+            payload.email,
+            payload.role,
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if invitation is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    invitation["invite_url"] = (
+        f"{FRONTEND_URL}/invite?{urlencode({'token': invitation['token']})}"
+    )
+    return invitation
+
+
+@app.post("/auth/invitations/accept")
+async def accept_organization_invitation(
+    payload: AcceptInvitationRequest,
+    request: Request,
+):
+    """Accept an invite matching the signed-in user's verified Google email."""
+    import auth
+
+    try:
+        user = await auth.accept_organization_invitation(
+            request.cookies.get(auth.SESSION_COOKIE), payload.token
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return {"user": user}
 
 
 def _validated_oauth_org(org_id: str) -> str:

@@ -14,8 +14,11 @@ from sqlalchemy import delete, select
 from database import (
     AuthIdentity,
     AuthSession,
+    AuthSessionContext,
     OAuthLoginState,
     Org,
+    OrganizationInvitation,
+    OrganizationMembership,
     User,
     async_session,
 )
@@ -30,6 +33,9 @@ SESSION_COOKIE = "komponist_session"
 LOGIN_STATE_COOKIE = "komponist_login_state"
 SESSION_DAYS = 30
 STATE_MINUTES = 10
+INVITATION_DAYS = 7
+MEMBERSHIP_ROLES = {"owner", "admin", "member", "viewer"}
+INVITABLE_ROLES = {"admin", "member", "viewer"}
 
 
 def _hash_token(token: str) -> str:
@@ -218,31 +224,65 @@ async def upsert_google_user(identity: dict[str, Any]) -> User:
 
         user.email = email
         user.name = name
+        await _ensure_primary_membership(session, user)
 
         await session.commit()
         return user
 
 
+async def _ensure_primary_membership(session, user: User) -> OrganizationMembership:
+    membership = (
+        await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.org_id == user.org_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        membership = OrganizationMembership(
+            id=str(uuid4()),
+            user_id=user.id,
+            org_id=user.org_id,
+            role="owner",
+            status="active",
+        )
+        session.add(membership)
+        await session.flush()
+    return membership
+
+
 async def create_session(user_id: str) -> tuple[str, AuthSession]:
     raw_token = secrets.token_urlsafe(48)
-    session_row = AuthSession(
-        id=str(uuid4()),
-        user_id=user_id,
-        token_hash=_hash_token(raw_token),
-        expires_at=datetime.utcnow() + timedelta(days=SESSION_DAYS),
-    )
     async with async_session() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            raise ValueError("Cannot create a session for an unknown user")
+        await _ensure_primary_membership(session, user)
+        session_row = AuthSession(
+            id=str(uuid4()),
+            user_id=user_id,
+            token_hash=_hash_token(raw_token),
+            expires_at=datetime.utcnow() + timedelta(days=SESSION_DAYS),
+        )
         session.add(session_row)
+        await session.flush()
+        session.add(
+            AuthSessionContext(
+                session_id=session_row.id,
+                active_org_id=user.org_id,
+            )
+        )
         await session.commit()
     return raw_token, session_row
 
 
-async def authenticated_user(raw_token: Optional[str]) -> Optional[dict[str, Any]]:
+async def _session_principal(session, raw_token: Optional[str]):
     if not raw_token or len(raw_token) > 200:
         return None
     now = datetime.utcnow()
-    async with async_session() as session:
-        result = await session.execute(
+    row = (
+        await session.execute(
             select(AuthSession, User, AuthIdentity)
             .join(User, User.id == AuthSession.user_id)
             .join(
@@ -256,20 +296,282 @@ async def authenticated_user(raw_token: Optional[str]) -> Optional[dict[str, Any
                 AuthSession.expires_at > now,
             )
         )
-        row = result.one_or_none()
-        if row is None:
+    ).one_or_none()
+    if row is None:
+        return None
+    auth_session, user, identity = row
+    await _ensure_primary_membership(session, user)
+
+    context = await session.get(AuthSessionContext, auth_session.id)
+    if context is None:
+        context = AuthSessionContext(
+            session_id=auth_session.id,
+            active_org_id=user.org_id,
+        )
+        session.add(context)
+        await session.flush()
+
+    membership = (
+        await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.org_id == context.active_org_id,
+                OrganizationMembership.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        membership = await _ensure_primary_membership(session, user)
+        context.active_org_id = membership.org_id
+
+    org = await session.get(Org, membership.org_id)
+    if org is None:
+        return None
+    auth_session.last_seen_at = now
+    return auth_session, user, identity, membership, org, context
+
+
+def _user_payload(user, identity, membership, org) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "org_id": org.id,
+        "email": user.email,
+        "name": user.name,
+        "avatar_url": identity.avatar_url,
+        "role": membership.role,
+        "organization": {"id": org.id, "name": org.name},
+    }
+
+
+async def authenticated_user(raw_token: Optional[str]) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
             return None
-        auth_session, user, identity = row
-        auth_session.last_seen_at = now
+        _, user, identity, membership, org, _ = principal
+        await session.commit()
+        return _user_payload(user, identity, membership, org)
+
+
+async def list_organizations(raw_token: Optional[str]) -> Optional[list[dict[str, Any]]]:
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, context = principal
+        rows = (
+            await session.execute(
+                select(OrganizationMembership, Org)
+                .join(Org, Org.id == OrganizationMembership.org_id)
+                .where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.status == "active",
+                )
+                .order_by(Org.name.asc())
+            )
+        ).all()
+        await session.commit()
+        return [
+            {
+                "id": org.id,
+                "name": org.name,
+                "role": membership.role,
+                "active": org.id == context.active_org_id,
+            }
+            for membership, org in rows
+        ]
+
+
+async def select_organization(raw_token: Optional[str], org_id: str) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, identity, _, _, context = principal
+        membership = (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.org_id == org_id,
+                    OrganizationMembership.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        org = await session.get(Org, org_id)
+        if membership is None or org is None:
+            raise PermissionError("User is not a member of this organization")
+        context.active_org_id = org_id
+        context.updated_at = datetime.utcnow()
+        await session.commit()
+        return _user_payload(user, identity, membership, org)
+
+
+async def list_organization_members(
+    raw_token: Optional[str], org_id: str
+) -> Optional[list[dict[str, Any]]]:
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, _ = principal
+        actor = (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.org_id == org_id,
+                    OrganizationMembership.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if actor is None:
+            raise PermissionError("User is not a member of this organization")
+        rows = (
+            await session.execute(
+                select(OrganizationMembership, User)
+                .join(User, User.id == OrganizationMembership.user_id)
+                .where(
+                    OrganizationMembership.org_id == org_id,
+                    OrganizationMembership.status == "active",
+                )
+                .order_by(User.name.asc())
+            )
+        ).all()
+        await session.commit()
+        return [
+            {
+                "id": member.id,
+                "user_id": member.user_id,
+                "name": member_user.name,
+                "email": member_user.email,
+                "role": member.role,
+            }
+            for member, member_user in rows
+        ]
+
+
+async def create_organization_invitation(
+    raw_token: Optional[str],
+    org_id: str,
+    email: str,
+    role: str,
+) -> Optional[dict[str, Any]]:
+    email = email.strip().lower()
+    role = role.strip().lower()
+    if "@" not in email or len(email) > 255:
+        raise ValueError("A valid email is required")
+    if role not in INVITABLE_ROLES:
+        raise ValueError("Role must be admin, member, or viewer")
+
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, _ = principal
+        actor = (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.org_id == org_id,
+                    OrganizationMembership.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if actor is None or actor.role not in {"owner", "admin"}:
+            raise PermissionError("Only organization owners and admins can invite")
+        if role == "admin" and actor.role != "owner":
+            raise PermissionError("Only an owner can invite another admin")
+
+        await session.execute(
+            delete(OrganizationInvitation).where(
+                OrganizationInvitation.org_id == org_id,
+                OrganizationInvitation.email == email,
+                OrganizationInvitation.accepted_at.is_(None),
+            )
+        )
+        raw_invite = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(days=INVITATION_DAYS)
+        session.add(
+            OrganizationInvitation(
+                id=str(uuid4()),
+                org_id=org_id,
+                email=email,
+                role=role,
+                token_hash=_hash_token(raw_invite),
+                invited_by_user_id=user.id,
+                expires_at=expires_at,
+            )
+        )
         await session.commit()
         return {
-            "id": user.id,
-            "org_id": user.org_id,
-            "email": user.email,
-            "name": user.name,
-            "avatar_url": identity.avatar_url,
-            "role": "owner",
+            "token": raw_invite,
+            "email": email,
+            "role": role,
+            "expires_at": expires_at.isoformat(),
         }
+
+
+async def accept_organization_invitation(
+    raw_token: Optional[str], raw_invite: str
+) -> Optional[dict[str, Any]]:
+    if not raw_invite or len(raw_invite) > 200:
+        raise ValueError("Invalid invitation")
+    now = datetime.utcnow()
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, identity, _, _, context = principal
+        invitation = (
+            await session.execute(
+                select(OrganizationInvitation)
+                .where(
+                    OrganizationInvitation.token_hash == _hash_token(raw_invite)
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if (
+            invitation is None
+            or invitation.accepted_at is not None
+            or invitation.expires_at <= now
+        ):
+            raise ValueError("Invitation is invalid, expired, or already used")
+        if invitation.email != user.email.lower():
+            raise PermissionError("Invitation belongs to a different email address")
+
+        membership = (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.org_id == invitation.org_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if membership is None:
+            membership = OrganizationMembership(
+                id=str(uuid4()),
+                user_id=user.id,
+                org_id=invitation.org_id,
+                role=invitation.role,
+                status="active",
+            )
+            session.add(membership)
+        else:
+            role_rank = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
+            if role_rank[invitation.role] > role_rank.get(membership.role, 0):
+                membership.role = invitation.role
+            membership.status = "active"
+            membership.updated_at = now
+
+        org = await session.get(Org, invitation.org_id)
+        if org is None:
+            raise ValueError("Invitation organization no longer exists")
+        invitation.accepted_at = now
+        invitation.accepted_by_user_id = user.id
+        context.active_org_id = invitation.org_id
+        context.updated_at = now
+        await session.commit()
+        return _user_payload(user, identity, membership, org)
 
 
 async def revoke_session(raw_token: Optional[str]) -> None:

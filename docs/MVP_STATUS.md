@@ -16,8 +16,8 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | Integrations | 🚧 Code exists | 40% |
 | Web UI | 🚧 Builds and runs locally | 65% |
 | Chat Feature | ✅ Grounded local flow verified | 80% |
-| Auth & Security | 🚧 Google session foundation | 30% |
-| User Management | 🚧 User records on first login | 20% |
+| Auth & Security | 🚧 Sessions and org roles | 45% |
+| User Management | 🚧 Multi-org membership backend | 45% |
 | Deployment | ❌ Not implemented | 10% |
 
 **Overall MVP Readiness: ~50%**
@@ -56,6 +56,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Notion, Slack, and Google OAuth callbacks persist allowlisted tokens encrypted
 - [x] MCP approval requests and immutable decisions survive MCP restarts
 - [x] Provider-free Google user-login and persistent session lifecycle
+- [x] Multi-user organizations, role-checked invites, and per-session org switching
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -68,6 +69,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `apps/api/tests/auth_session_e2e.py` — Google login state, session, restart, and logout (passing)
+- `apps/api/tests/organization_membership_e2e.py` — two-user invite, roles, isolation, and org switching (passing)
 - `packages/core/tests/test_queries.py` — Tests for graph queries (requires Neo4j running)
 
 ---
@@ -156,14 +158,14 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Persistent, revocable HttpOnly cookie sessions
 - [ ] Account settings page
 - [ ] Delete account functionality
-- [ ] Team/org invitations
-- [ ] Role-based permissions (admin, member, viewer)
+- [x] Team/org invitation links (email delivery and Web UI still missing)
+- [x] Backend roles: owner, admin, member, viewer
 
 ### Multi-tenancy
 - [ ] Org creation/management UI
-- [ ] User invite flow
+- [x] Membership and invitation API flow
+- [x] Multiple organizations per user with per-session active org
 - [ ] Org-scoped API keys
-- [ ] **No code exists**
 
 ### Data Persistence
 - [x] OAuth callback token responses stored encrypted in connected-source records
@@ -209,7 +211,7 @@ The provider-free Google login and persistent session lifecycle work, but:
 - Live Google login has not been completed with real credentials
 - The Web UI has no login/session gate yet
 - Existing API endpoints still accept caller-provided `org_id` values
-- Sessions are not yet used to authorize or isolate API requests
+- The active session organization is not yet enforced on existing brain API routes
 
 ### 3. Real Provider Lifecycles Remain Unverified
 Connected sources, organization settings, and approval requests now survive service restarts. Remaining gaps:

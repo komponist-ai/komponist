@@ -17,8 +17,11 @@ import main
 from database import (
     AuthIdentity,
     AuthSession,
+    AuthSessionContext,
     OAuthLoginState,
     Org,
+    OrganizationInvitation,
+    OrganizationMembership,
     User,
     async_session,
     init_db,
@@ -37,8 +40,31 @@ async def cleanup() -> None:
             await session.execute(select(User).where(User.email == EMAIL))
         ).scalar_one_or_none()
         if user is not None:
+            session_ids = (
+                await session.execute(
+                    select(AuthSession.id).where(AuthSession.user_id == user.id)
+                )
+            ).scalars().all()
+            if session_ids:
+                await session.execute(
+                    delete(AuthSessionContext).where(
+                        AuthSessionContext.session_id.in_(session_ids)
+                    )
+                )
             await session.execute(
                 delete(AuthSession).where(AuthSession.user_id == user.id)
+            )
+            await session.execute(
+                delete(OrganizationInvitation).where(
+                    (OrganizationInvitation.invited_by_user_id == user.id)
+                    | (OrganizationInvitation.accepted_by_user_id == user.id)
+                    | (OrganizationInvitation.org_id == user.org_id)
+                )
+            )
+            await session.execute(
+                delete(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id
+                )
             )
             await session.execute(
                 delete(AuthIdentity).where(AuthIdentity.user_id == user.id)
