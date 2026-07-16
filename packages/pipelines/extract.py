@@ -36,12 +36,65 @@ class ExtractionState(TypedDict):
     extracted_facts: List[Dict[str, Any]]
     dedupe_results: List[Dict[str, Any]]
     final_entities: List[str]  # Created entity IDs
+    relationships_created: int
     error: Optional[str]
 
 
 # Dedup similarity thresholds
 DEDUP_EXACT_THRESHOLD = 0.92  # Above this: don't create, attach evidence
 DEDUP_POSSIBLE_THRESHOLD = 0.80  # Above this: create with RELATES_TO edge
+
+# Relationship types are interpolated into Cypher, so keep them allow-listed.
+ALLOWED_RELATION_TYPES = {
+    "ADVANCES",
+    "AFFECTS",
+    "DEPENDS_ON",
+    "SUPERSEDES",
+    "CONSTRAINS",
+    "RELATES_TO",
+}
+
+
+def infer_intra_document_relationships(
+    dedupe_results: List[Dict[str, Any]],
+) -> List[Dict[str, str]]:
+    """Infer a small, deterministic relationship set for one imported document.
+
+    A single Project acts as the document-local hub. We deliberately do not
+    infer across multiple projects because choosing the correct target would be
+    ambiguous and would make the graph noisier than the source supports.
+    """
+    created = [
+        result
+        for result in dedupe_results
+        if result.get("action") == "create" and result.get("entity_id")
+    ]
+    projects = [item for item in created if item["fact"].get("type") == "Project"]
+    if len(projects) != 1:
+        return []
+
+    project_id = projects[0]["entity_id"]
+    relationships: List[Dict[str, str]] = []
+    relationship_for_type = {
+        "Goal": (project_id, "ADVANCES"),
+        "Decision": (None, "AFFECTS"),
+        "Constraint": (None, "CONSTRAINS"),
+    }
+
+    for item in created:
+        entity_type = item["fact"].get("type")
+        mapping = relationship_for_type.get(entity_type)
+        if not mapping:
+            continue
+
+        fixed_source, relation_type = mapping
+        relationships.append({
+            "source_id": fixed_source or item["entity_id"],
+            "target_id": item["entity_id"] if fixed_source else project_id,
+            "relation": relation_type,
+        })
+
+    return relationships
 
 
 def source_fact_fingerprint(source_item: SourceItem, fact: Dict[str, Any]) -> str:
@@ -152,7 +205,10 @@ Rules:
 2. Detail: 1-3 sentences explaining more context
 3. Excerpt: verbatim quote from the source
 4. Confidence: high (explicit), medium (implicit), low (inferred)
-5. Relations hint: an array of potential relationships; use [] when none exist
+5. Relations hint: relationships explicitly supported by the source. Use the
+   exact statement of another extracted fact as target_hint when possible.
+   Valid examples: a Project ADVANCES a Goal, a Decision AFFECTS a Project,
+   or a Constraint CONSTRAINS a Project. Use [] when none exist.
 
 IMPORTANT: Always return a JSON object with a "facts" key containing an array:
 {"facts": [
@@ -432,6 +488,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
     """
     source_item = state["source_item"]
     created_ids = []
+    relationships_created = 0
 
     for result in state["dedupe_results"]:
         fact = result["fact"]
@@ -527,28 +584,37 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                 # Create RELATES_TO edges
                 for relates in result.get("relates_to", []):
                     relates_query = """
-                    MATCH (e:Entity {id: $entity_id})
-                    MATCH (t:Entity {id: $target_id})
+                    MATCH (e:Entity {id: $entity_id, org_id: $org_id})
+                    MATCH (t:Entity {id: $target_id, org_id: $org_id})
                     MERGE (e)-[:RELATES_TO {score: $score}]->(t)
+                    RETURN true AS linked
                     """
-                    await GraphClient.run_query(relates_query, {
+                    linked = await GraphClient.run_query(relates_query, {
                         "entity_id": entity_id,
                         "target_id": relates["entity_id"],
-                        "score": relates["score"]
+                        "score": relates["score"],
+                        "org_id": source_item.org_id,
                     })
+                    relationships_created += 1 if linked else 0
 
                 # Create resolved relation edges
                 for rel in result.get("resolved_relations", []):
+                    if rel["relation"] not in ALLOWED_RELATION_TYPES:
+                        continue
                     rel_query = f"""
-                    MATCH (e:Entity {{id: $entity_id}})
-                    MATCH (t:Entity {{id: $target_id}})
+                    MATCH (e:Entity {{id: $entity_id, org_id: $org_id}})
+                    MATCH (t:Entity {{id: $target_id, org_id: $org_id}})
                     MERGE (e)-[:{rel["relation"]}]->(t)
+                    RETURN true AS linked
                     """
-                    await GraphClient.run_query(rel_query, {
+                    linked = await GraphClient.run_query(rel_query, {
                         "entity_id": entity_id,
-                        "target_id": rel["target_id"]
+                        "target_id": rel["target_id"],
+                        "org_id": source_item.org_id,
                     })
+                    relationships_created += 1 if linked else 0
 
+                result["entity_id"] = entity_id
                 created_ids.append(entity_id)
                 print(f"[Persist] Created {entity_type}: {fact['statement'][:50]}")
 
@@ -557,8 +623,41 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
             if not state.get("error"):
                 state["error"] = str(e)
 
+    # Connect facts extracted from the same document using conservative ontology
+    # rules. These edges are marked as inferred so the UI/reviewer can distinguish
+    # them from relationships explicitly stated by the model.
+    for rel in infer_intra_document_relationships(state["dedupe_results"]):
+        relation_type = rel["relation"]
+        if relation_type not in ALLOWED_RELATION_TYPES:
+            continue
+        relation_query = f"""
+        MATCH (source:Entity {{id: $source_id, org_id: $org_id}})
+        MATCH (target:Entity {{id: $target_id, org_id: $org_id}})
+        MERGE (source)-[r:{relation_type}]->(target)
+        ON CREATE SET
+            r.inferred = true,
+            r.inference_basis = 'same_document',
+            r.created_at = datetime()
+        RETURN true AS linked
+        """
+        try:
+            linked = await GraphClient.run_query(relation_query, {
+                "source_id": rel["source_id"],
+                "target_id": rel["target_id"],
+                "org_id": source_item.org_id,
+            })
+            relationships_created += 1 if linked else 0
+        except Exception as e:
+            print(f"[Persist] Relationship error: {e}")
+            if not state.get("error"):
+                state["error"] = str(e)
+
     state["final_entities"] = created_ids
-    print(f"[Extract] Pipeline complete: {len(created_ids)} entities created")
+    state["relationships_created"] = relationships_created
+    print(
+        f"[Extract] Pipeline complete: {len(created_ids)} entities and "
+        f"{relationships_created} relationships created"
+    )
     return state
 
 
@@ -606,6 +705,7 @@ async def extract_from_source(source_item: SourceItem) -> Dict[str, Any]:
         "extracted_facts": [],
         "dedupe_results": [],
         "final_entities": [],
+        "relationships_created": 0,
         "error": None
     }
 
@@ -617,6 +717,7 @@ async def extract_from_source(source_item: SourceItem) -> Dict[str, Any]:
             "entity_ids": final_state.get("final_entities", []),
             "facts_extracted": len(final_state.get("extracted_facts", [])),
             "entities_created": len(final_state.get("final_entities", [])),
+            "relationships_created": final_state.get("relationships_created", 0),
             "error": final_state.get("error")
         }
 
@@ -626,6 +727,7 @@ async def extract_from_source(source_item: SourceItem) -> Dict[str, Any]:
             "entity_ids": [],
             "facts_extracted": 0,
             "entities_created": 0,
+            "relationships_created": 0,
             "error": str(e)
         }
 

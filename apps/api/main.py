@@ -1212,7 +1212,7 @@ async def run_extraction(source_item, auto_confirm: bool = False) -> dict:
 
     return {
         "entities_created": result.get("entities_created", 0),
-        "relationships_created": 0,
+        "relationships_created": result.get("relationships_created", 0),
         "entity_ids": entity_ids,
     }
 
