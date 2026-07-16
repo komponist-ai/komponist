@@ -68,7 +68,7 @@ export default function QueuePage() {
     return acc
   }, {})
 
-  const typeOrder = ['Fact', 'Decision', 'Goal', 'Constraint', 'Instruction', 'Note', 'CustomerRequest', 'Project']
+  const typeOrder = ['Decision', 'Goal', 'Constraint', 'Project']
 
   return (
     <AppLayout>

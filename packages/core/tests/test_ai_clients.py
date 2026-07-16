@@ -13,6 +13,7 @@ from core.embeddings import (
     get_embedding_client,
 )
 from core.llm import MockLLMClient, OpenAIClient, get_llm_client
+from pipelines.contracts import CLASSIFICATION_SCHEMA, FACT_EXTRACTION_SCHEMA
 
 
 TEST_SCHEMA = {
@@ -98,6 +99,35 @@ class MockClientTests(unittest.IsolatedAsyncioTestCase):
         client = MockLLMClient()
         result = await client.call_json("Extract items", schema=TEST_SCHEMA)
         self.assertEqual(result, {"items": []})
+
+    async def test_mock_llm_extracts_explicit_mvp_markers(self):
+        prompt = """Title: Company context
+
+Body:
+Decision: Use Neo4j for the company brain.
+Goal: Ship the local-documents vertical slice.
+Note: This line must be ignored.
+Constraint: Every extracted entity requires human review.
+Project: Build Komponist MVP.
+
+Extract all relevant items:"""
+        client = MockLLMClient()
+
+        classification = await client.call_json(
+            prompt,
+            schema=CLASSIFICATION_SCHEMA,
+        )
+        extraction = await client.call_json(
+            prompt,
+            schema=FACT_EXTRACTION_SCHEMA,
+        )
+
+        self.assertTrue(classification["is_relevant"])
+        self.assertEqual(
+            [fact["type"] for fact in extraction["facts"]],
+            ["Decision", "Goal", "Constraint", "Project"],
+        )
+        self.assertTrue(all(fact["confidence"] == "high" for fact in extraction["facts"]))
 
     async def test_mock_embedding_is_deterministic_and_normalized(self):
         client = MockEmbeddingClient()

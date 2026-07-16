@@ -9,9 +9,10 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, RedirectResponse
+from pydantic import BaseModel
 
 import sys
 sys.path.append("../../packages")
@@ -68,8 +69,8 @@ org_settings: dict = {}
 def get_org_settings(org_id: str) -> dict:
     """Get settings for an org with defaults."""
     defaults = {
-        "auto_confirm": True,  # Auto-confirm extracted entities by default
-        "extraction_model": "gpt-4o",
+        "auto_confirm": False,
+        "extraction_model": os.getenv("KOMPONIST_LLM_MODEL", "gpt-5.6-terra"),
         "parallel_batch_size": 5,
     }
     settings = org_settings.get(org_id, {})
@@ -111,6 +112,19 @@ async def health_check():
 
 
 # Queue and entity management routes
+
+
+class ConfirmEntityRequest(BaseModel):
+    statement: Optional[str] = None
+
+
+class MergeEntityRequest(BaseModel):
+    target_id: str
+
+
+class OrgSettingsUpdate(BaseModel):
+    auto_confirm: Optional[bool] = None
+    parallel_batch_size: Optional[int] = None
 
 @app.get("/queue")
 async def get_queue(org_id: str = "default-org"):
@@ -231,12 +245,17 @@ async def get_entity_neighborhood(entity_id: str, org_id: str = "default-org"):
 
 
 @app.post("/entities/{entity_id}/confirm")
-async def confirm_entity(entity_id: str, org_id: str = "default-org", statement: Optional[str] = None):
+async def confirm_entity(
+    entity_id: str,
+    payload: Optional[ConfirmEntityRequest] = None,
+    org_id: str = "default-org",
+    statement: Optional[str] = None,
+):
     """Confirm a proposed entity."""
-    from datetime import datetime
+    edited_statement = payload.statement if payload else statement
 
     # Update statement if provided
-    if statement:
+    if edited_statement:
         query = """
         MATCH (e:Entity {id: $entity_id, org_id: $org_id})
         SET e.statement = $statement,
@@ -245,7 +264,11 @@ async def confirm_entity(entity_id: str, org_id: str = "default-org", statement:
             e.updated_at = datetime()
         RETURN e.id as id, e.status as status
         """
-        params = {"entity_id": entity_id, "org_id": org_id, "statement": statement}
+        params = {
+            "entity_id": entity_id,
+            "org_id": org_id,
+            "statement": edited_statement,
+        }
     else:
         query = """
         MATCH (e:Entity {id: $entity_id, org_id: $org_id})
@@ -283,8 +306,17 @@ async def reject_entity(entity_id: str, org_id: str = "default-org"):
 
 
 @app.post("/entities/{entity_id}/merge")
-async def merge_entity(entity_id: str, target_id: str, org_id: str = "default-org"):
+async def merge_entity(
+    entity_id: str,
+    payload: Optional[MergeEntityRequest] = None,
+    target_id: Optional[str] = None,
+    org_id: str = "default-org",
+):
     """Merge entity into another."""
+    resolved_target_id = payload.target_id if payload else target_id
+    if not resolved_target_id:
+        raise HTTPException(status_code=422, detail="target_id is required")
+
     # Attach the source entity's evidence to the target, then delete source
     query = """
     MATCH (source:Entity {id: $entity_id, org_id: $org_id})
@@ -300,14 +332,18 @@ async def merge_entity(entity_id: str, target_id: str, org_id: str = "default-or
 
     result = await GraphClient.run_query(query, {
         "entity_id": entity_id,
-        "target_id": target_id,
+        "target_id": resolved_target_id,
         "org_id": org_id
     })
 
     if not result:
         return {"error": "Entities not found"}, 404
 
-    return {"merged": entity_id, "into": target_id, "evidence_moved": result[0]["evidence_moved"]}
+    return {
+        "merged": entity_id,
+        "into": resolved_target_id,
+        "evidence_moved": result[0]["evidence_moved"],
+    }
 
 
 # Webhook handlers
@@ -778,89 +814,37 @@ async def sync_local_source(org_id: str, source: dict) -> dict:
 
     path = source.get("config", {}).get("path", "./docs")
     result = await backfill_local_docs(org_id=org_id, docs_path=path)
+    if result.get("status") == "error":
+        raise ValueError(result.get("error", "Local documents sync failed"))
     return result
 
 
-async def run_extraction(source_item, auto_confirm: bool = True) -> dict:
-    """Run the graph extraction pipeline on a source item."""
-    try:
-        # Use the new graph extraction
-        from pipelines.graph_extract import extract_and_persist
-        result = await extract_and_persist(source_item, source_item.org_id, auto_confirm=auto_confirm)
-        return {
-            "entities_created": result.get("entities_created", 0),
-            "relationships_created": result.get("relationships_created", 0)
-        }
-    except ImportError as e:
-        print(f"[Extraction] Graph pipeline not available: {e}")
-        # Fallback to simple extraction
-        return await run_simple_extraction(source_item, auto_confirm=auto_confirm)
-    except Exception as e:
-        print(f"[Extraction] Pipeline error: {e}")
-        import traceback
-        traceback.print_exc()
-        # Fallback to simple extraction
-        return await run_simple_extraction(source_item, auto_confirm=auto_confirm)
+async def run_extraction(source_item, auto_confirm: bool = False) -> dict:
+    """Run the narrow MVP extraction pipeline on a source item."""
+    from pipelines.extract import extract_from_source
 
+    result = await extract_from_source(source_item)
+    if not result.get("success"):
+        raise RuntimeError(result.get("error") or "Extraction pipeline failed")
 
-async def run_simple_extraction(source_item, auto_confirm: bool = True) -> dict:
-    """Simple extraction fallback when full pipeline isn't available."""
-    import uuid
+    entity_ids = result.get("entity_ids", [])
+    if auto_confirm and entity_ids:
+        await GraphClient.run_query(
+            """
+            MATCH (e:Entity {org_id: $org_id})
+            WHERE e.id IN $entity_ids AND e.status = 'proposed'
+            SET e.status = 'confirmed',
+                e.confirmed_at = datetime(),
+                e.updated_at = datetime()
+            """,
+            {"org_id": source_item.org_id, "entity_ids": entity_ids},
+        )
 
-    # Determine status based on auto_confirm setting
-    entity_status = "confirmed" if auto_confirm else "proposed"
-
-    # Create a basic fact entity from the page
-    entity_id = str(uuid.uuid4())
-
-    query = """
-    MERGE (e:Entity {id: $id})
-    SET e.org_id = $org_id,
-        e.entity_type = 'Fact',
-        e.statement = $statement,
-        e.detail = $detail,
-        e.status = $status,
-        e.confidence = 0.5,
-        e.created_at = datetime()
-    """
-
-    # Use title as statement, body as detail
-    statement = source_item.title or "Untitled"
-    detail = source_item.body[:1000] if source_item.body else ""
-
-    await GraphClient.run_query(query, {
-        "id": entity_id,
-        "org_id": source_item.org_id,
-        "statement": statement,
-        "detail": detail,
-        "status": entity_status
-    })
-
-    # Create evidence
-    evidence_id = str(uuid.uuid4())
-    evidence_query = """
-    CREATE (ev:Evidence {
-        id: $evidence_id,
-        source: $source,
-        reference: $reference,
-        url: $url,
-        excerpt: $excerpt
-    })
-    WITH ev
-    MATCH (e:Entity {id: $entity_id})
-    CREATE (e)-[:CITED_BY]->(ev)
-    """
-
-    await GraphClient.run_query(evidence_query, {
-        "evidence_id": evidence_id,
-        "entity_id": entity_id,
-        "source": source_item.source.value if hasattr(source_item.source, 'value') else str(source_item.source),
-        "reference": source_item.reference,
-        "url": source_item.url or "",
-        "excerpt": source_item.body[:500] if source_item.body else ""
-    })
-
-    return {"entities_created": 1}
+    return {
+        "entities_created": result.get("entities_created", 0),
+        "relationships_created": 0,
+        "entity_ids": entity_ids,
+    }
 
 
 # =============================================================================
@@ -882,6 +866,8 @@ async def local_docs_scan(
     """Trigger a scan of local documents."""
     from integrations.local_docs import backfill_local_docs
     result = await backfill_local_docs(org_id=org_id, docs_path=path)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("error"))
     return result
 
 
@@ -912,7 +898,7 @@ async def get_graph(
     {type_filter}
     RETURN
         e.id as id,
-        e.name as name,
+        coalesce(e.name, e.statement) as name,
         e.entity_type as type,
         e.detail as description,
         e.status as status,
@@ -1278,6 +1264,7 @@ async def get_settings(org_id: str = Query("default-org")):
 
 @app.put("/settings")
 async def update_settings(
+    payload: Optional[OrgSettingsUpdate] = None,
     org_id: str = Query("default-org"),
     auto_confirm: Optional[bool] = Query(None, description="Auto-confirm extracted entities"),
     parallel_batch_size: Optional[int] = Query(None, description="Parallel processing batch size")
@@ -1286,11 +1273,14 @@ async def update_settings(
     if org_id not in org_settings:
         org_settings[org_id] = {}
 
-    if auto_confirm is not None:
-        org_settings[org_id]["auto_confirm"] = auto_confirm
+    resolved_auto_confirm = payload.auto_confirm if payload else auto_confirm
+    resolved_batch_size = payload.parallel_batch_size if payload else parallel_batch_size
 
-    if parallel_batch_size is not None:
-        org_settings[org_id]["parallel_batch_size"] = max(1, min(10, parallel_batch_size))
+    if resolved_auto_confirm is not None:
+        org_settings[org_id]["auto_confirm"] = resolved_auto_confirm
+
+    if resolved_batch_size is not None:
+        org_settings[org_id]["parallel_batch_size"] = max(1, min(10, resolved_batch_size))
 
     return get_org_settings(org_id)
 

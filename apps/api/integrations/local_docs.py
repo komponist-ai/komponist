@@ -9,7 +9,7 @@ import os
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, AsyncIterator
+from typing import Any, Awaitable, Callable, Optional, List, AsyncIterator
 import asyncio
 
 import sys
@@ -254,7 +254,8 @@ async def scan_local_docs(
 
 async def backfill_local_docs(
     org_id: str,
-    docs_path: Optional[str] = None
+    docs_path: Optional[str] = None,
+    processor: Optional[Callable[[SourceItem], Awaitable[dict[str, Any]]]] = None,
 ) -> dict:
     """
     Backfill local documents into the extraction pipeline.
@@ -266,23 +267,59 @@ async def backfill_local_docs(
     Returns:
         Summary of backfill results
     """
-    count = 0
+    path = Path(docs_path or LOCAL_DOCS_PATH)
+    if not path.exists():
+        return {
+            "status": "error",
+            "error": f"Local documents directory not found: {path}",
+            "documents_scanned": 0,
+            "documents_processed": 0,
+            "items_processed": 0,
+            "facts_extracted": 0,
+            "entities_created": 0,
+            "errors": 1,
+        }
+
+    if processor is None:
+        from pipelines.extract import extract_from_source
+
+        processor = extract_from_source
+
+    scanned = 0
+    processed = 0
+    facts_extracted = 0
+    entities_created = 0
+    entity_ids: list[str] = []
     errors = 0
 
     async for source_item in scan_local_docs(org_id, docs_path):
+        scanned += 1
         try:
-            # TODO: Route to extraction pipeline
-            # For now, just count
-            count += 1
+            result = await processor(source_item)
+            if not result.get("success", True):
+                raise RuntimeError(result.get("error") or "Extraction failed")
+
+            processed += 1
+            facts_extracted += result.get("facts_extracted", 0)
+            entities_created += result.get("entities_created", 0)
+            entity_ids.extend(result.get("entity_ids", []))
         except Exception as e:
-            print(f"[LocalDocs] Error processing: {e}")
+            print(f"[LocalDocs] Error processing {source_item.reference}: {e}")
             errors += 1
 
-    print(f"[LocalDocs] Backfill complete: {count} documents, {errors} errors")
+    print(
+        "[LocalDocs] Backfill complete: "
+        f"{processed}/{scanned} documents, {entities_created} entities, {errors} errors"
+    )
 
     return {
-        "status": "complete",
-        "documents_processed": count,
+        "status": "complete" if errors == 0 else "partial",
+        "documents_scanned": scanned,
+        "documents_processed": processed,
+        "items_processed": processed,
+        "facts_extracted": facts_extracted,
+        "entities_created": entities_created,
+        "entity_ids": entity_ids,
         "errors": errors
     }
 

@@ -19,7 +19,7 @@ function OnboardContent() {
 
   // Form fields
   const [notionToken, setNotionToken] = useState('')
-  const [localDocsPath, setLocalDocsPath] = useState('./docs')
+  const [localDocsPath, setLocalDocsPath] = useState('/data/docs')
 
   // Org ID from localStorage or default
   const [orgId, setOrgId] = useState('default-org')
@@ -120,17 +120,30 @@ function OnboardContent() {
     setError(null)
 
     try {
-      const response = await fetch(
-        `${API_URL}/connectors/local-docs/scan?org_id=${orgId}&path=${encodeURIComponent(localDocsPath)}`,
+      const addResponse = await fetch(
+        `${API_URL}/sources?org_id=${orgId}&source_type=local&name=${encodeURIComponent('Local Documents')}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: localDocsPath }),
+        }
+      )
+      const source = await addResponse.json()
+      if (!addResponse.ok || !source.id) {
+        throw new Error(source.detail || source.error || 'Failed to register local documents')
+      }
+
+      const syncResponse = await fetch(
+        `${API_URL}/sources/${source.id}/sync?org_id=${orgId}`,
         { method: 'POST' }
       )
-      const data = await response.json()
+      const syncResult = await syncResponse.json()
 
-      if (response.ok) {
+      if (syncResponse.ok && syncResult.status !== 'error') {
         setStatus('connected')
         setTimeout(() => router.push('/sources'), 1000)
       } else {
-        throw new Error(data.detail || 'Failed to scan documents')
+        throw new Error(syncResult.detail || syncResult.error || 'Failed to scan documents')
       }
     } catch (err: any) {
       setError(err.message || 'Failed to scan local documents')
@@ -397,12 +410,12 @@ function OnboardContent() {
                   type="text"
                   value={localDocsPath}
                   onChange={(e) => setLocalDocsPath(e.target.value)}
-                  placeholder="./docs or /absolute/path"
+                  placeholder="/data/docs"
                   className="input font-mono"
                   disabled={status === 'connecting'}
                 />
                 <p className="text-caption text-faint mt-2">
-                  Relative to the API container, or an absolute path
+                  Docker mounts KOMPONIST_LOCAL_DOCS_HOST_PATH here by default
                 </p>
               </div>
 

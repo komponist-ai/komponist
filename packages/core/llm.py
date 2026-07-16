@@ -429,6 +429,48 @@ class OpenAIClient(BaseLLMClient):
                     raise
 
 
+_MOCK_MVP_MARKER = re.compile(
+    r"(?im)^\s*(?:(?:[-+*]|\d+[.)]|#{1,6})\s+)?"
+    r"(?:\*\*)?(Decision|Goal|Constraint|Project)\s*:(?:\*\*)?\s*(.+?)\s*$"
+)
+
+
+def _mock_prompt_body(prompt: str) -> str:
+    """Return the source body embedded in an extraction/classification prompt."""
+    body = prompt.split("\nBody:\n", 1)[-1]
+    for suffix in (
+        "\n\nExtract all relevant items:",
+        "\n\nDoes this contain extractable information?",
+    ):
+        body = body.split(suffix, 1)[0]
+    return body
+
+
+def _mock_marked_facts(prompt: str) -> List[Dict[str, Any]]:
+    """Extract explicit MVP markers for deterministic no-model development."""
+    facts: List[Dict[str, Any]] = []
+    seen = set()
+
+    for match in _MOCK_MVP_MARKER.finditer(_mock_prompt_body(prompt)):
+        entity_type = match.group(1)
+        statement = match.group(2).strip()
+        key = (entity_type, statement.casefold())
+        if not statement or key in seen:
+            continue
+
+        seen.add(key)
+        facts.append({
+            "type": entity_type,
+            "statement": statement,
+            "detail": f"Extracted from an explicit {entity_type.lower()} marker.",
+            "excerpt": match.group(0).strip(),
+            "confidence": "high",
+            "relations_hint": [],
+        })
+
+    return facts
+
+
 class MockLLMClient(BaseLLMClient):
     """No-network LLM test double for development before API access exists."""
 
@@ -447,10 +489,22 @@ class MockLLMClient(BaseLLMClient):
         schema: Optional[Dict[str, Any]] = None,
         max_retries: int = 3,
     ) -> Dict[str, Any]:
-        del prompt, system, max_tokens, temperature, max_retries
+        del system, max_tokens, temperature, max_retries
 
         if self.responses:
             value = self.responses.pop(0)
+        elif schema and schema.get("title") == "source_classification":
+            facts = _mock_marked_facts(prompt)
+            value = {
+                "is_relevant": bool(facts),
+                "reasoning": (
+                    "Contains explicit MVP entity markers."
+                    if facts
+                    else "No explicit MVP entity markers found."
+                ),
+            }
+        elif schema and schema.get("title") == "komponist_fact_extraction":
+            value = {"facts": _mock_marked_facts(prompt)}
         elif schema:
             value = _schema_example(schema)
         elif json_mode:

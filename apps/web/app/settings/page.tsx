@@ -12,7 +12,7 @@ interface OrgSettings {
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<OrgSettings>({
-    auto_confirm: true,
+    auto_confirm: false,
     parallel_batch_size: 5
   })
   const [loading, setLoading] = useState(true)
@@ -185,11 +185,11 @@ export default function SettingsPage() {
         <div className="card mt-8 bg-paper-2">
           <h3 className="text-h3 mb-2">About Review Mode</h3>
           <p className="text-small text-muted mb-3">
-            When auto-accept is <strong>enabled</strong> (default), extracted entities are immediately
+            When auto-accept is <strong>enabled</strong>, extracted entities are immediately
             added to your knowledge graph. This is faster but means you trust the AI extraction.
           </p>
           <p className="text-small text-muted">
-            When auto-accept is <strong>disabled</strong>, all new entities go to the Review Queue
+            When auto-accept is <strong>disabled</strong> (default), all new entities go to the Review Queue
             where you can confirm, edit, or reject them before they become part of your brain.
           </p>
         </div>
