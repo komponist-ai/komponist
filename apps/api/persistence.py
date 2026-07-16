@@ -13,11 +13,220 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import delete, select
 
 from database import (
+    ChatConversation,
+    ChatMessageRecord,
     ConnectedSource,
     OrganizationApiKey,
     OrgSetting,
     async_session,
 )
+
+
+def _chat_message_dict(row: ChatMessageRecord) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "role": row.role,
+        "content": row.content,
+        "sources": row.sources or [],
+        "created_at": f"{row.created_at.isoformat()}Z",
+    }
+
+
+def _chat_conversation_dict(
+    row: ChatConversation,
+    messages: Optional[list[ChatMessageRecord]] = None,
+) -> dict[str, Any]:
+    messages = messages or []
+    last_message = messages[-1].content if messages else ""
+    preview = " ".join(last_message.split())
+    return {
+        "id": row.id,
+        "title": row.title,
+        "created_at": f"{row.created_at.isoformat()}Z",
+        "updated_at": f"{row.updated_at.isoformat()}Z",
+        "message_count": len(messages),
+        "preview": preview[:140],
+    }
+
+
+async def list_chat_conversations(
+    org_id: str, user_id: str
+) -> list[dict[str, Any]]:
+    """List a user's conversations, most recently active first."""
+    async with async_session() as session:
+        conversations = (
+            await session.execute(
+                select(ChatConversation)
+                .where(
+                    ChatConversation.org_id == org_id,
+                    ChatConversation.user_id == user_id,
+                )
+                .order_by(ChatConversation.updated_at.desc())
+            )
+        ).scalars().all()
+        if not conversations:
+            return []
+
+        conversation_ids = [row.id for row in conversations]
+        messages = (
+            await session.execute(
+                select(ChatMessageRecord)
+                .where(ChatMessageRecord.conversation_id.in_(conversation_ids))
+                .order_by(ChatMessageRecord.created_at.asc())
+            )
+        ).scalars().all()
+        grouped: dict[str, list[ChatMessageRecord]] = {
+            conversation_id: [] for conversation_id in conversation_ids
+        }
+        for message in messages:
+            grouped[message.conversation_id].append(message)
+        return [
+            _chat_conversation_dict(row, grouped[row.id]) for row in conversations
+        ]
+
+
+async def get_chat_conversation(
+    org_id: str, user_id: str, conversation_id: str
+) -> Optional[dict[str, Any]]:
+    """Load one scoped conversation with every persisted message."""
+    async with async_session() as session:
+        conversation = (
+            await session.execute(
+                select(ChatConversation).where(
+                    ChatConversation.id == conversation_id,
+                    ChatConversation.org_id == org_id,
+                    ChatConversation.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if conversation is None:
+            return None
+        messages = (
+            await session.execute(
+                select(ChatMessageRecord)
+                .where(
+                    ChatMessageRecord.conversation_id == conversation_id,
+                    ChatMessageRecord.org_id == org_id,
+                )
+                .order_by(ChatMessageRecord.created_at.asc())
+            )
+        ).scalars().all()
+        return {
+            "conversation": _chat_conversation_dict(conversation, messages),
+            "messages": [_chat_message_dict(message) for message in messages],
+        }
+
+
+async def create_chat_conversation(
+    org_id: str, user_id: str, title: str
+) -> dict[str, Any]:
+    now = datetime.utcnow()
+    conversation = ChatConversation(
+        id=str(uuid4()),
+        org_id=org_id,
+        user_id=user_id,
+        title=title,
+        created_at=now,
+        updated_at=now,
+    )
+    async with async_session() as session:
+        session.add(conversation)
+        await session.commit()
+        return _chat_conversation_dict(conversation)
+
+
+async def rename_chat_conversation(
+    org_id: str, user_id: str, conversation_id: str, title: str
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        conversation = (
+            await session.execute(
+                select(ChatConversation).where(
+                    ChatConversation.id == conversation_id,
+                    ChatConversation.org_id == org_id,
+                    ChatConversation.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if conversation is None:
+            return None
+        conversation.title = title
+        conversation.updated_at = datetime.utcnow()
+        await session.commit()
+        messages = (
+            await session.execute(
+                select(ChatMessageRecord)
+                .where(
+                    ChatMessageRecord.conversation_id == conversation_id,
+                    ChatMessageRecord.org_id == org_id,
+                )
+                .order_by(ChatMessageRecord.created_at.asc())
+            )
+        ).scalars().all()
+        return _chat_conversation_dict(conversation, messages)
+
+
+async def delete_chat_conversation(
+    org_id: str, user_id: str, conversation_id: str
+) -> bool:
+    async with async_session() as session:
+        conversation = (
+            await session.execute(
+                select(ChatConversation).where(
+                    ChatConversation.id == conversation_id,
+                    ChatConversation.org_id == org_id,
+                    ChatConversation.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if conversation is None:
+            return False
+        await session.execute(
+            delete(ChatMessageRecord).where(
+                ChatMessageRecord.conversation_id == conversation_id,
+                ChatMessageRecord.org_id == org_id,
+            )
+        )
+        await session.delete(conversation)
+        await session.commit()
+        return True
+
+
+async def append_chat_message(
+    org_id: str,
+    user_id: str,
+    conversation_id: str,
+    role: str,
+    content: str,
+    sources: Optional[list[dict[str, Any]]] = None,
+) -> Optional[dict[str, Any]]:
+    """Append a turn only when the conversation belongs to this user and org."""
+    async with async_session() as session:
+        conversation = (
+            await session.execute(
+                select(ChatConversation).where(
+                    ChatConversation.id == conversation_id,
+                    ChatConversation.org_id == org_id,
+                    ChatConversation.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if conversation is None:
+            return None
+        now = datetime.utcnow()
+        message = ChatMessageRecord(
+            id=str(uuid4()),
+            conversation_id=conversation_id,
+            org_id=org_id,
+            role=role,
+            content=content,
+            sources=sources or None,
+            created_at=now,
+        )
+        conversation.updated_at = now
+        session.add(message)
+        await session.commit()
+        return _chat_message_dict(message)
 
 
 def _cipher() -> Fernet:

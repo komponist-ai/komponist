@@ -28,16 +28,22 @@ from core.export import export_brain_yaml
 from core.import_ import import_brain_yaml, parse_export_yaml
 from database import init_db, health_check_db
 from persistence import (
+    append_chat_message,
     authenticate_api_key,
     create_api_key,
+    create_chat_conversation,
     create_connected_source,
+    delete_chat_conversation,
     delete_connected_source,
+    get_chat_conversation,
     get_connected_source,
+    list_chat_conversations,
     list_connected_sources,
     list_api_keys,
     load_org_settings,
     save_org_settings,
     revoke_api_key,
+    rename_chat_conversation,
     update_connected_source,
     upsert_single_source_type,
 )
@@ -1953,6 +1959,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     org_id: str = "default-org"
+    conversation_id: Optional[str] = None
     conversation_history: List[ChatMessage] = Field(default_factory=list)
     stream: bool = True
 
@@ -1961,6 +1968,10 @@ class ChatResponse(BaseModel):
     response: str
     sources: List[Dict[str, Any]]
     conversation_id: Optional[str] = None
+
+
+class ChatConversationUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
 
 
 _CHAT_STOP_WORDS = {
@@ -2667,12 +2678,70 @@ def _chat_suggestion_from_entity(row: dict) -> dict:
     }
 
 
+def _chat_title(message: str) -> str:
+    """Derive a readable deterministic title without another model call."""
+    title = " ".join(message.split()).strip()
+    if len(title) <= 72:
+        return title
+    return f"{title[:69].rstrip()}…"
+
+
+@app.get("/chat/conversations")
+async def get_chat_conversations(
+    request: Request, org_id: str = Query(...)
+):
+    user = await _authorized_org_user(request, org_id)
+    return {"conversations": await list_chat_conversations(org_id, user["id"])}
+
+
+@app.get("/chat/conversations/{conversation_id}")
+async def get_chat_conversation_history(
+    conversation_id: str, request: Request, org_id: str = Query(...)
+):
+    user = await _authorized_org_user(request, org_id)
+    conversation = await get_chat_conversation(org_id, user["id"], conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
+@app.patch("/chat/conversations/{conversation_id}")
+async def update_chat_conversation(
+    conversation_id: str,
+    payload: ChatConversationUpdate,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user = await _authorized_org_user(request, org_id)
+    title = " ".join(payload.title.split()).strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Conversation title is required")
+    conversation = await rename_chat_conversation(
+        org_id, user["id"], conversation_id, title
+    )
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
+@app.delete("/chat/conversations/{conversation_id}", status_code=204)
+async def remove_chat_conversation(
+    conversation_id: str, request: Request, org_id: str = Query(...)
+):
+    user = await _authorized_org_user(request, org_id)
+    if not await delete_chat_conversation(org_id, user["id"], conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return Response(status_code=204)
+
+
 @app.get("/chat/suggestions")
 async def get_chat_suggestions(
+    request: Request,
     org_id: str = Query("default-org"),
     limit: int = Query(4, ge=1, le=8),
 ):
     """Build starter questions from confirmed, cited organization knowledge."""
+    await _authorized_org_user(request, org_id)
     rows = await GraphClient.run_query(
         """
         MATCH (entity:Entity {org_id: $org_id, status: 'confirmed'})
@@ -2721,29 +2790,61 @@ async def get_chat_suggestions(
 
 
 @app.post("/chat")
-async def chat_with_brain(request: ChatRequest):
+async def chat_with_brain(payload: ChatRequest, http_request: Request):
     """
     Chat interface for querying the knowledge graph.
     Uses RAG: embed query → hybrid search → LLM synthesis.
     """
-    from fastapi import HTTPException
-
     try:
+        user = await _authorized_org_user(http_request, payload.org_id)
+        stored_history: List[ChatMessage] = []
+        if payload.conversation_id:
+            stored = await get_chat_conversation(
+                payload.org_id, user["id"], payload.conversation_id
+            )
+            if stored is None:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            conversation = stored["conversation"]
+            stored_history = [
+                ChatMessage(
+                    role=message["role"],
+                    content=message["content"],
+                    sources=message.get("sources"),
+                )
+                for message in stored["messages"]
+            ]
+        else:
+            conversation = await create_chat_conversation(
+                payload.org_id, user["id"], _chat_title(payload.message)
+            )
+
+        conversation_id = conversation["id"]
+        conversation_history = stored_history or payload.conversation_history
+        persisted_user_message = await append_chat_message(
+            payload.org_id,
+            user["id"],
+            conversation_id,
+            "user",
+            payload.message,
+        )
+        if persisted_user_message is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
         mock_mode = os.getenv("KOMPONIST_AI_MODE", "live").lower() == "mock"
         llm = None if mock_mode else get_llm()
         if mock_mode:
-            plan = _fallback_chat_plan(request.message)
+            plan = _fallback_chat_plan(payload.message)
         else:
             try:
                 plan = await _plan_chat_query(
-                    llm, request.message, request.conversation_history
+                    llm, payload.message, conversation_history
                 )
             except Exception as planner_error:
                 print(f"Chat query planning failed: {planner_error}")
-                plan = _fallback_chat_plan(request.message, broad=True)
+                plan = _fallback_chat_plan(payload.message, broad=True)
 
         operation = plan["operation"]
-        retrieval_query = plan.get("query") or request.message
+        retrieval_query = plan.get("query") or payload.message
         entity_types = plan.get("entity_types") or []
 
         # 1. Try to embed user query for semantic search
@@ -2759,10 +2860,10 @@ async def chat_with_brain(request: ChatRequest):
         if operation in {"list", "overview", "count"}:
             if operation in {"count", "overview"}:
                 count_rows = await _count_chat_entities(
-                    request.org_id, entity_types, plan.get("group_by", "none")
+                    payload.org_id, entity_types, plan.get("group_by", "none")
                 )
             search_results = await _browse_chat_entities(
-                request.org_id,
+                payload.org_id,
                 entity_types,
                 limit=100 if operation in {"overview", "count"} else plan["limit"],
                 sort=plan.get("sort", "newest"),
@@ -2773,7 +2874,7 @@ async def chat_with_brain(request: ChatRequest):
         if not mock_mode and operation == "search":
             try:
                 search_results = await BrainQueries.hybrid_search(
-                    org_id=request.org_id,
+                    org_id=payload.org_id,
                     query_text=retrieval_query,
                     query_embedding=query_embedding,
                     # A model-inferred type is a ranking hint, not an irreversible
@@ -2792,10 +2893,10 @@ async def chat_with_brain(request: ChatRequest):
                 # Query expansion keeps named entities from the original wording
                 # while the standalone rewrite resolves pronouns in follow-ups.
                 for literal_query in dict.fromkeys([
-                    retrieval_query, request.message
+                    retrieval_query, payload.message
                 ]):
                     for result in await _literal_chat_search(
-                        request.org_id,
+                        payload.org_id,
                         literal_query,
                         k=min(plan["limit"], 20),
                         entity_types=None,
@@ -2818,7 +2919,7 @@ async def chat_with_brain(request: ChatRequest):
             if plan.get("expand_graph"):
                 try:
                     neighbors = await _expand_chat_graph_context(
-                        request.org_id, search_results, limit=8
+                        payload.org_id, search_results, limit=8
                     )
                     expanded = {result["id"]: result for result in search_results}
                     for neighbor in neighbors:
@@ -2827,16 +2928,16 @@ async def chat_with_brain(request: ChatRequest):
                 except Exception as expansion_error:
                     print(f"Graph context expansion failed: {expansion_error}")
 
-        await _attach_chat_evidence(request.org_id, search_results)
+        await _attach_chat_evidence(payload.org_id, search_results)
 
         # 3. Build context from results
         context, sources = _chat_context_and_sources(search_results)
 
         # 4. Build conversation context
         conversation_context = ""
-        if request.conversation_history:
+        if conversation_history:
             history_parts = []
-            for msg in request.conversation_history[-3:]:  # Last 3 turns
+            for msg in conversation_history[-6:]:  # Last 3 user/assistant turns
                 history_parts.append(f"{msg.role}: {msg.content}")
             conversation_context = "\n".join(history_parts) + "\n\n"
 
@@ -2868,13 +2969,13 @@ Exact confirmed counts (empty unless relevant):
 Context from knowledge graph:
 {context}"""
 
-        user_prompt = f"{conversation_context}User question: {request.message}"
+        user_prompt = f"{conversation_context}User question: {payload.message}"
 
         if operation == "count":
             answer = _aggregate_count_answer(plan, count_rows, sources)
         else:
             answer = _mock_chat_answer(
-                request.message, search_results, sources
+                payload.message, search_results, sources
             ) if mock_mode else None
         formatted_system_prompt = system_prompt.format(
             operation=operation,
@@ -2883,15 +2984,19 @@ Context from knowledge graph:
             context=context,
         )
 
-        if request.stream:
+        if payload.stream:
             # Streaming response
             async def generate_stream():
                 try:
+                    yield {
+                        "event": "conversation",
+                        "data": json.dumps({
+                            "conversation_id": conversation_id,
+                            "title": conversation["title"],
+                        }),
+                    }
                     if answer is not None:
-                        yield {
-                            "event": "message",
-                            "data": json.dumps({"content": answer})
-                        }
+                        generated_answer = answer
                     else:
                         generated_answer = await _generate_grounded_chat_answer(
                             llm,
@@ -2899,10 +3004,20 @@ Context from knowledge graph:
                             formatted_system_prompt,
                             sources,
                         )
-                        yield {
-                            "event": "message",
-                            "data": json.dumps({"content": generated_answer})
-                        }
+                    persisted_assistant_message = await append_chat_message(
+                        payload.org_id,
+                        user["id"],
+                        conversation_id,
+                        "assistant",
+                        generated_answer,
+                        sources,
+                    )
+                    if persisted_assistant_message is None:
+                        raise RuntimeError("Conversation was removed while answering")
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({"content": generated_answer})
+                    }
                     # Send sources at the end
                     yield {
                         "event": "sources",
@@ -2926,15 +3041,29 @@ Context from knowledge graph:
                     sources,
                 )
 
+            persisted_assistant_message = await append_chat_message(
+                payload.org_id,
+                user["id"],
+                conversation_id,
+                "assistant",
+                answer,
+                sources,
+            )
+            if persisted_assistant_message is None:
+                raise HTTPException(
+                    status_code=404, detail="Conversation was removed while answering"
+                )
+
             return ChatResponse(
                 response=answer,
                 sources=sources,
-                conversation_id=None  # Can add conversation persistence later
+                conversation_id=conversation_id,
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # =============================================================================

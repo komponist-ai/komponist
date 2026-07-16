@@ -1,16 +1,17 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   ArrowUpRight, CircleDot, FileKey2, FlaskConical, MessageSquareText,
-  LoaderCircle, Plus, ShieldCheck, Sparkles,
+  History, LoaderCircle, Plus, ShieldCheck, Sparkles,
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
 import StudioTopbar from '../../components/StudioTopbar'
 import ChatMessage from '../../components/ChatMessage'
 import ChatInput from '../../components/ChatInput'
+import ChatHistory, { type ChatConversation } from '../../components/ChatHistory'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
@@ -42,6 +43,10 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<SuggestedQuestion[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const [conversations, setConversations] = useState<ChatConversation[]>([])
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -54,6 +59,25 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [isLoading, latestMessageContent, messages.length])
+
+  const loadConversations = useCallback(async (showLoader = false) => {
+    if (showLoader) setHistoryLoading(true)
+    try {
+      const orgId = getActiveOrgId()
+      const response = await apiFetch(`${API_URL}/chat/conversations?org_id=${encodeURIComponent(orgId)}`)
+      if (!response.ok) throw new Error('Could not load chat history')
+      const payload = await response.json()
+      setConversations(payload.conversations || [])
+    } catch (loadError: any) {
+      setError(loadError.message || 'Could not load chat history')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadConversations(true)
+  }, [loadConversations])
 
   useEffect(() => {
     let cancelled = false
@@ -75,6 +99,54 @@ export default function ChatPage() {
     return () => { cancelled = true }
   }, [])
 
+  const handleNewConversation = () => {
+    if (isLoading) return
+    setActiveConversationId(null)
+    setMessages([])
+    setError(null)
+  }
+
+  const handleSelectConversation = async (conversationId: string) => {
+    if (isLoading || conversationId === activeConversationId) return
+    setError(null)
+    try {
+      const orgId = getActiveOrgId()
+      const response = await apiFetch(`${API_URL}/chat/conversations/${conversationId}?org_id=${encodeURIComponent(orgId)}`)
+      if (!response.ok) throw new Error('Could not open this conversation')
+      const payload = await response.json()
+      setActiveConversationId(conversationId)
+      setMessages((payload.messages || []).map((message: Message) => ({
+        role: message.role,
+        content: message.content,
+        sources: message.sources || [],
+      })))
+    } catch (openError: any) {
+      setError(openError.message || 'Could not open this conversation')
+    }
+  }
+
+  const handleRenameConversation = async (conversationId: string, title: string) => {
+    const orgId = getActiveOrgId()
+    const response = await apiFetch(`${API_URL}/chat/conversations/${conversationId}?org_id=${encodeURIComponent(orgId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+    if (!response.ok) throw new Error('Could not rename this conversation')
+    const updated = await response.json()
+    setConversations((previous) => previous.map((item) => item.id === conversationId ? { ...item, ...updated } : item))
+  }
+
+  const handleDeleteConversation = async (conversationId: string) => {
+    const orgId = getActiveOrgId()
+    const response = await apiFetch(`${API_URL}/chat/conversations/${conversationId}?org_id=${encodeURIComponent(orgId)}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) throw new Error('Could not delete this conversation')
+    setConversations((previous) => previous.filter((item) => item.id !== conversationId))
+    if (conversationId === activeConversationId) handleNewConversation()
+  }
+
   const handleSendMessage = async (messageText: string) => {
     const orgId = getActiveOrgId()
 
@@ -88,7 +160,7 @@ export default function ChatPage() {
     ])
     setIsLoading(true)
     setError(null)
-    let assistantAdded = true
+    const assistantAdded = true
 
     try {
       // Call chat API with streaming
@@ -98,12 +170,15 @@ export default function ChatPage() {
         body: JSON.stringify({
           message: messageText,
           org_id: orgId,
-          conversation_history: messages,
+          conversation_id: activeConversationId,
           stream: true
         })
       })
 
-      if (!response.ok) throw new Error('Failed to get response')
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null)
+        throw new Error(failure?.detail || 'Failed to get response')
+      }
 
       // Handle streaming response
       const reader = response.body?.getReader()
@@ -124,6 +199,22 @@ export default function ChatPage() {
 
         const data = JSON.parse(payload)
         if (data.error) throw new Error(data.error)
+        if (data.conversation_id) {
+          const now = new Date().toISOString()
+          setActiveConversationId(data.conversation_id)
+          setConversations((previous) => {
+            const existing = previous.find((item) => item.id === data.conversation_id)
+            const optimistic: ChatConversation = {
+              id: data.conversation_id,
+              title: data.title || messageText,
+              preview: messageText,
+              message_count: existing?.message_count || 1,
+              created_at: existing?.created_at || now,
+              updated_at: now,
+            }
+            return [optimistic, ...previous.filter((item) => item.id !== data.conversation_id)]
+          })
+        }
         if (data.content) assistantMessage += data.content
         if (data.sources) sources = data.sources
 
@@ -170,6 +261,7 @@ export default function ChatPage() {
       }
     } finally {
       setIsLoading(false)
+      void loadConversations()
     }
   }
 
@@ -187,8 +279,11 @@ export default function ChatPage() {
               {isLoading ? <LoaderCircle className="size-3 animate-spin" /> : <span className="size-1.5 rounded-full bg-teal" />}
               {isLoading ? 'Thinking' : 'Confirmed only'}
             </Badge>
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setHistoryOpen(true)} aria-label="Open chat history">
+              <History />
+            </Button>
             {messages.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => setMessages([])} disabled={isLoading}>
+              <Button variant="outline" size="sm" onClick={handleNewConversation} disabled={isLoading}>
                 <Plus /> New thread
               </Button>
             )}
@@ -196,7 +291,20 @@ export default function ChatPage() {
           }
         />
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1">
+          <ChatHistory
+            conversations={conversations}
+            activeId={activeConversationId}
+            loading={historyLoading}
+            disabled={isLoading}
+            mobileOpen={historyOpen}
+            onMobileClose={() => setHistoryOpen(false)}
+            onNew={handleNewConversation}
+            onSelect={(conversationId) => { void handleSelectConversation(conversationId) }}
+            onRename={handleRenameConversation}
+            onDelete={handleDeleteConversation}
+          />
+          <div className="flex min-w-0 flex-1 flex-col">
           {error && (
             <div className="mx-auto mt-4 flex w-[calc(100%-2rem)] max-w-[880px] items-center gap-3 rounded-lg border-2 border-danger bg-danger-soft px-4 py-3 text-sm text-danger" role="alert">
               <CircleDot className="size-5 shrink-0" />
@@ -290,6 +398,7 @@ export default function ChatPage() {
             disabled={isLoading}
             placeholder={isLoading ? 'Komponist is thinking…' : 'Ask a question about your company knowledge…'}
           />
+          </div>
         </div>
       </div>
     </AppLayout>

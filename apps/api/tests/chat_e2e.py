@@ -7,11 +7,60 @@ Run inside the API container while the stack is healthy:
 import asyncio
 
 import httpx
+from sqlalchemy import delete, select
 
 from core.graph import GraphClient
+from database import (
+    AuthSession, AuthSessionContext, ChatConversation, ChatMessageRecord, Org,
+    OrganizationMembership, PasswordCredential, User, async_session,
+)
 
 
 ORG_ID = "e2e-chat"
+EMAIL = "grounded-chat-e2e@example.com"
+PASSWORD = "correct horse battery staple"
+
+
+async def cleanup_user() -> None:
+    async with async_session() as session:
+        user = (
+            await session.execute(select(User).where(User.email == EMAIL))
+        ).scalar_one_or_none()
+        if user is None:
+            return
+        conversation_ids = (
+            await session.execute(
+                select(ChatConversation.id).where(ChatConversation.user_id == user.id)
+            )
+        ).scalars().all()
+        if conversation_ids:
+            await session.execute(
+                delete(ChatMessageRecord).where(
+                    ChatMessageRecord.conversation_id.in_(conversation_ids)
+                )
+            )
+        await session.execute(
+            delete(ChatConversation).where(ChatConversation.user_id == user.id)
+        )
+        session_ids = (
+            await session.execute(
+                select(AuthSession.id).where(AuthSession.user_id == user.id)
+            )
+        ).scalars().all()
+        if session_ids:
+            await session.execute(
+                delete(AuthSessionContext).where(
+                    AuthSessionContext.session_id.in_(session_ids)
+                )
+            )
+        await session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+        await session.execute(delete(PasswordCredential).where(PasswordCredential.user_id == user.id))
+        await session.execute(delete(OrganizationMembership).where(OrganizationMembership.user_id == user.id))
+        org = await session.get(Org, user.org_id)
+        await session.delete(user)
+        if org is not None:
+            await session.delete(org)
+        await session.commit()
 
 
 async def seed() -> None:
@@ -95,14 +144,23 @@ async def seed() -> None:
 
 
 async def run() -> None:
+    global ORG_ID
     GraphClient.initialize()
-    await seed()
+    await cleanup_user()
 
     try:
         async with httpx.AsyncClient(
             base_url="http://localhost:8000",
             timeout=httpx.Timeout(120.0),
         ) as client:
+            registration = await client.post(
+                "/auth/register",
+                json={"name": "Grounded Chat", "email": EMAIL, "password": PASSWORD},
+            )
+            assert registration.status_code == 201, registration.text
+            ORG_ID = registration.json()["user"]["org_id"]
+            await seed()
+
             response = await client.post(
                 "/chat",
                 json={
@@ -272,6 +330,7 @@ async def run() -> None:
             "MATCH (n) WHERE n.org_id IN [$org_id, $other_org] DETACH DELETE n",
             {"org_id": ORG_ID, "other_org": f"{ORG_ID}-other"},
         )
+        await cleanup_user()
         await GraphClient.close()
 
 
