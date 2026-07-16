@@ -338,8 +338,8 @@ h3 {
   width: 100%;
   min-height: 40px;
   padding: var(--space-2) var(--space-3);
-  background: var(--color-surface);
-  border: 1px solid var(--color-line-strong);
+  background: var(--color-white);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   font-size: var(--text-body);
   color: var(--color-ink);
@@ -347,11 +347,11 @@ h3 {
 }
 
 .input::placeholder {
-  color: var(--color-ink-muted);
+  color: var(--color-faint);
 }
 
 .input:hover {
-  border-color: var(--color-ink-secondary);
+  border-color: var(--color-ink-2);
 }
 
 .input:focus {
@@ -618,4 +618,3 @@ h3 {
   margin-top: var(--space-16);
   align-items: center;
 }
-

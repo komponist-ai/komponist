@@ -444,6 +444,77 @@ class OrganizationInvitationRequest(BaseModel):
 class AcceptInvitationRequest(BaseModel):
     token: str = Field(min_length=20, max_length=200)
 
+
+class EmailRegistrationRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=12, max_length=128)
+
+
+class EmailLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+
+def _set_session_cookie(response: Response, raw_token: str) -> None:
+    import auth
+
+    response.set_cookie(
+        key=auth.SESSION_COOKIE,
+        value=raw_token,
+        max_age=auth.SESSION_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=os.getenv("KOMPONIST_COOKIE_SECURE", "false").lower() == "true",
+        samesite="lax",
+        path="/",
+    )
+
+
+def _check_auth_rate_limit(request: Request) -> None:
+    client_host = request.client.host if request.client else "unknown"
+    if not check_rate_limit(f"user-auth:{client_host}", limit=10):
+        raise HTTPException(status_code=429, detail="Too many authentication attempts")
+
+
+@app.post("/auth/register", status_code=201)
+async def register_with_email(
+    payload: EmailRegistrationRequest,
+    request: Request,
+    response: Response,
+):
+    """Create an email/password user and issue the standard session cookie."""
+    import auth
+
+    _check_auth_rate_limit(request)
+    try:
+        user = await auth.register_password_user(
+            payload.name, payload.email, payload.password
+        )
+    except ValueError as error:
+        status = 409 if "already exists" in str(error) else 400
+        raise HTTPException(status_code=status, detail=str(error)) from error
+    raw_token, _ = await auth.create_session(user.id)
+    _set_session_cookie(response, raw_token)
+    return {"user": await auth.authenticated_user(raw_token)}
+
+
+@app.post("/auth/login/email")
+async def login_with_email(
+    payload: EmailLoginRequest,
+    request: Request,
+    response: Response,
+):
+    """Authenticate a first-party password without revealing which field failed."""
+    import auth
+
+    _check_auth_rate_limit(request)
+    user = await auth.authenticate_password_user(payload.email, payload.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    raw_token, _ = await auth.create_session(user.id)
+    _set_session_cookie(response, raw_token)
+    return {"user": await auth.authenticated_user(raw_token)}
+
 @app.get("/auth/login/google")
 async def google_login_start(return_to: str = "/"):
     """Start Google OIDC login for a Komponist user."""
@@ -487,15 +558,7 @@ async def google_login_callback(request: Request, code: str, state: str):
         raise HTTPException(status_code=400, detail="Google login failed") from error
 
     response = RedirectResponse(f"{FRONTEND_URL}{return_to}")
-    response.set_cookie(
-        key=auth.SESSION_COOKIE,
-        value=raw_token,
-        max_age=auth.SESSION_DAYS * 24 * 60 * 60,
-        httponly=True,
-        secure=os.getenv("KOMPONIST_COOKIE_SECURE", "false").lower() == "true",
-        samesite="lax",
-        path="/",
-    )
+    _set_session_cookie(response, raw_token)
     response.delete_cookie(
         auth.LOGIN_STATE_COOKIE,
         path="/auth/login/google/callback",

@@ -27,6 +27,8 @@ interface AuthContextValue {
   loading: boolean
   refresh: () => Promise<void>
   login: () => void
+  loginWithEmail: (email: string, password: string) => Promise<void>
+  registerWithEmail: (name: string, email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   switchOrganization: (orgId: string) => Promise<void>
 }
@@ -87,6 +89,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = `${API_URL}/auth/login/google?return_to=${encodeURIComponent(returnTo)}`
   }, [])
 
+  const authenticateWithEmail = useCallback(async (
+    path: '/auth/login/email' | '/auth/register',
+    body: Record<string, string>,
+  ) => {
+    const response = await fetch(`${API_URL}${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const payload = await response.json()
+    if (!response.ok) throw new Error(payload.detail || 'Authentication failed')
+    await refresh()
+  }, [refresh])
+
+  const loginWithEmail = useCallback(
+    (email: string, password: string) => authenticateWithEmail(
+      '/auth/login/email', { email, password },
+    ),
+    [authenticateWithEmail],
+  )
+
+  const registerWithEmail = useCallback(
+    (name: string, email: string, password: string) => authenticateWithEmail(
+      '/auth/register', { name, email, password },
+    ),
+    [authenticateWithEmail],
+  )
+
   const logout = useCallback(async () => {
     await fetch(`${API_URL}/auth/logout`, {
       method: 'POST',
@@ -116,9 +147,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     refresh,
     login,
+    loginWithEmail,
+    registerWithEmail,
     logout,
     switchOrganization,
-  }), [user, organizations, loading, refresh, login, logout, switchOrganization])
+  }), [user, organizations, loading, refresh, login, loginWithEmail, registerWithEmail, logout, switchOrganization])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

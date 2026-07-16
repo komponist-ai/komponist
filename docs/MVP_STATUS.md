@@ -16,11 +16,11 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | Integrations | 🚧 Code exists | 40% |
 | Web UI | 🚧 Auth gate browser-verified | 78% |
 | Chat Feature | ✅ Grounded local flow verified | 80% |
-| Auth & Security | 🚧 Sessions, gate, and org roles | 55% |
-| User Management | 🚧 Multi-org membership UI | 65% |
+| Auth & Security | 🚧 Google + password sessions and org roles | 62% |
+| User Management | 🚧 Multi-org membership UI | 70% |
 | Deployment | ❌ Not implemented | 10% |
 
-**Overall MVP Readiness: ~53%**
+**Overall MVP Readiness: ~54%**
 
 **Reality check:** The narrow local-documents → extraction → review → confirmed graph → cited chat loop now runs end-to-end in Docker. Live provider login, authenticated API isolation, MCP client interoperability, and deployment are still unverified.
 
@@ -58,6 +58,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 - [x] Provider-free Google user-login and persistent session lifecycle
 - [x] Multi-user organizations, role-checked invites, and per-session org switching
 - [x] Web login/session gate renders correctly in the local browser without console errors
+- [x] Email/password registration, logout, and repeat login in the local browser
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -157,7 +158,7 @@ Almost everything in this repo is in the "code exists" state. Very little has be
 ### User Management & Authentication
 - [x] User registration on first verified Google login
 - [x] Sign in with Google (provider-free contract tested; live Google untested)
-- [ ] Email/password authentication
+- [x] Email/password authentication with salted scrypt hashes and rate-limited endpoints
 - [ ] Password reset flow
 - [x] Persistent, revocable HttpOnly cookie sessions
 - [ ] Personal account settings page

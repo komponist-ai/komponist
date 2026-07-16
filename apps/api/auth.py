@@ -1,5 +1,7 @@
-"""Google user login and persistent, revocable browser sessions."""
+"""Google and password login with persistent, revocable browser sessions."""
 
+import asyncio
+import base64
 import hashlib
 import os
 import secrets
@@ -19,6 +21,7 @@ from database import (
     Org,
     OrganizationInvitation,
     OrganizationMembership,
+    PasswordCredential,
     User,
     async_session,
 )
@@ -36,10 +39,138 @@ STATE_MINUTES = 10
 INVITATION_DAYS = 7
 MEMBERSHIP_ROLES = {"owner", "admin", "member", "viewer"}
 INVITABLE_ROLES = {"admin", "member", "viewer"}
+PASSWORD_MIN_LENGTH = 12
+PASSWORD_MAX_LENGTH = 128
+PASSWORD_SCRYPT_N = 2**14
+PASSWORD_SCRYPT_R = 8
+PASSWORD_SCRYPT_P = 1
 
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _normalized_email(value: str) -> str:
+    email = (value or "").strip().lower()
+    if (
+        len(email) < 3
+        or len(email) > 255
+        or email.count("@") != 1
+        or not all(email.split("@"))
+        or any(character.isspace() for character in email)
+    ):
+        raise ValueError("A valid email address is required")
+    return email
+
+
+def _validated_password(value: str) -> str:
+    if len(value or "") < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"Password must be at least {PASSWORD_MIN_LENGTH} characters")
+    if len(value) > PASSWORD_MAX_LENGTH:
+        raise ValueError(f"Password must be at most {PASSWORD_MAX_LENGTH} characters")
+    return value
+
+
+def _password_hash(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(
+        password.encode("utf-8"),
+        salt=salt,
+        n=PASSWORD_SCRYPT_N,
+        r=PASSWORD_SCRYPT_R,
+        p=PASSWORD_SCRYPT_P,
+        dklen=32,
+    )
+    return "$".join(
+        (
+            "scrypt",
+            str(PASSWORD_SCRYPT_N),
+            str(PASSWORD_SCRYPT_R),
+            str(PASSWORD_SCRYPT_P),
+            base64.urlsafe_b64encode(salt).decode("ascii"),
+            base64.urlsafe_b64encode(digest).decode("ascii"),
+        )
+    )
+
+
+def _password_matches(password: str, encoded_hash: str) -> bool:
+    try:
+        algorithm, n, r, p, encoded_salt, encoded_digest = encoded_hash.split("$", 5)
+        if algorithm != "scrypt":
+            return False
+        salt = base64.urlsafe_b64decode(encoded_salt.encode("ascii"))
+        expected = base64.urlsafe_b64decode(encoded_digest.encode("ascii"))
+        actual = hashlib.scrypt(
+            password.encode("utf-8"),
+            salt=salt,
+            n=int(n),
+            r=int(r),
+            p=int(p),
+            dklen=len(expected),
+        )
+        return secrets.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
+
+
+async def register_password_user(name: str, email: str, password: str) -> User:
+    """Create a user, personal organization, and first-party credential."""
+    normalized_email = _normalized_email(email)
+    normalized_name = (name or "").strip()
+    if not normalized_name or len(normalized_name) > 255:
+        raise ValueError("A name between 1 and 255 characters is required")
+    validated_password = _validated_password(password)
+    encoded_hash = await asyncio.to_thread(_password_hash, validated_password)
+
+    async with async_session() as session:
+        existing_user = (
+            await session.execute(select(User).where(User.email == normalized_email))
+        ).scalar_one_or_none()
+        if existing_user is not None:
+            raise ValueError("An account with this email already exists")
+
+        org_id = str(uuid4())
+        user = User(
+            id=str(uuid4()),
+            org_id=org_id,
+            email=normalized_email,
+            name=normalized_name,
+        )
+        session.add(Org(id=org_id, name=f"{normalized_name}'s workspace"))
+        session.add(user)
+        await session.flush()
+        session.add(
+            PasswordCredential(user_id=user.id, password_hash=encoded_hash)
+        )
+        await _ensure_primary_membership(session, user)
+        await session.commit()
+        return user
+
+
+async def authenticate_password_user(email: str, password: str) -> Optional[User]:
+    """Validate an email/password pair without exposing which field failed."""
+    try:
+        normalized_email = _normalized_email(email)
+    except ValueError:
+        normalized_email = "invalid@example.invalid"
+
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(User, PasswordCredential)
+                .join(PasswordCredential, PasswordCredential.user_id == User.id)
+                .where(User.email == normalized_email)
+            )
+        ).one_or_none()
+
+    if row is None:
+        await asyncio.to_thread(_password_hash, password[:PASSWORD_MAX_LENGTH] or "invalid-password")
+        return None
+    user, credential = row
+    matches = await asyncio.to_thread(
+        _password_matches, password[:PASSWORD_MAX_LENGTH], credential.password_hash
+    )
+    return user if matches else None
 
 
 def _safe_return_to(value: str) -> str:
@@ -285,7 +416,7 @@ async def _session_principal(session, raw_token: Optional[str]):
         await session.execute(
             select(AuthSession, User, AuthIdentity)
             .join(User, User.id == AuthSession.user_id)
-            .join(
+            .outerjoin(
                 AuthIdentity,
                 (AuthIdentity.user_id == User.id)
                 & (AuthIdentity.provider == "google"),
@@ -337,7 +468,7 @@ def _user_payload(user, identity, membership, org) -> dict[str, Any]:
         "org_id": org.id,
         "email": user.email,
         "name": user.name,
-        "avatar_url": identity.avatar_url,
+        "avatar_url": identity.avatar_url if identity is not None else None,
         "role": membership.role,
         "organization": {"id": org.id, "name": org.name},
     }

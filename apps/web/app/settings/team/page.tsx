@@ -128,7 +128,7 @@ export default function TeamSettingsPage() {
           {canInvite ? (
             <>
               <p className="text-caption text-muted mb-4">
-                Create a single-use link for the teammate&apos;s Google account. Links expire after seven days.
+                Create a single-use link for the teammate&apos;s Komponist account. Links expire after seven days.
               </p>
               <form className="invite-form" onSubmit={createInvitation}>
                 <label className="field-label" htmlFor="invite-email">Email address</label>

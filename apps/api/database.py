@@ -67,6 +67,18 @@ class AuthIdentity(Base):
     )
 
 
+class PasswordCredential(Base):
+    """First-party password credential linked one-to-one with a user."""
+    __tablename__ = "password_credentials"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class AuthSession(Base):
     """Revocable browser session. Only a hash of the bearer token is stored."""
     __tablename__ = "auth_sessions"
