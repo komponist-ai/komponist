@@ -7,6 +7,10 @@ import AuthGate from '../components/AuthGate'
 export const metadata: Metadata = {
   title: 'Komponist — The programmable company brain',
   description: 'Company context, composed for every agent. Turn scattered company knowledge into governed context that humans and AI agents can use.',
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+  },
 }
 
 export default function RootLayout({

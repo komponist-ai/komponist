@@ -214,38 +214,81 @@ async def list_entities(
     limit: int = 100
 ):
     """List brain entities."""
-    type_filter = ""
-    if entity_type:
-        type_filter = "AND e.entity_type = $entity_type"
+    allowed_statuses = {"confirmed", "proposed", "rejected", "all"}
+    if status not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"status must be one of {sorted(allowed_statuses)}",
+        )
 
-    query = f"""
-    MATCH (e:Entity {{org_id: $org_id, status: $status}})
-    {type_filter}
+    query = """
+    MATCH (e:Entity {org_id: $org_id})
+    WHERE ($status = 'all' OR e.status = $status)
+      AND ($entity_type IS NULL OR e.entity_type = $entity_type)
     OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
     RETURN
         e.id as id,
         e.entity_type as entity_type,
         e.statement as statement,
         e.detail as detail,
+        e.status as status,
         e.confidence as confidence,
-        e.confirmed_at as confirmed_at,
-        e.created_at as created_at,
-        collect(ev{{.id, .source, .reference, .url}}) as evidence
-    ORDER BY e.confirmed_at DESC, e.created_at DESC
+        toString(e.confirmed_at) as confirmed_at,
+        toString(e.created_at) as created_at,
+        collect(ev{.id, .source, .reference, .url}) as evidence
+    ORDER BY confirmed_at DESC, created_at DESC
     LIMIT $limit
     """
 
-    params = {"org_id": org_id, "status": status, "limit": limit}
-    if entity_type:
-        params["entity_type"] = entity_type
+    params = {
+        "org_id": org_id,
+        "status": status,
+        "entity_type": entity_type,
+        "limit": limit,
+    }
 
     results = await GraphClient.run_query(query, params)
+    type_counts = await GraphClient.run_query(
+        """
+        MATCH (e:Entity {org_id: $org_id})
+        WHERE ($status = 'all' OR e.status = $status)
+          AND ($entity_type IS NULL OR e.entity_type = $entity_type)
+        RETURN e.entity_type AS entity_type, count(e) AS count
+        ORDER BY entity_type
+        """,
+        params,
+    )
+    status_counts = await GraphClient.run_query(
+        """
+        MATCH (e:Entity {org_id: $org_id})
+        WHERE ($entity_type IS NULL OR e.entity_type = $entity_type)
+        RETURN e.status AS status, count(e) AS count
+        ORDER BY status
+        """,
+        params,
+    )
 
     # Filter nulls
     for r in results:
         r["evidence"] = [e for e in r.get("evidence", []) if e.get("id")]
 
-    return {"entities": results, "total": len(results)}
+    counts_by_type = {
+        row["entity_type"]: row["count"]
+        for row in type_counts
+        if row.get("entity_type")
+    }
+    counts_by_status = {
+        row["status"]: row["count"]
+        for row in status_counts
+        if row.get("status")
+    }
+
+    return {
+        "entities": results,
+        "total": sum(counts_by_type.values()),
+        "counts_by_type": counts_by_type,
+        "counts_by_status": counts_by_status,
+    }
 
 
 @app.get("/entities/{entity_id}")
