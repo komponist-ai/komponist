@@ -332,6 +332,28 @@ class ChatMessageRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class GeneratedArtifact(Base):
+    """A private, cited deliverable generated from visible company knowledge."""
+    __tablename__ = "generated_artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    artifact_type: Mapped[str] = mapped_column(String(20), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    topic: Mapped[str] = mapped_column(String(500))
+    audience: Mapped[str] = mapped_column(String(120))
+    language: Mapped[str] = mapped_column(String(20), default="english")
+    content: Mapped[dict] = mapped_column(JSON)
+    sources: Mapped[list] = mapped_column(JSON, default=list)
+    source_entity_ids: Mapped[list] = mapped_column(JSON, default=list)
+    department_ids: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+
+
 async def get_db() -> AsyncSession:
     """Dependency for getting database session."""
     async with async_session() as session:

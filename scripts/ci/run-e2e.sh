@@ -74,6 +74,7 @@ api_tests=(
   document_upload_e2e.py
   review_lifecycle_e2e.py
   export_e2e.py
+  generated_artifacts_e2e.py
   platform_ai_and_api_keys_e2e.py
   chat_history_e2e.py
   chat_e2e.py

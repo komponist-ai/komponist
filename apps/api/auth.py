@@ -22,6 +22,7 @@ from database import (
     ConnectedSource,
     Department,
     DepartmentMembership,
+    GeneratedArtifact,
     OAuthLoginState,
     Org,
     OrganizationInvitation,
@@ -641,7 +642,7 @@ async def _validated_department_ids(
 
 
 async def _clear_member_chat_history(session, org_id: str, user_id: str) -> None:
-    """Revoke cached answers when a member's knowledge scope changes."""
+    """Revoke cached derived content when a member's knowledge scope changes."""
     conversations = list(
         (
             await session.execute(
@@ -665,6 +666,12 @@ async def _clear_member_chat_history(session, org_id: str, user_id: str) -> None
                 ChatConversation.user_id == user_id,
             )
         )
+    await session.execute(
+        delete(GeneratedArtifact).where(
+            GeneratedArtifact.org_id == org_id,
+            GeneratedArtifact.user_id == user_id,
+        )
+    )
 
 
 async def list_organization_departments(

@@ -67,6 +67,8 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Multi-user organizations, role-checked invites, and per-session org switching
 - [x] Web login/session gate renders correctly in the local browser without console errors
 - [x] Email/password registration, logout, and repeat login in the local browser
+- [x] Compose creates private, cited presentations, briefings, and summaries from permission-scoped confirmed knowledge
+- [x] Designed PDF, editable PowerPoint, and Markdown artifact downloads are verified provider-free
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -78,6 +80,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - `apps/mcp/tests/approval_persistence_e2e.py` — approval persistence, isolation, and restart (passing)
 - `apps/mcp/tests/tool_contract_e2e.py` — all tool discovery, brain resource, decision scope, and constraint verdicts (passing)
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
+- `apps/api/tests/generated_artifacts_e2e.py` — private history, department isolation, citations, PDF/PPTX/Markdown exports, and deletion (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `apps/api/tests/platform_ai_and_api_keys_e2e.py` — API keys, cited programmatic context, project scope, graph stats, approvals, and revocation (passing)
 - `packages/sdk-js/tests/client.test.mjs` — typed client URLs, auth headers, scopes, validation, and errors (passing)
@@ -154,6 +157,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] `app/onboard/page.tsx` — Source connection flow (451 lines)
 - [x] Direct document upload with per-file extraction results and Review Queue handoff
 - [x] `app/entities/page.tsx` — Entity list (169 lines)
+- [x] `app/create/page.tsx` — Compose presentations, briefings, summaries, private history, source preview, and download
 - [x] `app/sources/page.tsx` — Connected sources (340 lines)
 - [x] `app/settings/page.tsx` — Settings page (241 lines)
 - [x] `app/settings/team/page.tsx` — Organization members, roles, and invitation links
@@ -280,6 +284,7 @@ Connected sources, organization settings, and approval requests now survive serv
 - [x] `report_result` sends new Decisions to the review queue without auto-confirming
 - [x] `check_constraint` correctly blocks/allows/requires approval in deterministic contract tests
 - [x] Settings, encrypted source credentials, OAuth state, and approvals persist across server restarts
+- [x] Compose exports cited PDF, PowerPoint, or Markdown deliverables from permission-scoped confirmed context
 
 ### Deployment:
 - [ ] Self-hosted: `docker compose up` on any machine

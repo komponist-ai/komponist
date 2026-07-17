@@ -13,7 +13,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Response
@@ -42,13 +42,17 @@ from persistence import (
     create_api_key,
     create_chat_conversation,
     create_connected_source,
+    create_generated_artifact,
     delete_chat_conversation,
     delete_connected_source,
+    delete_generated_artifact,
     get_chat_conversation,
     get_connected_source,
+    get_generated_artifact,
     list_chat_conversations,
     list_approval_requests,
     list_connected_sources,
+    list_generated_artifacts,
     list_api_keys,
     load_org_settings,
     save_org_settings,
@@ -58,6 +62,16 @@ from persistence import (
     set_connected_source_department,
     update_connected_source,
     upsert_single_source_type,
+)
+from artifacts import (
+    ARTIFACT_SCHEMA,
+    artifact_filename,
+    artifact_markdown,
+    artifact_pdf,
+    artifact_pptx,
+    generation_prompt,
+    mock_artifact_content,
+    sanitize_artifact_content,
 )
 
 
@@ -2585,6 +2599,14 @@ class ChatConversationUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=120)
 
 
+class ArtifactGenerateRequest(BaseModel):
+    artifact_type: Literal["presentation", "briefing", "summary"]
+    topic: str = Field(min_length=3, max_length=500)
+    audience: str = Field(default="Leadership team", min_length=1, max_length=120)
+    instructions: str = Field(default="", max_length=1200)
+    language: Literal["english", "german"] = "english"
+
+
 _CHAT_STOP_WORDS = {
     "about", "all", "and", "are", "been", "der", "die", "das", "do",
     "does", "for", "from", "geht", "haben", "has", "ist", "it", "me", "our",
@@ -2870,6 +2892,7 @@ async def _browse_chat_entities(
         RETURN n.id AS id, n.entity_type AS entity_type,
                n.statement AS statement, n.detail AS detail,
                n.status AS status, n.confidence AS confidence,
+               coalesce(n.department_ids, []) AS department_ids,
                1.0 AS score
         ORDER BY {order_by}
         LIMIT $limit
@@ -2947,6 +2970,7 @@ async def _literal_chat_search(
         RETURN n.id AS id, n.entity_type AS entity_type,
                n.statement AS statement, n.detail AS detail,
                n.status AS status, n.confidence AS confidence,
+               coalesce(n.department_ids, []) AS department_ids,
                toFloat(matches) AS score
         ORDER BY matches DESC, n.confirmed_at DESC
         LIMIT $k
@@ -2984,10 +3008,13 @@ async def _expand_chat_graph_context(
                neighbor.detail AS detail,
                neighbor.status AS status,
                neighbor.confidence AS confidence,
+               coalesce(neighbor.department_ids, []) AS department_ids,
+               neighbor.confirmed_at AS confirmed_at,
+               neighbor.created_at AS created_at,
                type(relationship) AS relationship_type,
                seed.id AS related_seed_id,
                0.0 AS score
-        ORDER BY neighbor.confirmed_at DESC, neighbor.created_at DESC
+        ORDER BY confirmed_at DESC, created_at DESC
         LIMIT $limit
         """,
         _scoped_params(
@@ -3060,7 +3087,8 @@ async def _attach_chat_evidence(
         WHERE {_evidence_scope('evidence')}
         RETURN entity.id AS entity_id,
                collect(DISTINCT evidence{{.id, .source, .reference, .url,
-                                          .excerpt, .source_date}}) AS evidence
+                                          .excerpt, .source_date,
+                                          .department_id}}) AS evidence
         """,
         _scoped_params(
             org_id, user, entity_ids=[entity["id"] for entity in entities]
@@ -3097,6 +3125,8 @@ def _chat_context_and_sources(search_results: List[dict]) -> tuple[str, List[dic
                 "url": evidence.get("url"),
                 "excerpt": evidence.get("excerpt"),
                 "source_date": source_date,
+                "department_id": evidence.get("department_id"),
+                "department_ids": result.get("department_ids") or [],
             })
             citation_numbers.append(str(len(sources)))
             evidence_lines.append(
@@ -3485,6 +3515,216 @@ async def get_chat_suggestions(
         seen_prompts.add(suggestion["prompt"])
 
     return {"suggestions": suggestions}
+
+
+def _artifact_scope(user: dict) -> tuple[list[str], bool]:
+    return (
+        user.get("department_ids") or [],
+        bool(user.get("access_all_departments")),
+    )
+
+
+async def _artifact_context(
+    org_id: str, user: dict, topic: str
+) -> tuple[list[dict], list[dict]]:
+    """Retrieve only confirmed, visible, cited knowledge for a deliverable."""
+    broad_topic = bool(re.search(
+        r"\b(all|company|overview|everything|entire|gesamte|überblick|alles)\b",
+        topic.casefold(),
+    ))
+    selected: list[dict] = []
+    if not broad_topic:
+        selected = await _literal_chat_search(org_id, user, topic, k=24)
+        if selected:
+            neighbors = await _expand_chat_graph_context(
+                org_id, user, selected, limit=max(0, 24 - len(selected))
+            )
+            by_id = {entity["id"]: entity for entity in selected}
+            for neighbor in neighbors:
+                by_id.setdefault(neighbor["id"], neighbor)
+            selected = list(by_id.values())[:24]
+
+    if not selected:
+        selected = await _browse_chat_entities(
+            org_id, user, [], limit=24, sort="newest"
+        )
+
+    await _attach_chat_evidence(org_id, user, selected)
+    selected = [entity for entity in selected if entity.get("evidence")]
+    _, raw_sources = _chat_context_and_sources(selected)
+    sources: list[dict] = []
+    seen_evidence = set()
+    for source in raw_sources:
+        if source["id"] in seen_evidence:
+            continue
+        seen_evidence.add(source["id"])
+        sources.append(source)
+    return selected, sources
+
+
+@app.post("/artifacts/generate", status_code=201)
+async def generate_artifact(
+    payload: ArtifactGenerateRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Generate a private, cited deliverable from the caller's visible graph."""
+    user = await _authorized_org_user(request, org_id)
+    entities, sources = await _artifact_context(org_id, user, payload.topic)
+    if not entities or not sources:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No confirmed, cited knowledge is available for this topic. "
+                "Review at least one extracted item before generating a deliverable."
+            ),
+        )
+
+    fallback = mock_artifact_content(
+        payload.artifact_type,
+        payload.topic,
+        payload.audience,
+        payload.language,
+        entities,
+    )
+    content = fallback
+    if os.getenv("KOMPONIST_AI_MODE", "live").lower() != "mock":
+        prompt, system = generation_prompt(
+            payload.artifact_type,
+            payload.topic,
+            payload.audience,
+            payload.instructions,
+            payload.language,
+            entities,
+        )
+        try:
+            candidate = await get_llm().call_json(
+                prompt=prompt,
+                system=system,
+                max_tokens=5000,
+                schema=ARTIFACT_SCHEMA,
+            )
+            content = sanitize_artifact_content(candidate, fallback, entities)
+        except Exception as generation_error:
+            print(f"Artifact generation fell back to grounded template: {generation_error}")
+
+    source_entity_ids = list(dict.fromkeys(
+        entity["id"] for entity in entities if entity.get("evidence")
+    ))
+    department_ids = sorted({
+        department_id
+        for entity in entities
+        for department_id in (entity.get("department_ids") or [])
+        if department_id
+    } | {
+        str(source["department_id"])
+        for source in sources
+        if source.get("department_id")
+    })
+    return await create_generated_artifact(
+        org_id=org_id,
+        user_id=user["id"],
+        artifact_type=payload.artifact_type,
+        title=content["title"],
+        topic=payload.topic,
+        audience=payload.audience,
+        language=payload.language,
+        content=content,
+        sources=sources,
+        source_entity_ids=source_entity_ids,
+        department_ids=department_ids,
+    )
+
+
+@app.get("/artifacts")
+async def get_artifacts(request: Request, org_id: str = Query(...)):
+    user = await _authorized_org_user(request, org_id)
+    department_ids, access_all = _artifact_scope(user)
+    artifacts = await list_generated_artifacts(
+        org_id, user["id"], department_ids, access_all
+    )
+    return {"artifacts": artifacts, "total": len(artifacts)}
+
+
+@app.get("/artifacts/{artifact_id}")
+async def get_artifact(
+    artifact_id: str, request: Request, org_id: str = Query(...)
+):
+    user = await _authorized_org_user(request, org_id)
+    department_ids, access_all = _artifact_scope(user)
+    artifact = await get_generated_artifact(
+        org_id, user["id"], artifact_id, department_ids, access_all
+    )
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Deliverable not found")
+    return artifact
+
+
+@app.get("/artifacts/{artifact_id}/download")
+async def download_artifact(
+    artifact_id: str,
+    request: Request,
+    org_id: str = Query(...),
+    export_format: Optional[Literal["pptx", "pdf", "markdown"]] = Query(
+        None, alias="format"
+    ),
+):
+    user = await _authorized_org_user(request, org_id)
+    department_ids, access_all = _artifact_scope(user)
+    artifact = await get_generated_artifact(
+        org_id, user["id"], artifact_id, department_ids, access_all
+    )
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Deliverable not found")
+
+    selected_format = export_format or (
+        "pptx" if artifact["artifact_type"] == "presentation" else "markdown"
+    )
+    if selected_format == "pptx" and artifact["artifact_type"] != "presentation":
+        raise HTTPException(
+            status_code=400,
+            detail="PowerPoint is available for presentations only",
+        )
+
+    filename = artifact_filename(artifact, selected_format)
+    if selected_format == "pptx":
+        try:
+            content = artifact_pptx(artifact)
+        except ImportError as error:
+            raise HTTPException(
+                status_code=503,
+                detail="PowerPoint export is not installed on this server",
+            ) from error
+        media_type = (
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        )
+    elif selected_format == "pdf":
+        try:
+            content = artifact_pdf(artifact)
+        except ImportError as error:
+            raise HTTPException(
+                status_code=503,
+                detail="PDF export is not installed on this server",
+            ) from error
+        media_type = "application/pdf"
+    else:
+        content = artifact_markdown(artifact).encode("utf-8")
+        media_type = "text/markdown; charset=utf-8"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.delete("/artifacts/{artifact_id}", status_code=204)
+async def remove_artifact(
+    artifact_id: str, request: Request, org_id: str = Query(...)
+):
+    user = await _authorized_org_user(request, org_id)
+    if not await delete_generated_artifact(org_id, user["id"], artifact_id):
+        raise HTTPException(status_code=404, detail="Deliverable not found")
+    return Response(status_code=204)
 
 
 @app.post("/chat")

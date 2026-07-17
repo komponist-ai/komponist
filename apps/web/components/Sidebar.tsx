@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
   Braces, CircleDot, Database, Download, KeyRound, MessageSquareText,
-  LogOut, Network, Plus, Settings, Sparkles, UsersRound,
+  LogOut, Network, Plus, Presentation, Settings, Sparkles, UsersRound,
 } from 'lucide-react'
 import { useAuth } from './AuthProvider'
 import BrandMark from './BrandMark'
@@ -15,6 +15,7 @@ const navigation = [
     title: 'Brain',
     items: [
       { name: 'Chat', href: '/studio', icon: MessageSquareText },
+      { name: 'Compose', href: '/create', icon: Presentation },
       { name: 'Graph', href: '/graph', icon: Network },
       { name: 'Review Queue', href: '/queue', icon: CircleDot },
       { name: 'Entities', href: '/entities', icon: Braces },

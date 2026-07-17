@@ -10,6 +10,8 @@ httpx>=0.25.0
 cryptography>=41.0.0
 python-multipart>=0.0.6
 pyyaml>=6.0
+python-pptx>=1.0.2
+reportlab>=4.2.0
 sse-starlette==1.6.5
 
 # Core package is installed separately in Docker

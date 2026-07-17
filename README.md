@@ -29,7 +29,9 @@ Komponist is an open-source, self-hostable backend for company context. It
 turns documents and connected tools into a reviewed knowledge graph of
 **Decisions**, **Goals**, **Constraints**, and **Projects**, keeps exact source
 evidence attached, and serves the same confirmed context to people, products,
-and AI agents through Studio, REST, a typed JavaScript SDK, and MCP.
+and AI agents through Studio, REST, a typed JavaScript SDK, and MCP. Its
+**Compose** workspace turns that reviewed context into cited presentations,
+briefings, and summaries.
 
 > [!IMPORTANT]
 > Komponist is currently a local-first MVP, not a production-ready hosted
@@ -110,7 +112,8 @@ docker-compose --env-file .env -f docker/docker-compose.yml up -d --build
 3. Confirm or reject the extracted facts in **Review Queue**.
 4. Inspect confirmed entities and relationships in **Graph**.
 5. Ask a question in **Chat** and inspect the attached evidence.
-6. Create an organization-scoped key under **Settings → API & MCP** when you
+6. Open **Compose** to create a cited PowerPoint deck, briefing, or summary.
+7. Create an organization-scoped key under **Settings → API & MCP** when you
    want to connect server-side code or an agent.
 
 Stop the stack with:
@@ -124,10 +127,11 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 | Area | Current state |
 | --- | --- |
 | Local core loop | Verified end-to-end in Docker: upload or scan documents, extract facts, review them, browse the graph, and receive cited answers |
-| Web application | Landing page, authentication, Studio chat, chat history, review queue, entities, graph, sources, team/departments, AI status, API keys, and export UI |
+| Web application | Landing page, authentication, Studio chat, Compose, chat history, review queue, entities, graph, sources, team/departments, AI status, API keys, and export UI |
 | Authentication | Email/password registration and login, revocable HttpOnly sessions, invitations, organization switching, and provider-free Google login contracts |
 | Authorization | Organization isolation, owner/admin/member/viewer roles, department assignments, read/write checks, and encrypted connector configuration |
 | Chat | Confirmed-context retrieval, streaming answers, evidence cards, graph expansion, dynamic suggestions, and persistent multi-chat history |
+| Compose | Permission-aware presentations, briefings, and summaries with private history, inline citations, designed PDF, editable PowerPoint, and Markdown export |
 | API and SDK | Organization API keys plus `/v1/context`, `/v1/brain`, `/v1/decisions`, and the typed `@komponist/sdk` workspace package |
 | MCP | Six authenticated tools and the `company-brain://info` resource verified through a real FastMCP client |
 | CI | Provider-free Python contracts, web lint/build, SDK build/tests, and a full Docker end-to-end suite in GitHub Actions |
@@ -168,6 +172,17 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 - Handles aggregate questions such as entity counts without hard-coded
   organization-specific answers.
 - Generates example questions from the current graph.
+
+### Compose deliverables
+
+- Creates presentations, executive briefings, and summaries from confirmed,
+  cited graph knowledge visible to the signed-in member.
+- Keeps generated history private per member and revokes cached deliverables
+  when department access changes.
+- Shows source references in the preview and exports designed PDFs, editable
+  `.pptx` decks, or portable Markdown documents with an evidence appendix.
+- Uses the configured AI model in live mode and a deterministic grounded
+  template in provider-free mock mode.
 - Persists multiple conversations with rename and delete support.
 
 ### Sources

@@ -17,10 +17,138 @@ from database import (
     ChatConversation,
     ChatMessageRecord,
     ConnectedSource,
+    GeneratedArtifact,
     OrganizationApiKey,
     OrgSetting,
     async_session,
 )
+
+
+def _artifact_dict(row: GeneratedArtifact) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "artifact_type": row.artifact_type,
+        "title": row.title,
+        "topic": row.topic,
+        "audience": row.audience,
+        "language": row.language,
+        "content": row.content,
+        "sources": row.sources or [],
+        "source_entity_ids": row.source_entity_ids or [],
+        "department_ids": row.department_ids or [],
+        "created_at": f"{row.created_at.isoformat()}Z",
+        "updated_at": f"{row.updated_at.isoformat()}Z",
+    }
+
+
+def _artifact_in_scope(
+    row: GeneratedArtifact, department_ids: list[str], access_all: bool
+) -> bool:
+    """Do not replay cached content after a user's department access shrinks."""
+    return access_all or set(row.department_ids or []).issubset(set(department_ids))
+
+
+async def create_generated_artifact(
+    *,
+    org_id: str,
+    user_id: str,
+    artifact_type: str,
+    title: str,
+    topic: str,
+    audience: str,
+    language: str,
+    content: dict[str, Any],
+    sources: list[dict[str, Any]],
+    source_entity_ids: list[str],
+    department_ids: list[str],
+) -> dict[str, Any]:
+    now = datetime.utcnow()
+    row = GeneratedArtifact(
+        id=str(uuid4()),
+        org_id=org_id,
+        user_id=user_id,
+        artifact_type=artifact_type,
+        title=title[:160],
+        topic=topic[:500],
+        audience=audience[:120],
+        language=language,
+        content=content,
+        sources=sources,
+        source_entity_ids=source_entity_ids,
+        department_ids=department_ids,
+        created_at=now,
+        updated_at=now,
+    )
+    async with async_session() as session:
+        session.add(row)
+        await session.commit()
+        return _artifact_dict(row)
+
+
+async def list_generated_artifacts(
+    org_id: str,
+    user_id: str,
+    department_ids: list[str],
+    access_all: bool,
+) -> list[dict[str, Any]]:
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(GeneratedArtifact)
+                .where(
+                    GeneratedArtifact.org_id == org_id,
+                    GeneratedArtifact.user_id == user_id,
+                )
+                .order_by(GeneratedArtifact.updated_at.desc())
+            )
+        ).scalars().all()
+        return [
+            _artifact_dict(row)
+            for row in rows
+            if _artifact_in_scope(row, department_ids, access_all)
+        ]
+
+
+async def get_generated_artifact(
+    org_id: str,
+    user_id: str,
+    artifact_id: str,
+    department_ids: list[str],
+    access_all: bool,
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(GeneratedArtifact).where(
+                    GeneratedArtifact.id == artifact_id,
+                    GeneratedArtifact.org_id == org_id,
+                    GeneratedArtifact.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None or not _artifact_in_scope(row, department_ids, access_all):
+            return None
+        return _artifact_dict(row)
+
+
+async def delete_generated_artifact(
+    org_id: str, user_id: str, artifact_id: str
+) -> bool:
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(GeneratedArtifact).where(
+                    GeneratedArtifact.id == artifact_id,
+                    GeneratedArtifact.org_id == org_id,
+                    GeneratedArtifact.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return False
+        await session.delete(row)
+        await session.commit()
+        return True
 
 
 def _approval_dict(row: ApprovalRequest) -> dict[str, Any]:
