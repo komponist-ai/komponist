@@ -285,16 +285,16 @@ def normalize_page(page_data: Dict[str, Any], content: str, org_id: str) -> Sour
     # Get URL
     url = page_data.get("url", f"https://notion.so/{page_id}")
 
-    # Get created time
-    created_time = page_data.get("created_time")
-    if created_time:
-        source_date = datetime.fromisoformat(created_time.replace("Z", "+00:00"))
+    # Version lineage needs the edit event, not the original creation event.
+    edited_time = page_data.get("last_edited_time") or page_data.get("created_time")
+    if edited_time:
+        source_date = datetime.fromisoformat(edited_time.replace("Z", "+00:00"))
     else:
         source_date = datetime.utcnow()
 
-    # Get creator
-    created_by = page_data.get("created_by", {})
-    author = created_by.get("name") or created_by.get("id")
+    # Attribute the revision to the latest editor when Notion exposes it.
+    edited_by = page_data.get("last_edited_by") or page_data.get("created_by", {})
+    author = edited_by.get("name") or edited_by.get("id")
 
     return SourceItem(
         org_id=org_id,

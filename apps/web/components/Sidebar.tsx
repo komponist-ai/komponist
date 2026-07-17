@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
-  Braces, CircleDot, Database, Download, KeyRound, MessageSquareText,
+  Braces, CircleDot, Database, Download, GitBranch, KeyRound, MessageSquareText,
   LogOut, Network, Plus, Presentation, Settings, Sparkles, UsersRound,
 } from 'lucide-react'
 import { useAuth } from './AuthProvider'
@@ -16,6 +16,7 @@ const navigation = [
     items: [
       { name: 'Chat', href: '/studio', icon: MessageSquareText },
       { name: 'Compose', href: '/create', icon: Presentation },
+      { name: 'Versions', href: '/versions', icon: GitBranch },
       { name: 'Graph', href: '/graph', icon: Network },
       { name: 'Review Queue', href: '/queue', icon: CircleDot },
       { name: 'Entities', href: '/entities', icon: Braces },

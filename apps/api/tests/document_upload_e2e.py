@@ -100,6 +100,7 @@ async def run() -> None:
         assert captured[0][0].reference.startswith("upload:strategy.md:"), captured
         assert captured[0][0].url == "upload://strategy.md", captured
         assert captured[0][0].source.value == "upload", captured
+        assert captured[0][0].author == "Upload E2E", captured
         assert captured[0][1] is False
 
         async with async_session() as session:

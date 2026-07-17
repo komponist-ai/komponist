@@ -69,6 +69,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Email/password registration, logout, and repeat login in the local browser
 - [x] Compose creates private, cited presentations, briefings, and summaries from permission-scoped confirmed knowledge
 - [x] Designed PDF, editable PowerPoint, and Markdown artifact downloads are verified provider-free
+- [x] Cross-source document families, provenance ordering, semantic claim diffs, and the built-in three-platform example are verified provider-free
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -81,6 +82,8 @@ The core local slice now has broad contract and restart coverage. External provi
 - `apps/mcp/tests/tool_contract_e2e.py` — all tool discovery, brain resource, decision scope, and constraint verdicts (passing)
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
 - `apps/api/tests/generated_artifacts_e2e.py` — private history, department isolation, citations, PDF/PPTX/Markdown exports, and deletion (passing)
+- `apps/api/tests/document_versions_e2e.py` — authenticated cross-source grouping, latest candidate, semantic conflicts, and demo visibility (passing)
+- `packages/core/tests/test_versioning.py` — content identity, family matching, chronology, and claim-diff contracts (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `apps/api/tests/platform_ai_and_api_keys_e2e.py` — API keys, cited programmatic context, project scope, graph stats, approvals, and revocation (passing)
 - `packages/sdk-js/tests/client.test.mjs` — typed client URLs, auth headers, scopes, validation, and errors (passing)
@@ -158,6 +161,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Direct document upload with per-file extraction results and Review Queue handoff
 - [x] `app/entities/page.tsx` — Entity list (169 lines)
 - [x] `app/create/page.tsx` — Compose presentations, briefings, summaries, private history, source preview, and download
+- [x] `app/versions/page.tsx` — Git-for-files families, revision timeline, semantic diffs, provenance, and built-in example
 - [x] `app/sources/page.tsx` — Connected sources (340 lines)
 - [x] `app/settings/page.tsx` — Settings page (241 lines)
 - [x] `app/settings/team/page.tsx` — Organization members, roles, and invitation links

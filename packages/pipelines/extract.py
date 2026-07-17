@@ -20,6 +20,7 @@ from core.llm import get_llm, get_llm_client
 from core.embeddings import embed, combine_for_embedding
 from core.graph import GraphClient
 from core.queries import BrainQueries
+from core.versioning import document_metadata
 from pipelines.contracts import CLASSIFICATION_SCHEMA, FACT_EXTRACTION_SCHEMA
 
 
@@ -506,6 +507,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
     - If action=create: create Entity (proposed) + Evidence + edges
     """
     source_item = state["source_item"]
+    document = document_metadata(source_item)
     created_ids = []
     relationships_created = 0
 
@@ -524,6 +526,24 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
             # Create Evidence node
             evidence_id = evidence_id_for(source_item, fact)
             evidence_query = """
+            MERGE (document:DocumentVersion {id: $document_id})
+            ON CREATE SET
+                document.org_id = $org_id,
+                document.created_at = datetime(),
+                document.prov_type = 'Entity'
+            SET
+                document.source = $source,
+                document.kind = $kind,
+                document.department_id = $department_id,
+                document.title = $title,
+                document.author = $author,
+                document.reference = $reference,
+                document.url = $url,
+                document.content_hash = $content_hash,
+                document.content_length = $content_length,
+                document.family_key = $family_key,
+                document.source_date = datetime($source_date),
+                document.last_seen_at = datetime()
             MERGE (e:Evidence {id: $id})
             ON CREATE SET
                 e.org_id = $org_id,
@@ -535,18 +555,31 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                 e.excerpt = $excerpt,
                 e.source_date = datetime($source_date),
                 e.created_at = datetime()
+            SET
+                e.document_id = $document_id,
+                e.author = $author,
+                e.kind = $kind,
+                e.content_hash = $content_hash,
+                e.family_key = $family_key
+            MERGE (document)-[:HAS_EVIDENCE]->(e)
             """
 
             await GraphClient.run_query(evidence_query, {
                 "id": evidence_id,
+                "document_id": document["document_id"],
                 "org_id": source_item.org_id,
                 "source": source_item.source.value,
                 "department_id": source_item.department_id,
                 "title": source_item.title,
+                "author": source_item.author,
+                "kind": source_item.kind,
                 "reference": source_item.reference,
                 "url": source_item.url,
                 "excerpt": fact.get("excerpt", ""),
-                "source_date": source_item.source_date.isoformat()
+                "source_date": source_item.source_date.isoformat(),
+                "content_hash": document["content_hash"],
+                "content_length": document["content_length"],
+                "family_key": document["family_key"],
             })
 
             if action == "attach_evidence":
@@ -676,6 +709,33 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
             print(f"[Persist] Relationship error: {e}")
             if not state.get("error"):
                 state["error"] = str(e)
+
+    # A conservative W3C PROV-style revision edge. Broader fuzzy families are
+    # calculated by the Versions API and remain visibly confidence-scored.
+    await GraphClient.run_query(
+        """
+        MATCH (member:DocumentVersion {org_id: $org_id, family_key: $family_key})
+        OPTIONAL MATCH (member)-[stale:WAS_REVISION_OF]->()
+        DELETE stale
+        WITH DISTINCT member
+        ORDER BY member.source_date, member.created_at, member.id
+        WITH collect(member) AS versions
+        UNWIND CASE
+            WHEN size(versions) > 1 THEN range(1, size(versions) - 1)
+            ELSE []
+        END AS version_index
+        WITH versions[version_index] AS current,
+             versions[version_index - 1] AS previous
+        MERGE (current)-[revision:WAS_REVISION_OF]->(previous)
+        SET revision.confidence = 0.9,
+            revision.method = 'normalized_title',
+            revision.prov_type = 'Revision'
+        """,
+        {
+            "org_id": source_item.org_id,
+            "family_key": document["family_key"],
+        },
+    )
 
     state["final_entities"] = created_ids
     state["relationships_created"] = relationships_created

@@ -30,6 +30,18 @@ async def run() -> None:
         "MATCH (n {org_id: $org_id}) DETACH DELETE n",
         {"org_id": ORG_ID},
     )
+    await GraphClient.run_query(
+        """
+        CREATE (:DocumentVersion {
+            id: 'document-version-base', org_id: $org_id,
+            title: 'Relationship persistence E2E draft v0',
+            family_key: 'relationship persistence e2e',
+            source_date: datetime('2026-01-01T00:00:00Z'),
+            created_at: datetime('2026-01-01T00:00:00Z')
+        })
+        """,
+        {"org_id": ORG_ID},
+    )
 
     source_item = SourceItem(
         org_id=ORG_ID,
@@ -37,6 +49,7 @@ async def run() -> None:
         kind="document_upload",
         title="Relationship persistence E2E",
         body="The Graph MVP project advances the connected graph goal.",
+        author="Pipeline E2E",
         url="upload://relationships.md",
         reference="upload:relationships.md:e2e",
         source_date=datetime.now(timezone.utc),
@@ -64,6 +77,24 @@ async def run() -> None:
             """,
             {"org_id": ORG_ID},
         )
+        document_versions = await GraphClient.run_query(
+            """
+            MATCH (document:DocumentVersion {org_id: $org_id})-[:HAS_EVIDENCE]->(evidence:Evidence)
+            RETURN document.title AS title, document.author AS author,
+                   document.content_hash AS content_hash,
+                   document.family_key AS family_key,
+                   count(DISTINCT evidence) AS evidence_count
+            """,
+            {"org_id": ORG_ID},
+        )
+        revisions = await GraphClient.run_query(
+            """
+            MATCH (current:DocumentVersion {org_id: $org_id})-[revision:WAS_REVISION_OF]->(previous:DocumentVersion)
+            RETURN current.title AS current, previous.id AS previous,
+                   revision.method AS method, revision.confidence AS confidence
+            """,
+            {"org_id": ORG_ID},
+        )
 
         assert len(result["final_entities"]) == 2, result
         assert result["relationships_created"] == 1, result
@@ -73,6 +104,20 @@ async def run() -> None:
             "inferred": True,
             "basis": "same_document",
         }], relationships
+        assert document_versions == [{
+            "title": "Relationship persistence E2E",
+            "author": "Pipeline E2E",
+            "content_hash": document_versions[0]["content_hash"],
+            "family_key": "relationship persistence e2e",
+            "evidence_count": 2,
+        }], document_versions
+        assert len(document_versions[0]["content_hash"]) == 64, document_versions
+        assert revisions == [{
+            "current": "Relationship persistence E2E",
+            "previous": "document-version-base",
+            "method": "normalized_title",
+            "confidence": 0.9,
+        }], revisions
         print("Document relationship persistence E2E: OK")
     finally:
         await GraphClient.run_query(

@@ -140,15 +140,16 @@ def normalize_drive_file(file_data: Dict[str, Any], content: str, org_id: str) -
     else:
         kind = "file"
 
-    created_time = file_data.get("createdTime")
-    if created_time:
-        source_date = datetime.fromisoformat(created_time.replace("Z", "+00:00"))
+    modified_time = file_data.get("modifiedTime") or file_data.get("createdTime")
+    if modified_time:
+        source_date = datetime.fromisoformat(modified_time.replace("Z", "+00:00"))
     else:
         source_date = datetime.utcnow()
 
     # Get owner info
+    latest_editor = file_data.get("lastModifyingUser") or {}
     owners = file_data.get("owners", [])
-    author = owners[0].get("displayName") if owners else None
+    author = latest_editor.get("displayName") or (owners[0].get("displayName") if owners else None)
 
     return SourceItem(
         org_id=org_id,
@@ -244,7 +245,7 @@ async def list_drive_files(
 
     params = {
         "q": query,
-        "fields": "nextPageToken, files(id, name, mimeType, webViewLink, createdTime, modifiedTime, owners)",
+        "fields": "nextPageToken, files(id, name, mimeType, webViewLink, createdTime, modifiedTime, owners, lastModifyingUser(displayName))",
         "pageSize": 100,
         "orderBy": "modifiedTime desc",
     }

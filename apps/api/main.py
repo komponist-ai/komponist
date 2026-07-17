@@ -29,6 +29,11 @@ from core.graph import GraphClient
 from core.schema import GraphSchema
 from core.export import export_brain_yaml
 from core.import_ import import_brain_yaml, parse_export_yaml
+from core.versioning import (
+    build_document_families,
+    demo_document_versions,
+    normalize_document_title,
+)
 from database import (
     ConnectorOAuthState,
     Department,
@@ -1788,6 +1793,110 @@ async def list_source_documents(
     return {"documents": documents, "total": len(documents)}
 
 
+@app.get("/versions")
+async def list_document_versions(
+    request: Request,
+    org_id: str = Query(...),
+    include_demo: bool = Query(True),
+):
+    """Build cross-source document families and semantic claim diffs.
+
+    Evidence remains the source of truth for access control. New ingestions
+    also carry a DocumentVersion node, while this query keeps older evidence
+    useful by deriving a legacy version identity from its reference.
+    """
+    user = await _authorized_org_user(request, org_id)
+    rows = await GraphClient.run_query(
+        f"""
+        MATCH (evidence:Evidence {{org_id: $org_id}})
+        WHERE {_evidence_scope('evidence')}
+        OPTIONAL MATCH (document:DocumentVersion {{org_id: $org_id}})-[:HAS_EVIDENCE]->(evidence)
+        OPTIONAL MATCH (entity:Entity {{org_id: $org_id}})-[:CITED_BY]->(evidence)
+        WHERE entity IS NULL OR {_knowledge_scope('entity')}
+        WITH
+            evidence.reference AS reference,
+            evidence.source AS source,
+            head([value IN collect(DISTINCT coalesce(document.id, evidence.document_id)) WHERE value IS NOT NULL]) AS document_id,
+            head([value IN collect(DISTINCT coalesce(document.title, evidence.title)) WHERE value IS NOT NULL]) AS title,
+            head([value IN collect(DISTINCT coalesce(document.url, evidence.url)) WHERE value IS NOT NULL]) AS url,
+            head([value IN collect(DISTINCT coalesce(document.author, evidence.author)) WHERE value IS NOT NULL]) AS author,
+            head([value IN collect(DISTINCT coalesce(document.kind, evidence.kind)) WHERE value IS NOT NULL]) AS kind,
+            head([value IN collect(DISTINCT coalesce(document.content_hash, evidence.content_hash)) WHERE value IS NOT NULL]) AS content_hash,
+            head([value IN collect(DISTINCT coalesce(document.family_key, evidence.family_key)) WHERE value IS NOT NULL]) AS family_key,
+            head([value IN collect(DISTINCT coalesce(document.department_id, evidence.department_id)) WHERE value IS NOT NULL]) AS department_id,
+            max(coalesce(document.source_date, evidence.source_date)) AS source_date,
+            collect(DISTINCT CASE WHEN entity IS NULL THEN null ELSE entity{{
+                .id, .entity_type, .statement, .status, .confidence
+            }} END) AS claims
+        RETURN reference, document_id, title, source, url, author, kind,
+               content_hash, family_key, department_id,
+               toString(source_date) AS source_date, claims
+        ORDER BY source_date DESC
+        """,
+        _scoped_params(org_id, user),
+    )
+
+    documents = []
+    for row in rows:
+        reference = row.get("reference")
+        if not reference:
+            continue
+        source = str(row.get("source") or "unknown")
+        title = row.get("title") or _document_title(reference)
+        document_id = row.get("document_id") or (
+            "legacy-" + hashlib.sha256(
+                f"{org_id}\0{source}\0{reference}".encode("utf-8")
+            ).hexdigest()[:24]
+        )
+        claims = [
+            claim for claim in (row.get("claims") or [])
+            if claim and claim.get("id") and claim.get("statement")
+        ]
+        documents.append({
+            "id": document_id,
+            "title": title,
+            "source": source,
+            "reference": reference,
+            "url": row.get("url"),
+            "author": row.get("author"),
+            "kind": row.get("kind"),
+            "content_hash": row.get("content_hash"),
+            "family_key": row.get("family_key") or normalize_document_title(title, reference),
+            "department_id": row.get("department_id"),
+            "source_date": row.get("source_date"),
+            "claims": claims,
+            "is_demo": False,
+        })
+
+    workspace_families = build_document_families(documents)
+    demo_families = (
+        build_document_families(demo_document_versions()) if include_demo else []
+    )
+    families = demo_families + workspace_families
+    conflicts = sum(
+        family["diff"]["counts"]["conflicts"]
+        for family in workspace_families
+    )
+    return {
+        "families": families,
+        "total": len(families),
+        "stats": {
+            "workspace_families": len(workspace_families),
+            "workspace_versions": len(documents),
+            "contributors": len({
+                document["author"] for document in documents if document.get("author")
+            }),
+            "unresolved_conflicts": conflicts,
+        },
+        "methodology": {
+            "identity": "SHA-256 content identity",
+            "lineage": "W3C PROV-style revision and attribution",
+            "matching": "normalized titles + ontology-aligned graph claims",
+            "truth": "latest candidate with evidence, never an unqualified truth claim",
+        },
+    }
+
+
 @app.patch("/sources/{source_id}/documents")
 async def update_source_document_department(
     request: Request,
@@ -1868,6 +1977,14 @@ async def remove_source_document(
         DETACH DELETE ev
         """,
         {"org_id": org_id, "evidence_ids": evidence_ids},
+    )
+    await GraphClient.run_query(
+        """
+        MATCH (document:DocumentVersion {org_id: $org_id})
+        WHERE NOT (document)-[:HAS_EVIDENCE]->(:Evidence)
+        DETACH DELETE document
+        """,
+        {"org_id": org_id},
     )
 
     orphan_result = await GraphClient.run_query(
@@ -1993,6 +2110,15 @@ async def remove_source(
             })
             if result:
                 evidence_deleted = result[0].get("deleted", 0)
+
+            await GraphClient.run_query(
+                """
+                MATCH (document:DocumentVersion {org_id: $org_id})
+                WHERE NOT (document)-[:HAS_EVIDENCE]->(:Evidence)
+                DETACH DELETE document
+                """,
+                {"org_id": org_id},
+            )
 
             orphan_query = """
             MATCH (entity:Entity {org_id: $org_id})
@@ -2280,6 +2406,7 @@ async def upload_documents(
             }.get(suffix, "text"),
             title=extract_title_from_markdown(content, filename),
             body=content,
+            author=user.get("name") or user.get("email"),
             url=f"upload://{filename}",
             reference=f"upload:{filename}:{digest[:12]}",
             source_date=datetime.utcnow(),

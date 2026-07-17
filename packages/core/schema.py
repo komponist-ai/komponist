@@ -45,6 +45,10 @@ class GraphSchema:
             """
             CREATE CONSTRAINT workpack_id IF NOT EXISTS
             FOR (w:WorkPack) REQUIRE w.id IS UNIQUE
+            """,
+            """
+            CREATE CONSTRAINT document_version_id IF NOT EXISTS
+            FOR (d:DocumentVersion) REQUIRE d.id IS UNIQUE
             """
         ]
 
@@ -75,6 +79,14 @@ class GraphSchema:
             """
             CREATE INDEX workpack_org IF NOT EXISTS
             FOR (w:WorkPack) ON (w.org_id)
+            """,
+            """
+            CREATE INDEX document_version_family IF NOT EXISTS
+            FOR (d:DocumentVersion) ON (d.org_id, d.family_key)
+            """,
+            """
+            CREATE INDEX document_version_date IF NOT EXISTS
+            FOR (d:DocumentVersion) ON (d.source_date)
             """
         ]
 

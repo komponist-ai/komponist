@@ -71,6 +71,7 @@ api_tests=(
   organization_departments_e2e.py
   oauth_persistence_e2e.py
   source_documents_e2e.py
+  document_versions_e2e.py
   document_upload_e2e.py
   review_lifecycle_e2e.py
   export_e2e.py
@@ -86,6 +87,7 @@ for test_file in "${api_tests[@]}"; do
 done
 
 run_pytest_in_service api /app/packages/core/tests/test_queries.py
+run_pytest_in_service api /app/packages/core/tests/test_versioning.py
 
 run_in_service api tests/auth_session_e2e.py seed-restart
 "${compose[@]}" restart api

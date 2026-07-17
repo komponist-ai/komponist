@@ -31,7 +31,9 @@ turns documents and connected tools into a reviewed knowledge graph of
 evidence attached, and serves the same confirmed context to people, products,
 and AI agents through Studio, REST, a typed JavaScript SDK, and MCP. Its
 **Compose** workspace turns that reviewed context into cited presentations,
-briefings, and summaries.
+briefings, and summaries. **Versions** acts as Git for files: it groups likely
+revisions across sources, traces editors and timestamps, and compares the
+ontology-aligned claims beneath each document.
 
 > [!IMPORTANT]
 > Komponist is currently a local-first MVP, not a production-ready hosted
@@ -113,7 +115,9 @@ docker-compose --env-file .env -f docker/docker-compose.yml up -d --build
 4. Inspect confirmed entities and relationships in **Graph**.
 5. Ask a question in **Chat** and inspect the attached evidence.
 6. Open **Compose** to create a cited PowerPoint deck, briefing, or summary.
-7. Create an organization-scoped key under **Settings → API & MCP** when you
+7. Open **Versions** to try the built-in three-platform example or compare
+   related documents from your own sources.
+8. Create an organization-scoped key under **Settings → API & MCP** when you
    want to connect server-side code or an agent.
 
 Stop the stack with:
@@ -127,11 +131,12 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 | Area | Current state |
 | --- | --- |
 | Local core loop | Verified end-to-end in Docker: upload or scan documents, extract facts, review them, browse the graph, and receive cited answers |
-| Web application | Landing page, authentication, Studio chat, Compose, chat history, review queue, entities, graph, sources, team/departments, AI status, API keys, and export UI |
+| Web application | Landing page, authentication, Studio chat, Compose, file version intelligence, chat history, review queue, entities, graph, sources, team/departments, AI status, API keys, and export UI |
 | Authentication | Email/password registration and login, revocable HttpOnly sessions, invitations, organization switching, and provider-free Google login contracts |
 | Authorization | Organization isolation, owner/admin/member/viewer roles, department assignments, read/write checks, and encrypted connector configuration |
 | Chat | Confirmed-context retrieval, streaming answers, evidence cards, graph expansion, dynamic suggestions, and persistent multi-chat history |
 | Compose | Permission-aware presentations, briefings, and summaries with private history, inline citations, designed PDF, editable PowerPoint, and Markdown export |
+| Versions | Cross-source document families, provenance timelines, latest-candidate ranking, semantic claim diffs, conflict preservation, and a built-in three-platform example |
 | API and SDK | Organization API keys plus `/v1/context`, `/v1/brain`, `/v1/decisions`, and the typed `@komponist/sdk` workspace package |
 | MCP | Six authenticated tools and the `company-brain://info` resource verified through a real FastMCP client |
 | CI | Provider-free Python contracts, web lint/build, SDK build/tests, and a full Docker end-to-end suite in GitHub Actions |
@@ -184,6 +189,24 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 - Uses the configured AI model in live mode and a deterministic grounded
   template in provider-free mock mode.
 - Persists multiple conversations with rename and delete support.
+
+### Git for files
+
+- Persists each newly ingested revision as a content-addressed
+  `DocumentVersion` in Neo4j with source, editor, edit time, and department
+  provenance.
+- Groups versions using exact content hashes, normalized names, and overlap
+  between ontology-aligned graph claims.
+- Shows an evidence-backed **latest candidate** rather than presenting recency
+  as unquestioned truth.
+- Compares the oldest and newest claims, identifies additions/removals and
+  likely semantic changes, and keeps contradictions explicitly unresolved.
+- Includes a model-free Notion → Google Drive → browser upload example directly
+  in Studio so the workflow can be evaluated before connecting a provider.
+
+This is an MVP matcher, not a collaborative binary-file editor or a general
+three-way merge engine. Ambiguous families and conflicting claims still require
+human review.
 
 ### Sources
 
