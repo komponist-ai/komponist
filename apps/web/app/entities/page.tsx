@@ -128,8 +128,8 @@ export default function EntitiesPage() {
     () => fetchEntities(statusFilter),
   )
 
-  const entities = data?.entities ?? []
-  const countsByType = data?.counts_by_type ?? {}
+  const entities = useMemo(() => data?.entities ?? [], [data?.entities])
+  const countsByType = useMemo(() => data?.counts_by_type ?? {}, [data?.counts_by_type])
   const countsByStatus = data?.counts_by_status ?? {}
   const totalAcrossStatuses = Object.values(countsByStatus).reduce((sum, count) => sum + count, 0)
 

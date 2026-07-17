@@ -2767,17 +2767,85 @@ Return only the structured plan.""",
     return plan
 
 
-def _fallback_chat_plan(message: str, broad: bool = False) -> dict:
-    """Safe retrieval fallback when the planner is unavailable."""
+def _fallback_chat_plan(
+    message: str,
+    broad: bool = False,
+    history: Optional[List[ChatMessage]] = None,
+) -> dict:
+    """Build a conservative retrieval plan when no model planner is available."""
+    normalized = message.casefold()
+    aliases = {
+        "Decision": (
+            "decision", "decisions", "choice", "choices", "entscheidung",
+            "entscheidungen",
+        ),
+        "Goal": (
+            "goal", "goals", "objective", "objectives", "target", "targets",
+            "aim", "aims", "ziel", "ziele", "zielen",
+        ),
+        "Constraint": (
+            "constraint", "constraints", "requirement", "requirements", "rule",
+            "rules", "boundary", "boundaries", "vorgabe", "vorgaben",
+            "anforderung", "anforderungen",
+        ),
+        "Project": (
+            "project", "projects", "initiative", "initiatives", "pilot", "pilots",
+            "program", "programs", "projekt", "projekte", "projekten",
+        ),
+    }
+    entity_types = [
+        entity_type
+        for entity_type, words in aliases.items()
+        if any(re.search(rf"\b{re.escape(word)}\b", normalized) for word in words)
+    ]
+    asks_count = bool(re.search(
+        r"\b(how many|total number|number of|count|wie viele|anzahl)\b",
+        normalized,
+    ))
+    source_words = bool(re.search(
+        r"\b(source|sources|document|documents|file|files|page|pages|quelle|quellen|dokument|dokumente)\b",
+        normalized,
+    ))
+    if source_words and re.search(r"\b(most|fewest|per|by|meisten|wenigsten|pro|nach)\b", normalized):
+        asks_count = True
+    asks_all = bool(re.search(
+        r"\b(list|every|all|complete|entire|liste|alle|sämtliche|vollständig)\b",
+        normalized,
+    ))
+
+    if asks_count:
+        operation = "count"
+    elif asks_all:
+        operation = "list"
+    elif broad:
+        operation = "overview"
+    else:
+        operation = "search"
+
+    group_by = "none"
+    if operation == "count":
+        if source_words:
+            group_by = "source"
+        elif len(entity_types) != 1:
+            group_by = "entity_type"
+
+    history_context = _chat_history_text(history or [])
+    query = "" if operation in {"count", "list", "overview"} else (
+        f"{history_context}\n{message}" if history else message
+    )
     return {
-        "operation": "overview" if broad else "search",
-        "query": message,
-        "entity_types": [],
-        "group_by": "none",
+        "operation": operation,
+        "query": query,
+        "entity_types": entity_types,
+        "group_by": group_by,
         "sort": "relevance",
-        "limit": 100 if broad else 12,
+        "limit": 100 if operation in {"list", "count", "overview"} else 12,
         "language": "german" if _answer_in_german(message) else "english",
-        "expand_graph": False,
+        "expand_graph": bool(re.search(
+            r"\b(related|relationship|relationships|depends|dependency|impact|connected|"
+            r"zusammenhang|abhängig|abhängigkeit|auswirkung|verbunden)\b",
+            normalized,
+        )),
     }
 
 
@@ -3463,7 +3531,9 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
         mock_mode = os.getenv("KOMPONIST_AI_MODE", "live").lower() == "mock"
         llm = None if mock_mode else get_llm()
         if mock_mode:
-            plan = _fallback_chat_plan(payload.message)
+            plan = _fallback_chat_plan(
+                payload.message, history=conversation_history
+            )
         else:
             try:
                 plan = await _plan_chat_query(
@@ -3471,7 +3541,9 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
                 )
             except Exception as planner_error:
                 print(f"Chat query planning failed: {planner_error}")
-                plan = _fallback_chat_plan(payload.message, broad=True)
+                plan = _fallback_chat_plan(
+                    payload.message, broad=True, history=conversation_history
+                )
 
         operation = plan["operation"]
         retrieval_query = plan.get("query") or payload.message

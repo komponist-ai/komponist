@@ -388,8 +388,8 @@ function OnboardContent() {
                 <p className="text-small font-medium mb-2">Quick setup (2 minutes):</p>
                 <ol className="text-small text-muted space-y-2">
                   <li>1. Go to <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener" className="text-teal underline">notion.so/my-integrations</a></li>
-                  <li>2. Click "New integration" → name it "Komponist"</li>
-                  <li>3. Copy the "Internal Integration Secret"</li>
+                  <li>2. Click &quot;New integration&quot; → name it &quot;Komponist&quot;</li>
+                  <li>3. Copy the &quot;Internal Integration Secret&quot;</li>
                   <li>4. Paste it below</li>
                 </ol>
               </div>
@@ -407,7 +407,7 @@ function OnboardContent() {
                   disabled={status === 'connecting'}
                 />
                 <p className="text-caption text-faint mt-2">
-                  Starts with "secret_" or "ntn_"
+                  Starts with &quot;secret_&quot; or &quot;ntn_&quot;
                 </p>
               </div>
 

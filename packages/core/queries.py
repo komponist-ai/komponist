@@ -263,7 +263,7 @@ class BrainQueries:
         OPTIONAL MATCH (neighbor)-[:CITED_BY]->(nev:Evidence)
         RETURN
             e{{.id, .entity_type, .statement, .detail, .status, .confidence}} as seed,
-            evidence{{.id, .source, .reference, .url, .excerpt}} as seed_evidence,
+            [item IN evidence | item{{.id, .source, .reference, .url, .excerpt}}] as seed_evidence,
             collect(DISTINCT neighbor{{.id, .entity_type, .statement, .detail, .status}}) as neighbors,
             collect(DISTINCT nev{{.id, .source, .reference, .url, .excerpt}}) as neighbor_evidence
         """

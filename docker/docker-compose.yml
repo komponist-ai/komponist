@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Komponist - The open-source company brain for AI agents
 # Run with: docker compose up
 
