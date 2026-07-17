@@ -23,7 +23,10 @@ class BrainQueries:
         query_embedding: Optional[List[float]] = None,
         entity_types: Optional[List[str]] = None,
         k: int = 8,
-        status: str = "confirmed"
+        status: str = "confirmed",
+        department_ids: Optional[List[str]] = None,
+        access_all_departments: bool = True,
+        include_global: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Hybrid search: vector + fulltext, fused with reciprocal rank fusion.
@@ -60,6 +63,10 @@ class BrainQueries:
             WHERE node.org_id = $org_id
               AND node.status = $status
               AND (size($entity_types) = 0 OR node.entity_type IN $entity_types)
+              AND ($access_all_departments
+                   OR ($include_global AND size(coalesce(node.department_ids, [])) = 0)
+                   OR any(department_id IN coalesce(node.department_ids, [])
+                          WHERE department_id IN $department_ids))
             RETURN
                 node.id as id,
                 node.entity_type as entity_type,
@@ -82,6 +89,9 @@ class BrainQueries:
                     "k": k,
                     "query_embedding": query_embedding,
                     "entity_types": entity_types or [],
+                    "department_ids": department_ids or [],
+                    "access_all_departments": access_all_departments,
+                    "include_global": include_global,
                 }
             )
             add_ranked(vector_results)
@@ -94,6 +104,10 @@ class BrainQueries:
             WHERE node.org_id = $org_id
               AND node.status = $status
               AND (size($entity_types) = 0 OR node.entity_type IN $entity_types)
+              AND ($access_all_departments
+                   OR ($include_global AND size(coalesce(node.department_ids, [])) = 0)
+                   OR any(department_id IN coalesce(node.department_ids, [])
+                          WHERE department_id IN $department_ids))
             RETURN
                 node.id as id,
                 node.entity_type as entity_type,
@@ -116,6 +130,9 @@ class BrainQueries:
                     "query_text": query_text,
                     "k": k,
                     "entity_types": entity_types or [],
+                    "department_ids": department_ids or [],
+                    "access_all_departments": access_all_departments,
+                    "include_global": include_global,
                 }
             )
             add_ranked(fulltext_results)

@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  Layers3,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -25,6 +26,7 @@ import StudioTopbar from '../../components/StudioTopbar'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
+import { useAuth } from '../../components/AuthProvider'
 
 interface Source {
   id: string
@@ -33,7 +35,10 @@ interface Source {
   status: 'connected' | 'syncing' | 'error'
   lastSync: string | null
   itemCount: number
+  departmentId?: string | null
 }
+
+interface Department { id: string; name: string; color: string }
 
 interface SyncedDocument {
   id: string
@@ -44,6 +49,7 @@ interface SyncedDocument {
   evidence_count: number
   entity_count: number
   review_status: 'proposed' | 'confirmed' | 'mixed' | 'empty'
+  department_id?: string | null
 }
 
 interface DisconnectModal {
@@ -76,7 +82,9 @@ function canOpenUrl(value?: string) {
 }
 
 export default function SourcesPage() {
+  const { user } = useAuth()
   const [sources, setSources] = useState<Source[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [documents, setDocuments] = useState<Record<string, SyncedDocument[]>>({})
   const [documentsLoading, setDocumentsLoading] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
@@ -87,6 +95,10 @@ export default function SourcesPage() {
   const [disconnectModal, setDisconnectModal] = useState<DisconnectModal>({ source: null, loading: false })
   const [deleteModal, setDeleteModal] = useState<DeleteDocumentModal>(null)
   const [deletingDocument, setDeletingDocument] = useState(false)
+  const [movingDocument, setMovingDocument] = useState<string | null>(null)
+  const [movingSource, setMovingSource] = useState<string | null>(null)
+
+  const canManage = user?.role === 'owner' || user?.role === 'admin'
 
   useEffect(() => setOrgId(getActiveOrgId()), [])
 
@@ -110,11 +122,16 @@ export default function SourcesPage() {
     if (!orgId) return
     setError(null)
     try {
-      const response = await apiFetch(`${API_URL}/sources?org_id=${orgId}`)
-      const payload = await response.json()
+      const [response, departmentResponse] = await Promise.all([
+        apiFetch(`${API_URL}/sources?org_id=${orgId}`),
+        apiFetch(`${API_URL}/auth/organizations/${encodeURIComponent(orgId)}/departments`),
+      ])
+      const [payload, departmentPayload] = await Promise.all([response.json(), departmentResponse.json()])
       if (!response.ok) throw new Error(payload.detail || 'Could not load sources')
+      if (!departmentResponse.ok) throw new Error(departmentPayload.detail || 'Could not load departments')
       const nextSources: Source[] = payload.sources ?? []
       setSources(nextSources)
+      setDepartments(departmentPayload.departments ?? [])
       setExpanded((current) => current ?? nextSources[0]?.id ?? null)
       await Promise.all(nextSources.map((source) => fetchDocuments(source.id)))
     } catch (loadError) {
@@ -179,6 +196,44 @@ export default function SourcesPage() {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not remove document')
     } finally {
       setDeletingDocument(false)
+    }
+  }
+
+  const moveDocument = async (source: Source, document: SyncedDocument, departmentId: string) => {
+    setMovingDocument(document.id)
+    setError(null)
+    try {
+      const response = await apiFetch(`${API_URL}/sources/${source.id}/documents?org_id=${orgId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: document.reference, department_id: departmentId || null }),
+      })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Could not move document')
+      await fetchDocuments(source.id)
+    } catch (moveError) {
+      setError(moveError instanceof Error ? moveError.message : 'Could not move document')
+    } finally {
+      setMovingDocument(null)
+    }
+  }
+
+  const moveSource = async (source: Source, departmentId: string) => {
+    setMovingSource(source.id)
+    setError(null)
+    try {
+      const response = await apiFetch(`${API_URL}/sources/${source.id}?org_id=${orgId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department_id: departmentId || null }),
+      })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Could not update source scope')
+      setSources(current => current.map(item => item.id === source.id ? payload : item))
+    } catch (moveError) {
+      setError(moveError instanceof Error ? moveError.message : 'Could not update source scope')
+    } finally {
+      setMovingSource(null)
     }
   }
 
@@ -266,6 +321,7 @@ export default function SourcesPage() {
                             </Badge>
                           </div>
                           <p className="mt-1 text-xs text-muted">{copy.description}</p>
+                          <div className="mt-2 flex items-center gap-1.5 text-[10px] font-semibold text-muted"><Layers3 className="size-3" />{source.type === 'upload' ? 'Access is set per document' : source.departmentId ? departments.find(department => department.id === source.departmentId)?.name || 'Department scoped' : 'Entire organization'}</div>
                         </div>
                       </div>
 
@@ -274,6 +330,18 @@ export default function SourcesPage() {
                           <div className="text-xs font-bold">{sourceDocuments.length} document{sourceDocuments.length === 1 ? '' : 's'}</div>
                           <div className="mt-0.5 text-[10px] text-muted">Last sync {formatDate(source.lastSync)}</div>
                         </div>
+                        {canManage && source.type !== 'upload' && (
+                          <select
+                            className="h-9 max-w-44 rounded-md border-2 border-ink bg-white px-2 text-xs font-semibold outline-none"
+                            value={source.departmentId || ''}
+                            onChange={event => void moveSource(source, event.target.value)}
+                            disabled={movingSource === source.id}
+                            aria-label={`Default department for ${source.name}`}
+                          >
+                            <option value="">Entire organization</option>
+                            {departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+                          </select>
+                        )}
                         {source.type !== 'upload' && (
                           <Button variant="outline" size="sm" onClick={() => void handleSync(source)} disabled={isSyncing}>
                             {isSyncing ? <Loader2 className="animate-spin" /> : <RefreshCw />} {isSyncing ? 'Syncing' : 'Sync'}
@@ -316,6 +384,18 @@ export default function SourcesPage() {
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-1 sm:justify-end">
+                                    {canManage && (
+                                      <select
+                                        className="h-9 max-w-40 rounded-md border border-line bg-white px-2 text-[10px] font-semibold outline-none focus:border-ink"
+                                        value={document.department_id || ''}
+                                        onChange={event => void moveDocument(source, document, event.target.value)}
+                                        disabled={movingDocument === document.id}
+                                        aria-label={`Department for ${document.title}`}
+                                      >
+                                        <option value="">Entire organization</option>
+                                        {departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+                                      </select>
+                                    )}
                                     {canOpenUrl(document.url) && <Button asChild variant="ghost" size="icon" title="Open original"><a href={document.url} target="_blank" rel="noreferrer"><ExternalLink /></a></Button>}
                                     <Button variant="ghost" size="icon" title="Remove from Komponist" aria-label={`Remove ${document.title} from Komponist`} className="text-danger hover:bg-danger-soft hover:text-danger" onClick={() => setDeleteModal({ source, document })}><Trash2 /></Button>
                                   </div>

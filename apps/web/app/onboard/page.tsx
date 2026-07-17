@@ -10,6 +10,7 @@ import StudioTopbar from '../../components/StudioTopbar'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
+import { useAuth } from '../../components/AuthProvider'
 
 type SourceType = 'notion' | 'slack' | 'google' | 'local' | 'upload'
 type ConnectorStatus = 'idle' | 'connecting' | 'connected' | 'error'
@@ -20,6 +21,8 @@ type UploadResult = {
   entities_created?: number
   error?: string
 }
+
+type Department = { id: string; name: string; color: string }
 
 const SOURCE_OPTIONS: Array<{
   type: SourceType
@@ -46,6 +49,7 @@ const SOURCE_TITLES: Record<SourceType, string> = {
 function OnboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { user } = useAuth()
 
   const [selectedSource, setSelectedSource] = useState<SourceType | null>(null)
   const [status, setStatus] = useState<ConnectorStatus>('idle')
@@ -58,10 +62,33 @@ function OnboardContent() {
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([])
 
   const [orgId, setOrgId] = useState('')
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [departmentId, setDepartmentId] = useState('')
 
   useEffect(() => {
     setOrgId(getActiveOrgId())
   }, [])
+
+  useEffect(() => {
+    if (!orgId) return
+    const loadDepartments = async () => {
+      try {
+        const response = await apiFetch(`${API_URL}/auth/organizations/${encodeURIComponent(orgId)}/departments`)
+        const payload = await response.json()
+        if (!response.ok) return
+        const nextDepartments = payload.departments || []
+        setDepartments(nextDepartments)
+        if (!user?.access_all_departments && nextDepartments.length) {
+          setDepartmentId(current => current || nextDepartments[0].id)
+        }
+      } catch {
+        setDepartments([])
+      }
+    }
+    void loadDepartments()
+  }, [orgId, user?.access_all_departments])
+
+  const departmentQuery = departmentId ? `&department_id=${encodeURIComponent(departmentId)}` : ''
 
   // Handle OAuth callback
   useEffect(() => {
@@ -85,7 +112,7 @@ function OnboardContent() {
 
     try {
       const response = await apiFetch(
-        `${API_URL}/auth/notion/token?org_id=${orgId}`,
+        `${API_URL}/auth/notion/token?org_id=${orgId}${departmentQuery}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -157,7 +184,7 @@ function OnboardContent() {
 
     try {
       const addResponse = await apiFetch(
-        `${API_URL}/sources?org_id=${orgId}&source_type=local&name=${encodeURIComponent('Local Documents')}`,
+        `${API_URL}/sources?org_id=${orgId}&source_type=local&name=${encodeURIComponent('Local Documents')}${departmentQuery}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -200,7 +227,7 @@ function OnboardContent() {
       const form = new FormData()
       uploadFiles.forEach(file => form.append('files', file))
       const response = await apiFetch(
-        `${API_URL}/sources/upload?org_id=${orgId}`,
+        `${API_URL}/sources/upload?org_id=${orgId}${departmentQuery}`,
         { method: 'POST', body: form }
       )
       const data = await response.json()
@@ -329,6 +356,23 @@ function OnboardContent() {
               <p className="text-small" style={{ color: 'var(--color-success)' }}>
                 ✓ Connected! Redirecting...
               </p>
+            </div>
+          )}
+
+          {(['notion', 'upload', 'local'] as SourceType[]).includes(selectedSource) && (
+            <div className="card mb-6">
+              <div className="flex items-start gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink bg-warning-soft"><LockKeyhole className="size-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <label className="block text-small font-semibold" htmlFor="source-department">Knowledge access</label>
+                  <p className="mt-1 text-caption text-muted">Choose who may retrieve facts extracted from this source.</p>
+                  <select id="source-department" className="input mt-3" value={departmentId} onChange={event => setDepartmentId(event.target.value)} disabled={status === 'connecting'}>
+                    {user?.access_all_departments && <option value="">Entire organization</option>}
+                    {departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}
+                  </select>
+                  {!user?.access_all_departments && departments.length === 0 && <p className="mt-2 text-caption text-danger">An admin must assign you to a department before you can upload knowledge.</p>}
+                </div>
+              </div>
             </div>
           )}
 
@@ -470,7 +514,7 @@ function OnboardContent() {
                 </div>)}
               </div>}
               <button onClick={handleDocumentUpload} className="btn btn-primary"
-                disabled={status === 'connecting' || uploadFiles.length === 0}>
+                disabled={status === 'connecting' || uploadFiles.length === 0 || (!user?.access_all_departments && !departmentId)}>
                 {status === 'connecting' ? 'Extracting with OpenAI…' : `Upload ${uploadFiles.length || ''} document${uploadFiles.length === 1 ? '' : 's'}`}
               </button>
               {uploadResults.length > 0 && <div className="upload-results mt-6">

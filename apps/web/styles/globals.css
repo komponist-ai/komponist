@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .settings-input {
+    @apply h-12 w-full rounded-xl border-2 border-ink bg-white px-4 text-sm outline-none shadow-[2px_2px_0_#d9cfc0] transition focus:shadow-[3px_3px_0_#e8641b];
+  }
+}
+
 /* ============================================
    Komponist Design System - Global Styles
    ============================================ */

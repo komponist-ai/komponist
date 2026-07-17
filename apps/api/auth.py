@@ -17,6 +17,11 @@ from database import (
     AuthIdentity,
     AuthSession,
     AuthSessionContext,
+    ChatConversation,
+    ChatMessageRecord,
+    ConnectedSource,
+    Department,
+    DepartmentMembership,
     OAuthLoginState,
     Org,
     OrganizationInvitation,
@@ -39,6 +44,7 @@ STATE_MINUTES = 10
 INVITATION_DAYS = 7
 MEMBERSHIP_ROLES = {"owner", "admin", "member", "viewer"}
 INVITABLE_ROLES = {"admin", "member", "viewer"}
+DEPARTMENT_COLORS = {"orange", "teal", "blue", "violet", "rose", "amber"}
 PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 128
 PASSWORD_SCRYPT_N = 2**14
@@ -462,7 +468,28 @@ async def _session_principal(session, raw_token: Optional[str]):
     return auth_session, user, identity, membership, org, context
 
 
-def _user_payload(user, identity, membership, org) -> dict[str, Any]:
+async def _membership_department_ids(session, membership) -> list[str]:
+    if membership.role in {"owner", "admin"}:
+        return []
+    return list(
+        (
+            await session.execute(
+                select(DepartmentMembership.department_id)
+                .join(Department, Department.id == DepartmentMembership.department_id)
+                .where(
+                    DepartmentMembership.org_id == membership.org_id,
+                    DepartmentMembership.user_id == membership.user_id,
+                    Department.org_id == membership.org_id,
+                )
+                .order_by(Department.name.asc())
+            )
+        ).scalars()
+    )
+
+
+def _user_payload(
+    user, identity, membership, org, department_ids: Optional[list[str]] = None
+) -> dict[str, Any]:
     return {
         "id": user.id,
         "org_id": org.id,
@@ -470,6 +497,8 @@ def _user_payload(user, identity, membership, org) -> dict[str, Any]:
         "name": user.name,
         "avatar_url": identity.avatar_url if identity is not None else None,
         "role": membership.role,
+        "department_ids": department_ids or [],
+        "access_all_departments": membership.role in {"owner", "admin"},
         "organization": {"id": org.id, "name": org.name},
     }
 
@@ -481,7 +510,8 @@ async def authenticated_user(raw_token: Optional[str]) -> Optional[dict[str, Any
             return None
         _, user, identity, membership, org, _ = principal
         await session.commit()
-        return _user_payload(user, identity, membership, org)
+        department_ids = await _membership_department_ids(session, membership)
+        return _user_payload(user, identity, membership, org, department_ids)
 
 
 async def authorize_organization(
@@ -510,7 +540,8 @@ async def authorize_organization(
         if allowed_roles and membership.role not in allowed_roles:
             raise PermissionError("Owner or admin access is required")
         await session.commit()
-        return _user_payload(user, identity, membership, org)
+        department_ids = await _membership_department_ids(session, membership)
+        return _user_payload(user, identity, membership, org, department_ids)
 
 
 async def list_organizations(raw_token: Optional[str]) -> Optional[list[dict[str, Any]]]:
@@ -563,7 +594,325 @@ async def select_organization(raw_token: Optional[str], org_id: str) -> Optional
         context.active_org_id = org_id
         context.updated_at = datetime.utcnow()
         await session.commit()
-        return _user_payload(user, identity, membership, org)
+        department_ids = await _membership_department_ids(session, membership)
+        return _user_payload(user, identity, membership, org, department_ids)
+
+
+async def _active_membership(session, user_id: str, org_id: str):
+    return (
+        await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.org_id == org_id,
+                OrganizationMembership.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _management_actor(session, user_id: str, org_id: str):
+    actor = await _active_membership(session, user_id, org_id)
+    if actor is None or actor.role not in {"owner", "admin"}:
+        raise PermissionError("Only organization owners and admins can manage the team")
+    return actor
+
+
+async def _validated_department_ids(
+    session, org_id: str, department_ids: Optional[list[str]]
+) -> list[str]:
+    normalized = list(dict.fromkeys(department_ids or []))
+    if len(normalized) > 25:
+        raise ValueError("A member can belong to at most 25 departments")
+    if not normalized:
+        return []
+    found = set(
+        (
+            await session.execute(
+                select(Department.id).where(
+                    Department.org_id == org_id,
+                    Department.id.in_(normalized),
+                )
+            )
+        ).scalars()
+    )
+    if found != set(normalized):
+        raise ValueError("One or more departments do not belong to this organization")
+    return normalized
+
+
+async def _clear_member_chat_history(session, org_id: str, user_id: str) -> None:
+    """Revoke cached answers when a member's knowledge scope changes."""
+    conversations = list(
+        (
+            await session.execute(
+                select(ChatConversation.id).where(
+                    ChatConversation.org_id == org_id,
+                    ChatConversation.user_id == user_id,
+                )
+            )
+        ).scalars()
+    )
+    if conversations:
+        await session.execute(
+            delete(ChatMessageRecord).where(
+                ChatMessageRecord.org_id == org_id,
+                ChatMessageRecord.conversation_id.in_(conversations),
+            )
+        )
+        await session.execute(
+            delete(ChatConversation).where(
+                ChatConversation.org_id == org_id,
+                ChatConversation.user_id == user_id,
+            )
+        )
+
+
+async def list_organization_departments(
+    raw_token: Optional[str], org_id: str
+) -> Optional[list[dict[str, Any]]]:
+    """List departments visible to the signed-in organization member."""
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, _ = principal
+        actor = await _active_membership(session, user.id, org_id)
+        if actor is None:
+            raise PermissionError("User is not a member of this organization")
+
+        query = select(Department).where(Department.org_id == org_id)
+        if actor.role not in {"owner", "admin"}:
+            query = query.join(
+                DepartmentMembership,
+                DepartmentMembership.department_id == Department.id,
+            ).where(DepartmentMembership.user_id == user.id)
+        departments = list(
+            (await session.execute(query.order_by(Department.name.asc()))).scalars()
+        )
+        department_ids = [department.id for department in departments]
+        assignments = []
+        if department_ids:
+            assignments = (
+                await session.execute(
+                    select(DepartmentMembership).where(
+                        DepartmentMembership.org_id == org_id,
+                        DepartmentMembership.department_id.in_(department_ids),
+                    )
+                )
+            ).scalars().all()
+        counts = {
+            department_id: sum(
+                assignment.department_id == department_id
+                for assignment in assignments
+            )
+            for department_id in department_ids
+        }
+        await session.commit()
+        return [
+            {
+                "id": department.id,
+                "name": department.name,
+                "description": department.description,
+                "color": department.color,
+                "member_count": counts.get(department.id, 0),
+                "created_at": department.created_at.isoformat(),
+            }
+            for department in departments
+        ]
+
+
+async def create_organization_department(
+    raw_token: Optional[str],
+    org_id: str,
+    name: str,
+    description: Optional[str] = None,
+    color: str = "orange",
+) -> Optional[dict[str, Any]]:
+    normalized_name = " ".join((name or "").split()).strip()
+    normalized_description = " ".join((description or "").split()).strip() or None
+    normalized_color = color.strip().lower()
+    if not normalized_name or len(normalized_name) > 100:
+        raise ValueError("Department name must be between 1 and 100 characters")
+    if normalized_description and len(normalized_description) > 500:
+        raise ValueError("Department description must be at most 500 characters")
+    if normalized_color not in DEPARTMENT_COLORS:
+        raise ValueError("Unsupported department color")
+
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, _ = principal
+        await _management_actor(session, user.id, org_id)
+        existing = (
+            await session.execute(
+                select(Department).where(
+                    Department.org_id == org_id,
+                    Department.name == normalized_name,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            raise ValueError("A department with this name already exists")
+        department = Department(
+            id=str(uuid4()),
+            org_id=org_id,
+            name=normalized_name,
+            description=normalized_description,
+            color=normalized_color,
+        )
+        session.add(department)
+        await session.commit()
+        return {
+            "id": department.id,
+            "name": department.name,
+            "description": department.description,
+            "color": department.color,
+            "member_count": 0,
+            "created_at": department.created_at.isoformat(),
+        }
+
+
+async def update_organization_department(
+    raw_token: Optional[str],
+    org_id: str,
+    department_id: str,
+    *,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    color: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, _ = principal
+        await _management_actor(session, user.id, org_id)
+        department = await session.get(Department, department_id)
+        if department is None or department.org_id != org_id:
+            raise ValueError("Department not found")
+        if name is not None:
+            normalized_name = " ".join(name.split()).strip()
+            if not normalized_name or len(normalized_name) > 100:
+                raise ValueError("Department name must be between 1 and 100 characters")
+            duplicate = (
+                await session.execute(
+                    select(Department).where(
+                        Department.org_id == org_id,
+                        Department.name == normalized_name,
+                        Department.id != department_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if duplicate is not None:
+                raise ValueError("A department with this name already exists")
+            department.name = normalized_name
+        if description is not None:
+            normalized_description = " ".join(description.split()).strip()
+            if len(normalized_description) > 500:
+                raise ValueError("Department description must be at most 500 characters")
+            department.description = normalized_description or None
+        if color is not None:
+            normalized_color = color.strip().lower()
+            if normalized_color not in DEPARTMENT_COLORS:
+                raise ValueError("Unsupported department color")
+            department.color = normalized_color
+        department.updated_at = datetime.utcnow()
+        await session.commit()
+        return {
+            "id": department.id,
+            "name": department.name,
+            "description": department.description,
+            "color": department.color,
+        }
+
+
+async def delete_organization_department(
+    raw_token: Optional[str],
+    org_id: str,
+    department_id: str,
+    reassign_to: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Delete a department and optionally move assignments to another department."""
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, _ = principal
+        await _management_actor(session, user.id, org_id)
+        department = await session.get(Department, department_id)
+        if department is None or department.org_id != org_id:
+            raise ValueError("Department not found")
+        target = None
+        if reassign_to:
+            if reassign_to == department_id:
+                raise ValueError("Replacement department must be different")
+            target = await session.get(Department, reassign_to)
+            if target is None or target.org_id != org_id:
+                raise ValueError("Replacement department not found")
+
+        assignments = list(
+            (
+                await session.execute(
+                    select(DepartmentMembership).where(
+                        DepartmentMembership.org_id == org_id,
+                        DepartmentMembership.department_id == department_id,
+                    )
+                )
+            ).scalars()
+        )
+        if target is not None:
+            existing_target_users = set(
+                (
+                    await session.execute(
+                        select(DepartmentMembership.user_id).where(
+                            DepartmentMembership.department_id == target.id
+                        )
+                    )
+                ).scalars()
+            )
+            for assignment in assignments:
+                if assignment.user_id not in existing_target_users:
+                    session.add(
+                        DepartmentMembership(
+                            id=str(uuid4()),
+                            org_id=org_id,
+                            department_id=target.id,
+                            user_id=assignment.user_id,
+                        )
+                    )
+        await session.execute(
+            delete(DepartmentMembership).where(
+                DepartmentMembership.org_id == org_id,
+                DepartmentMembership.department_id == department_id,
+            )
+        )
+        await session.execute(
+            delete(Department).where(
+                Department.id == department_id,
+                Department.org_id == org_id,
+            )
+        )
+        sources = list(
+            (
+                await session.execute(
+                    select(ConnectedSource).where(
+                        ConnectedSource.org_id == org_id,
+                        ConnectedSource.department_id == department_id,
+                    )
+                )
+            ).scalars()
+        )
+        for source in sources:
+            source.department_id = target.id if target else None
+        for assigned_user_id in {assignment.user_id for assignment in assignments}:
+            await _clear_member_chat_history(session, org_id, assigned_user_id)
+        await session.commit()
+        return {
+            "id": department_id,
+            "reassigned_to": target.id if target else None,
+            "members_moved": len(assignments),
+        }
 
 
 async def list_organization_members(
@@ -596,6 +945,21 @@ async def list_organization_members(
                 .order_by(User.name.asc())
             )
         ).all()
+        assignment_rows = (
+            await session.execute(
+                select(DepartmentMembership, Department)
+                .join(Department, Department.id == DepartmentMembership.department_id)
+                .where(DepartmentMembership.org_id == org_id)
+                .order_by(Department.name.asc())
+            )
+        ).all()
+        departments_by_user: dict[str, list[dict[str, str]]] = {}
+        for assignment, department in assignment_rows:
+            departments_by_user.setdefault(assignment.user_id, []).append({
+                "id": department.id,
+                "name": department.name,
+                "color": department.color,
+            })
         await session.commit()
         return [
             {
@@ -604,9 +968,94 @@ async def list_organization_members(
                 "name": member_user.name,
                 "email": member_user.email,
                 "role": member.role,
+                "departments": departments_by_user.get(member.user_id, []),
             }
             for member, member_user in rows
         ]
+
+
+async def update_organization_member(
+    raw_token: Optional[str],
+    org_id: str,
+    membership_id: str,
+    *,
+    role: Optional[str] = None,
+    department_ids: Optional[list[str]] = None,
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, _ = principal
+        actor = await _management_actor(session, user.id, org_id)
+        target = await session.get(OrganizationMembership, membership_id)
+        if target is None or target.org_id != org_id or target.status != "active":
+            raise ValueError("Organization member not found")
+        if target.role == "owner":
+            raise PermissionError("The organization owner cannot be reorganized")
+        if actor.role != "owner" and target.role == "admin":
+            raise PermissionError("Only the owner can manage board/admin members")
+
+        normalized_role = role.strip().lower() if role is not None else target.role
+        if normalized_role not in INVITABLE_ROLES:
+            raise ValueError("Role must be admin, member, or viewer")
+        if (target.role == "admin" or normalized_role == "admin") and actor.role != "owner":
+            raise PermissionError("Only the owner can grant or remove board/admin access")
+        normalized_departments = await _validated_department_ids(
+            session, org_id, department_ids
+        ) if department_ids is not None else None
+
+        target.role = normalized_role
+        target.updated_at = datetime.utcnow()
+        if normalized_departments is not None:
+            await session.execute(
+                delete(DepartmentMembership).where(
+                    DepartmentMembership.org_id == org_id,
+                    DepartmentMembership.user_id == target.user_id,
+                )
+            )
+            if normalized_role not in {"owner", "admin"}:
+                for department_id in normalized_departments:
+                    session.add(
+                        DepartmentMembership(
+                            id=str(uuid4()),
+                            org_id=org_id,
+                            department_id=department_id,
+                            user_id=target.user_id,
+                        )
+                    )
+        await _clear_member_chat_history(session, org_id, target.user_id)
+        await session.commit()
+        return {"id": target.id, "role": target.role}
+
+
+async def remove_organization_member(
+    raw_token: Optional[str], org_id: str, membership_id: str
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        principal = await _session_principal(session, raw_token)
+        if principal is None:
+            return None
+        _, user, _, _, _, _ = principal
+        actor = await _management_actor(session, user.id, org_id)
+        target = await session.get(OrganizationMembership, membership_id)
+        if target is None or target.org_id != org_id or target.status != "active":
+            raise ValueError("Organization member not found")
+        if target.role == "owner":
+            raise PermissionError("The organization owner cannot be removed")
+        if actor.role != "owner" and target.role == "admin":
+            raise PermissionError("Only the owner can remove board/admin members")
+        await session.execute(
+            delete(DepartmentMembership).where(
+                DepartmentMembership.org_id == org_id,
+                DepartmentMembership.user_id == target.user_id,
+            )
+        )
+        target.status = "removed"
+        target.updated_at = datetime.utcnow()
+        await _clear_member_chat_history(session, org_id, target.user_id)
+        await session.commit()
+        return {"id": target.id, "user_id": target.user_id, "status": "removed"}
 
 
 async def create_organization_invitation(
@@ -614,6 +1063,7 @@ async def create_organization_invitation(
     org_id: str,
     email: str,
     role: str,
+    department_ids: Optional[list[str]] = None,
 ) -> Optional[dict[str, Any]]:
     email = email.strip().lower()
     role = role.strip().lower()
@@ -640,6 +1090,11 @@ async def create_organization_invitation(
             raise PermissionError("Only organization owners and admins can invite")
         if role == "admin" and actor.role != "owner":
             raise PermissionError("Only an owner can invite another admin")
+        normalized_departments = await _validated_department_ids(
+            session, org_id, department_ids
+        )
+        if role == "admin":
+            normalized_departments = []
 
         await session.execute(
             delete(OrganizationInvitation).where(
@@ -656,6 +1111,7 @@ async def create_organization_invitation(
                 org_id=org_id,
                 email=email,
                 role=role,
+                department_ids=normalized_departments,
                 token_hash=_hash_token(raw_invite),
                 invited_by_user_id=user.id,
                 expires_at=expires_at,
@@ -666,6 +1122,7 @@ async def create_organization_invitation(
             "token": raw_invite,
             "email": email,
             "role": role,
+            "department_ids": normalized_departments,
             "expires_at": expires_at.isoformat(),
         }
 
@@ -723,6 +1180,26 @@ async def accept_organization_invitation(
             membership.status = "active"
             membership.updated_at = now
 
+        await session.execute(
+            delete(DepartmentMembership).where(
+                DepartmentMembership.org_id == invitation.org_id,
+                DepartmentMembership.user_id == user.id,
+            )
+        )
+        if membership.role not in {"owner", "admin"}:
+            department_ids = await _validated_department_ids(
+                session, invitation.org_id, invitation.department_ids
+            )
+            for department_id in department_ids:
+                session.add(
+                    DepartmentMembership(
+                        id=str(uuid4()),
+                        org_id=invitation.org_id,
+                        department_id=department_id,
+                        user_id=user.id,
+                    )
+                )
+
         org = await session.get(Org, invitation.org_id)
         if org is None:
             raise ValueError("Invitation organization no longer exists")
@@ -731,7 +1208,8 @@ async def accept_organization_invitation(
         context.active_org_id = invitation.org_id
         context.updated_at = now
         await session.commit()
-        return _user_payload(user, identity, membership, org)
+        department_ids = await _membership_department_ids(session, membership)
+        return _user_payload(user, identity, membership, org, department_ids)
 
 
 async def revoke_session(raw_token: Optional[str]) -> None:

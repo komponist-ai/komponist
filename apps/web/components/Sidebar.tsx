@@ -32,7 +32,7 @@ const navigation = [
     items: [
       { name: 'General', href: '/settings', icon: Settings },
       { name: 'AI Provider', href: '/settings/ai', icon: Sparkles },
-      { name: 'Team & roles', href: '/settings/team', icon: UsersRound },
+      { name: 'Team & departments', href: '/settings/team', icon: UsersRound },
       { name: 'API & MCP', href: '/settings/api', icon: KeyRound },
       { name: 'Export', href: '/settings/export', icon: Download },
     ],

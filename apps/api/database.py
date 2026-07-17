@@ -120,6 +120,40 @@ class OrganizationMembership(Base):
     )
 
 
+class Department(Base):
+    """A named access boundary inside an organization."""
+    __tablename__ = "departments"
+    __table_args__ = (
+        UniqueConstraint("org_id", "name", name="uq_department_org_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    color: Mapped[str] = mapped_column(String(20), default="orange")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class DepartmentMembership(Base):
+    """Assign an organization member to one department."""
+    __tablename__ = "department_memberships"
+    __table_args__ = (
+        UniqueConstraint(
+            "department_id", "user_id", name="uq_department_membership_department_user"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    department_id: Mapped[str] = mapped_column(String(36), index=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class AuthSessionContext(Base):
     """Organization selected for a browser session."""
     __tablename__ = "auth_session_contexts"
@@ -139,6 +173,7 @@ class OrganizationInvitation(Base):
     org_id: Mapped[str] = mapped_column(String(36), index=True)
     email: Mapped[str] = mapped_column(String(255), index=True)
     role: Mapped[str] = mapped_column(String(20), default="member")
+    department_ids: Mapped[list] = mapped_column(JSON, default=list)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     invited_by_user_id: Mapped[str] = mapped_column(String(36))
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -236,6 +271,9 @@ class ConnectedSource(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     org_id: Mapped[str] = mapped_column(String(50), index=True)
     source_type: Mapped[str] = mapped_column(String(50), index=True)
+    department_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(50), default="connected")
     last_sync: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -304,6 +342,22 @@ async def init_db():
     """Initialize database (create tables)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Existing self-hosted MVP installs historically used create_all without
+        # running Alembic. Keep this additive upgrade idempotent so those databases
+        # receive the department columns as well; migration 008 remains the source
+        # of truth for managed deployments.
+        await conn.execute(text(
+            "ALTER TABLE organization_invitations "
+            "ADD COLUMN IF NOT EXISTS department_ids JSON NOT NULL DEFAULT '[]'"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE connected_sources "
+            "ADD COLUMN IF NOT EXISTS department_id VARCHAR(36)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_connected_sources_department_id "
+            "ON connected_sources (department_id)"
+        ))
 
 
 async def health_check_db() -> dict:

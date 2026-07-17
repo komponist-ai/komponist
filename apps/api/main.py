@@ -29,7 +29,13 @@ from core.graph import GraphClient
 from core.schema import GraphSchema
 from core.export import export_brain_yaml
 from core.import_ import import_brain_yaml, parse_export_yaml
-from database import ConnectorOAuthState, async_session, init_db, health_check_db
+from database import (
+    ConnectorOAuthState,
+    Department,
+    async_session,
+    init_db,
+    health_check_db,
+)
 from persistence import (
     append_chat_message,
     authenticate_api_key,
@@ -49,6 +55,7 @@ from persistence import (
     revoke_api_key,
     resolve_approval_request,
     rename_chat_conversation,
+    set_connected_source_department,
     update_connected_source,
     upsert_single_source_type,
 )
@@ -289,14 +296,80 @@ async def _authorized_org_user(
     return user
 
 
-async def _get_entity_lifecycle(entity_id: str, org_id: str) -> dict:
+def _knowledge_scope_params(user: dict) -> dict:
+    return {
+        "access_all_departments": bool(user.get("access_all_departments")),
+        "department_ids": user.get("department_ids") or [],
+    }
+
+
+def _knowledge_scope(alias: str) -> str:
+    """Cypher predicate for organization-wide or department-visible knowledge."""
+    return (
+        f"($access_all_departments OR size(coalesce({alias}.department_ids, [])) = 0 "
+        f"OR any(department_id IN coalesce({alias}.department_ids, []) "
+        "WHERE department_id IN $department_ids))"
+    )
+
+
+def _evidence_scope(alias: str) -> str:
+    return (
+        f"($access_all_departments OR {alias}.department_id IS NULL "
+        f"OR {alias}.department_id IN $department_ids)"
+    )
+
+
+def _scoped_params(org_id: str, user: dict, **values: Any) -> dict:
+    return {"org_id": org_id, **_knowledge_scope_params(user), **values}
+
+
+async def _validate_department_scope(
+    org_id: str,
+    user: dict,
+    department_id: Optional[str],
+    *,
+    require_for_limited_member: bool = False,
+) -> Optional[str]:
+    if department_id is None:
+        if require_for_limited_member and not user.get("access_all_departments"):
+            raise HTTPException(
+                status_code=403,
+                detail="Choose one of your departments before adding knowledge",
+            )
+        return None
+    async with async_session() as session:
+        department = await session.get(Department, department_id)
+    if department is None or department.org_id != org_id:
+        raise HTTPException(status_code=400, detail="Department not found")
+    if (
+        not user.get("access_all_departments")
+        and department_id not in (user.get("department_ids") or [])
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only add knowledge to one of your departments",
+        )
+    return department_id
+
+
+def _source_visible_to_user(source: dict, user: dict) -> bool:
+    department_id = source.get("departmentId")
+    return bool(
+        user.get("access_all_departments")
+        or department_id is None
+        or department_id in (user.get("department_ids") or [])
+    )
+
+
+async def _get_entity_lifecycle(entity_id: str, org_id: str, user: dict) -> dict:
     """Load the lifecycle fields required by review mutations."""
     result = await GraphClient.run_query(
-        """
-        MATCH (e:Entity {id: $entity_id, org_id: $org_id})
+        f"""
+        MATCH (e:Entity {{id: $entity_id, org_id: $org_id}})
+        WHERE {_knowledge_scope('e')}
         RETURN e.id AS id, e.entity_type AS entity_type, e.status AS status
         """,
-        {"entity_id": entity_id, "org_id": org_id},
+        _scoped_params(org_id, user, entity_id=entity_id),
     )
     if not result:
         raise HTTPException(status_code=404, detail="Entity not found")
@@ -306,12 +379,14 @@ async def _get_entity_lifecycle(entity_id: str, org_id: str) -> dict:
 @app.get("/queue")
 async def get_queue(request: Request, org_id: str = Query(...)):
     """Get review queue (proposed entities)."""
-    await _authorized_org_user(request, org_id)
-    query = """
-    MATCH (e:Entity {org_id: $org_id, status: 'proposed'})
+    user = await _authorized_org_user(request, org_id)
+    query = f"""
+    MATCH (e:Entity {{org_id: $org_id, status: 'proposed'}})
+    WHERE {_knowledge_scope('e')}
     OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
+    WHERE {_evidence_scope('ev')}
     OPTIONAL MATCH (e)-[r:RELATES_TO]->(related:Entity)
-    WHERE r.score > 0.80
+    WHERE r IS NULL OR (r.score > 0.80 AND {_knowledge_scope('related')})
     RETURN
         e.id as id,
         e.entity_type as entity_type,
@@ -319,18 +394,18 @@ async def get_queue(request: Request, org_id: str = Query(...)):
         e.detail as detail,
         e.confidence as confidence,
         toString(e.created_at) as created_at,
-        collect(DISTINCT {
+        collect(DISTINCT {{
             id: ev.id,
             source: ev.source,
             reference: ev.reference,
             url: ev.url,
             source_date: toString(ev.source_date)
-        }) as evidence,
-        collect(DISTINCT {id: related.id, statement: related.statement, score: r.score}) as related_to
+        }}) as evidence,
+        collect(DISTINCT {{id: related.id, statement: related.statement, score: r.score}}) as related_to
     ORDER BY created_at DESC
     """
 
-    results = await GraphClient.run_query(query, {"org_id": org_id})
+    results = await GraphClient.run_query(query, _scoped_params(org_id, user))
 
     # Filter out null evidence/related_to
     for r in results:
@@ -349,7 +424,7 @@ async def list_entities(
     limit: int = Query(100, ge=1, le=500),
 ):
     """List brain entities."""
-    await _authorized_org_user(request, org_id)
+    user = await _authorized_org_user(request, org_id)
     allowed_statuses = {"confirmed", "proposed", "rejected", "all"}
     if status not in allowed_statuses:
         raise HTTPException(
@@ -357,11 +432,13 @@ async def list_entities(
             detail=f"status must be one of {sorted(allowed_statuses)}",
         )
 
-    query = """
-    MATCH (e:Entity {org_id: $org_id})
+    query = f"""
+    MATCH (e:Entity {{org_id: $org_id}})
     WHERE ($status = 'all' OR e.status = $status)
       AND ($entity_type IS NULL OR e.entity_type = $entity_type)
+      AND {_knowledge_scope('e')}
     OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
+    WHERE {_evidence_scope('ev')}
     RETURN
         e.id as id,
         e.entity_type as entity_type,
@@ -371,33 +448,36 @@ async def list_entities(
         e.confidence as confidence,
         toString(e.confirmed_at) as confirmed_at,
         toString(e.created_at) as created_at,
-        collect(ev{.id, .source, .reference, .url}) as evidence
+        collect(ev{{.id, .source, .reference, .url}}) as evidence
     ORDER BY confirmed_at DESC, created_at DESC
     LIMIT $limit
     """
 
-    params = {
-        "org_id": org_id,
-        "status": status,
-        "entity_type": entity_type,
-        "limit": limit,
-    }
+    params = _scoped_params(
+        org_id,
+        user,
+        status=status,
+        entity_type=entity_type,
+        limit=limit,
+    )
 
     results = await GraphClient.run_query(query, params)
     type_counts = await GraphClient.run_query(
-        """
-        MATCH (e:Entity {org_id: $org_id})
+        f"""
+        MATCH (e:Entity {{org_id: $org_id}})
         WHERE ($status = 'all' OR e.status = $status)
           AND ($entity_type IS NULL OR e.entity_type = $entity_type)
+          AND {_knowledge_scope('e')}
         RETURN e.entity_type AS entity_type, count(e) AS count
         ORDER BY entity_type
         """,
         params,
     )
     status_counts = await GraphClient.run_query(
-        """
-        MATCH (e:Entity {org_id: $org_id})
+        f"""
+        MATCH (e:Entity {{org_id: $org_id}})
         WHERE ($entity_type IS NULL OR e.entity_type = $entity_type)
+          AND {_knowledge_scope('e')}
         RETURN e.status AS status, count(e) AS count
         ORDER BY status
         """,
@@ -430,11 +510,14 @@ async def list_entities(
 @app.get("/entities/{entity_id}")
 async def get_entity(entity_id: str, request: Request, org_id: str = Query(...)):
     """Get entity details."""
-    await _authorized_org_user(request, org_id)
-    query = """
-    MATCH (e:Entity {id: $entity_id, org_id: $org_id})
+    user = await _authorized_org_user(request, org_id)
+    query = f"""
+    MATCH (e:Entity {{id: $entity_id, org_id: $org_id}})
+    WHERE {_knowledge_scope('e')}
     OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
+    WHERE {_evidence_scope('ev')}
     OPTIONAL MATCH (e)-[r:SUPERSEDES]->(old:Entity)
+    WHERE old IS NULL OR {_knowledge_scope('old')}
     RETURN
         e.id as id,
         e.entity_type as entity_type,
@@ -444,11 +527,13 @@ async def get_entity(entity_id: str, request: Request, org_id: str = Query(...))
         e.confidence as confidence,
         e.created_at as created_at,
         e.confirmed_at as confirmed_at,
-        collect(DISTINCT ev{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence,
-        collect(DISTINCT old{.id, .statement, .status}) as superseded
+        collect(DISTINCT ev{{.id, .source, .reference, .url, .excerpt, .source_date}}) as evidence,
+        collect(DISTINCT old{{.id, .statement, .status}}) as superseded
     """
 
-    results = await GraphClient.run_query(query, {"entity_id": entity_id, "org_id": org_id})
+    results = await GraphClient.run_query(
+        query, _scoped_params(org_id, user, entity_id=entity_id)
+    )
 
     if not results:
         raise HTTPException(status_code=404, detail="Entity not found")
@@ -465,16 +550,44 @@ async def get_entity_neighborhood(
     entity_id: str, request: Request, org_id: str = Query(...)
 ):
     """Get entity 1-hop neighborhood."""
-    await _authorized_org_user(request, org_id)
-    from core.queries import BrainQueries
-
-    expansion = await BrainQueries.context_expansion(
-        org_id=org_id,
-        seed_ids=[entity_id],
-        max_hops=1
+    user = await _authorized_org_user(request, org_id)
+    params = _scoped_params(org_id, user, entity_id=entity_id)
+    seed_rows = await GraphClient.run_query(
+        f"""
+        MATCH (seed:Entity {{id: $entity_id, org_id: $org_id}})
+        WHERE {_knowledge_scope('seed')}
+        OPTIONAL MATCH (seed)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+        WHERE {_evidence_scope('evidence')}
+        RETURN seed{{.id, .entity_type, .statement, .detail, .status, .confidence}} AS seed,
+               collect(DISTINCT evidence{{.id, .source, .reference, .url, .excerpt}}) AS evidence
+        """,
+        params,
     )
-
-    return expansion
+    if not seed_rows:
+        return {"seeds": [], "neighbors": [], "evidence": []}
+    neighbor_rows = await GraphClient.run_query(
+        f"""
+        MATCH (seed:Entity {{id: $entity_id, org_id: $org_id}})
+              -[:SUPERSEDES|AFFECTS|SUPPORTS|ADVANCES|CONSTRAINS|RELATES_TO]-(neighbor:Entity {{org_id: $org_id}})
+        WHERE neighbor.status = 'confirmed' AND {_knowledge_scope('neighbor')}
+        OPTIONAL MATCH (neighbor)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+        WHERE {_evidence_scope('evidence')}
+        RETURN neighbor{{.id, .entity_type, .statement, .detail, .status}} AS neighbor,
+               collect(DISTINCT evidence{{.id, .source, .reference, .url, .excerpt}}) AS evidence
+        """,
+        params,
+    )
+    evidence = [item for item in seed_rows[0].get("evidence", []) if item.get("id")]
+    neighbors = []
+    for row in neighbor_rows:
+        if row.get("neighbor"):
+            neighbors.append(row["neighbor"])
+        evidence.extend(item for item in row.get("evidence", []) if item.get("id"))
+    return {
+        "seeds": [seed_rows[0]["seed"]],
+        "neighbors": list({item["id"]: item for item in neighbors}.values()),
+        "evidence": list({item["id"]: item for item in evidence}.values()),
+    }
 
 
 @app.post("/entities/{entity_id}/confirm")
@@ -486,8 +599,8 @@ async def confirm_entity(
     statement: Optional[str] = None,
 ):
     """Confirm a proposed entity."""
-    await _authorized_org_user(request, org_id, write=True)
-    entity = await _get_entity_lifecycle(entity_id, org_id)
+    user = await _authorized_org_user(request, org_id, write=True)
+    entity = await _get_entity_lifecycle(entity_id, org_id, user)
     if entity["status"] != "proposed":
         raise HTTPException(
             status_code=409,
@@ -502,28 +615,28 @@ async def confirm_entity(
 
     # Update statement if provided
     if edited_statement:
-        query = """
-        MATCH (e:Entity {id: $entity_id, org_id: $org_id, status: 'proposed'})
+        query = f"""
+        MATCH (e:Entity {{id: $entity_id, org_id: $org_id, status: 'proposed'}})
+        WHERE {_knowledge_scope('e')}
         SET e.statement = $statement,
             e.status = 'confirmed',
             e.confirmed_at = datetime(),
             e.updated_at = datetime()
         RETURN e.id as id, e.status as status
         """
-        params = {
-            "entity_id": entity_id,
-            "org_id": org_id,
-            "statement": edited_statement,
-        }
+        params = _scoped_params(
+            org_id, user, entity_id=entity_id, statement=edited_statement
+        )
     else:
-        query = """
-        MATCH (e:Entity {id: $entity_id, org_id: $org_id, status: 'proposed'})
+        query = f"""
+        MATCH (e:Entity {{id: $entity_id, org_id: $org_id, status: 'proposed'}})
+        WHERE {_knowledge_scope('e')}
         SET e.status = 'confirmed',
             e.confirmed_at = datetime(),
             e.updated_at = datetime()
         RETURN e.id as id, e.status as status
         """
-        params = {"entity_id": entity_id, "org_id": org_id}
+        params = _scoped_params(org_id, user, entity_id=entity_id)
 
     result = await GraphClient.run_query(query, params)
 
@@ -538,22 +651,25 @@ async def reject_entity(
     entity_id: str, request: Request, org_id: str = Query(...)
 ):
     """Reject a proposed entity."""
-    await _authorized_org_user(request, org_id, write=True)
-    entity = await _get_entity_lifecycle(entity_id, org_id)
+    user = await _authorized_org_user(request, org_id, write=True)
+    entity = await _get_entity_lifecycle(entity_id, org_id, user)
     if entity["status"] != "proposed":
         raise HTTPException(
             status_code=409,
             detail="Only proposed entities can be rejected",
         )
 
-    query = """
-    MATCH (e:Entity {id: $entity_id, org_id: $org_id, status: 'proposed'})
+    query = f"""
+    MATCH (e:Entity {{id: $entity_id, org_id: $org_id, status: 'proposed'}})
+    WHERE {_knowledge_scope('e')}
     SET e.status = 'rejected',
         e.updated_at = datetime()
     RETURN e.id as id, e.status as status
     """
 
-    result = await GraphClient.run_query(query, {"entity_id": entity_id, "org_id": org_id})
+    result = await GraphClient.run_query(
+        query, _scoped_params(org_id, user, entity_id=entity_id)
+    )
 
     if not result:
         raise HTTPException(status_code=409, detail="Entity lifecycle changed")
@@ -570,15 +686,15 @@ async def merge_entity(
     org_id: str = Query(...),
 ):
     """Merge entity into another."""
-    await _authorized_org_user(request, org_id, write=True)
+    user = await _authorized_org_user(request, org_id, write=True)
     resolved_target_id = payload.target_id if payload else target_id
     if not resolved_target_id:
         raise HTTPException(status_code=422, detail="target_id is required")
     if resolved_target_id == entity_id:
         raise HTTPException(status_code=422, detail="Cannot merge an entity into itself")
 
-    source = await _get_entity_lifecycle(entity_id, org_id)
-    target = await _get_entity_lifecycle(resolved_target_id, org_id)
+    source = await _get_entity_lifecycle(entity_id, org_id, user)
+    target = await _get_entity_lifecycle(resolved_target_id, org_id, user)
     if source["status"] != "proposed":
         raise HTTPException(
             status_code=409,
@@ -596,10 +712,12 @@ async def merge_entity(
         )
 
     # Attach the source entity's evidence to the target, then delete source
-    query = """
-    MATCH (source:Entity {id: $entity_id, org_id: $org_id})
-    MATCH (target:Entity {id: $target_id, org_id: $org_id})
+    query = f"""
+    MATCH (source:Entity {{id: $entity_id, org_id: $org_id}})
+    MATCH (target:Entity {{id: $target_id, org_id: $org_id}})
+    WHERE {_knowledge_scope('source')} AND {_knowledge_scope('target')}
     OPTIONAL MATCH (source)-[:CITED_BY]->(ev:Evidence)
+    WHERE {_evidence_scope('ev')}
     WITH source, target, collect(ev) as evidences
     FOREACH (ev IN evidences |
         MERGE (target)-[:CITED_BY]->(ev)
@@ -608,14 +726,17 @@ async def merge_entity(
     RETURN target.id as target_id, size(evidences) as evidence_moved
     """
 
-    result = await GraphClient.run_query(query, {
-        "entity_id": entity_id,
-        "target_id": resolved_target_id,
-        "org_id": org_id
-    })
+    result = await GraphClient.run_query(
+        query,
+        _scoped_params(
+            org_id, user, entity_id=entity_id, target_id=resolved_target_id
+        ),
+    )
 
     if not result:
         raise HTTPException(status_code=409, detail="Entity lifecycle changed")
+
+    await _recalculate_entity_department_scopes(org_id)
 
     return {
         "merged": entity_id,
@@ -719,6 +840,24 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 class OrganizationInvitationRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     role: str = Field(default="member", max_length=20)
+    department_ids: List[str] = Field(default_factory=list, max_length=25)
+
+
+class DepartmentCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+    color: str = Field(default="orange", max_length=20)
+
+
+class DepartmentUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+    color: Optional[str] = Field(default=None, max_length=20)
+
+
+class OrganizationMemberUpdateRequest(BaseModel):
+    role: Optional[str] = Field(default=None, max_length=20)
+    department_ids: Optional[List[str]] = Field(default=None, max_length=25)
 
 
 class AcceptInvitationRequest(BaseModel):
@@ -922,6 +1061,193 @@ async def get_organization_members(org_id: str, request: Request):
     return {"members": members}
 
 
+@app.patch("/auth/organizations/{org_id}/members/{membership_id}")
+async def update_organization_member(
+    org_id: str,
+    membership_id: str,
+    payload: OrganizationMemberUpdateRequest,
+    request: Request,
+):
+    """Change a member's governance role and department assignments."""
+    import auth
+
+    try:
+        member = await auth.update_organization_member(
+            request.cookies.get(auth.SESSION_COOKIE),
+            org_id,
+            membership_id,
+            role=payload.role,
+            department_ids=payload.department_ids,
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if member is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return member
+
+
+@app.delete("/auth/organizations/{org_id}/members/{membership_id}", status_code=204)
+async def remove_organization_member(
+    org_id: str, membership_id: str, request: Request
+):
+    """Remove a non-owner member from an organization."""
+    import auth
+
+    try:
+        member = await auth.remove_organization_member(
+            request.cookies.get(auth.SESSION_COOKIE), org_id, membership_id
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if member is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return Response(status_code=204)
+
+
+@app.get("/auth/organizations/{org_id}/departments")
+async def get_organization_departments(org_id: str, request: Request):
+    """List departments the active organization member can access."""
+    import auth
+
+    try:
+        departments = await auth.list_organization_departments(
+            request.cookies.get(auth.SESSION_COOKIE), org_id
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    if departments is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return {"departments": departments}
+
+
+@app.post("/auth/organizations/{org_id}/departments", status_code=201)
+async def create_organization_department(
+    org_id: str, payload: DepartmentCreateRequest, request: Request
+):
+    """Create a department access boundary."""
+    import auth
+
+    try:
+        department = await auth.create_organization_department(
+            request.cookies.get(auth.SESSION_COOKIE),
+            org_id,
+            payload.name,
+            payload.description,
+            payload.color,
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if department is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return department
+
+
+@app.patch("/auth/organizations/{org_id}/departments/{department_id}")
+async def update_organization_department(
+    org_id: str,
+    department_id: str,
+    payload: DepartmentUpdateRequest,
+    request: Request,
+):
+    """Rename or restyle an existing department."""
+    import auth
+
+    try:
+        department = await auth.update_organization_department(
+            request.cookies.get(auth.SESSION_COOKIE),
+            org_id,
+            department_id,
+            name=payload.name,
+            description=payload.description,
+            color=payload.color,
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if department is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return department
+
+
+async def _recalculate_entity_department_scopes(org_id: str) -> None:
+    """Derive every entity scope from the evidence currently attached to it."""
+    await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id})
+        OPTIONAL MATCH (entity)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+        WITH entity,
+             collect(DISTINCT evidence.department_id) AS scoped_departments,
+             sum(CASE WHEN evidence.department_id IS NULL THEN 1 ELSE 0 END) AS global_evidence
+        SET entity.department_ids = CASE
+            WHEN global_evidence > 0 THEN []
+            ELSE scoped_departments
+        END
+        """,
+        {"org_id": org_id},
+    )
+
+
+@app.delete("/auth/organizations/{org_id}/departments/{department_id}")
+async def delete_organization_department(
+    org_id: str,
+    department_id: str,
+    request: Request,
+    reassign_to: Optional[str] = Query(default=None),
+):
+    """Delete a department, optionally moving its people and knowledge first."""
+    import auth
+
+    if reassign_to is None:
+        scoped_content = await GraphClient.run_query(
+            """
+            MATCH (evidence:Evidence {org_id: $org_id, department_id: $department_id})
+            RETURN count(evidence) AS count
+            """,
+            {"org_id": org_id, "department_id": department_id},
+        )
+        if scoped_content and scoped_content[0].get("count", 0) > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Move this department's knowledge to another department before "
+                    "deleting it"
+                ),
+            )
+    try:
+        result = await auth.delete_organization_department(
+            request.cookies.get(auth.SESSION_COOKIE),
+            org_id,
+            department_id,
+            reassign_to,
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if result is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    await GraphClient.run_query(
+        """
+        MATCH (evidence:Evidence {org_id: $org_id, department_id: $department_id})
+        SET evidence.department_id = $reassign_to
+        """,
+        {
+            "org_id": org_id,
+            "department_id": department_id,
+            "reassign_to": reassign_to,
+        },
+    )
+    await _recalculate_entity_department_scopes(org_id)
+    return result
+
+
 @app.post("/auth/organizations/{org_id}/invitations", status_code=201)
 async def invite_organization_member(
     org_id: str,
@@ -938,6 +1264,7 @@ async def invite_organization_member(
             org_id,
             payload.email,
             payload.role,
+            payload.department_ids,
         )
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
@@ -1054,7 +1381,10 @@ async def notion_auth_start(org: str, request: Request):
 
 @app.post("/auth/notion/token")
 async def notion_token_connect(
-    payload: NotionTokenRequest, request: Request, org_id: str = Query(...)
+    payload: NotionTokenRequest,
+    request: Request,
+    org_id: str = Query(...),
+    department_id: Optional[str] = Query(default=None),
 ):
     """
     Connect Notion using an Internal Integration token.
@@ -1063,7 +1393,8 @@ async def notion_token_connect(
     User creates an integration at notion.so/my-integrations and pastes the token.
     """
     from integrations.notion import validate_token
-    await _authorized_org_user(request, org_id, manage=True)
+    user = await _authorized_org_user(request, org_id, manage=True)
+    department_id = await _validate_department_scope(org_id, user, department_id)
     token = payload.token.strip()
     # Validate the token
     user_info = await validate_token(token)
@@ -1077,6 +1408,7 @@ async def notion_token_connect(
         source_type="notion",
         name=workspace_name,
         config={"token": token},
+        department_id=department_id,
     )
 
     print(f"[Notion] Token validated for org {org_id}: {workspace_name}")
@@ -1339,6 +1671,15 @@ SOURCE_EVIDENCE_TYPES = {
 }
 
 
+class SourceDepartmentUpdate(BaseModel):
+    department_id: Optional[str] = None
+
+
+class SourceDocumentDepartmentUpdate(BaseModel):
+    reference: str = Field(min_length=1, max_length=2048)
+    department_id: Optional[str] = None
+
+
 def _source_evidence_types(source_type: str) -> list[str]:
     return SOURCE_EVIDENCE_TYPES.get(source_type.lower(), [source_type.lower()])
 
@@ -1357,8 +1698,11 @@ def _document_title(reference: str) -> str:
 @app.get("/sources")
 async def list_sources(request: Request, org_id: str = Query(...)):
     """List connected sources for an organization."""
-    await _authorized_org_user(request, org_id)
+    user = await _authorized_org_user(request, org_id)
     org_sources = await list_connected_sources(org_id)
+    org_sources = [
+        source for source in org_sources if _source_visible_to_user(source, user)
+    ]
     return {"sources": org_sources, "total": len(org_sources)}
 
 
@@ -1369,16 +1713,18 @@ async def list_source_documents(
     org_id: str = Query(...),
 ):
     """List document-level evidence stored by Komponist for one connector."""
-    await _authorized_org_user(request, org_id)
+    user = await _authorized_org_user(request, org_id)
     source = await get_connected_source(org_id, source_id)
-    if not source:
+    if not source or not _source_visible_to_user(source, user):
         raise HTTPException(status_code=404, detail="Source not found")
 
     rows = await GraphClient.run_query(
-        """
-        MATCH (ev:Evidence {org_id: $org_id})
+        f"""
+        MATCH (ev:Evidence {{org_id: $org_id}})
         WHERE toLower(ev.source) IN $source_types
-        OPTIONAL MATCH (entity:Entity {org_id: $org_id})-[:CITED_BY]->(ev)
+          AND {_evidence_scope('ev')}
+        OPTIONAL MATCH (entity:Entity {{org_id: $org_id}})-[:CITED_BY]->(ev)
+        WHERE entity IS NULL OR {_knowledge_scope('entity')}
         RETURN
             ev.reference AS reference,
             head(collect(DISTINCT ev.title)) AS title,
@@ -1386,13 +1732,15 @@ async def list_source_documents(
             toString(max(ev.source_date)) AS synced_at,
             count(DISTINCT ev) AS evidence_count,
             count(DISTINCT entity) AS entity_count,
-            collect(DISTINCT entity.status) AS entity_statuses
+            collect(DISTINCT entity.status) AS entity_statuses,
+            head(collect(DISTINCT ev.department_id)) AS department_id
         ORDER BY synced_at DESC, reference
         """,
-        {
-            "org_id": org_id,
-            "source_types": _source_evidence_types(source["type"]),
-        },
+        _scoped_params(
+            org_id,
+            user,
+            source_types=_source_evidence_types(source["type"]),
+        ),
     )
 
     documents = []
@@ -1420,9 +1768,50 @@ async def list_source_documents(
             "evidence_count": row.get("evidence_count", 0),
             "entity_count": row.get("entity_count", 0),
             "review_status": review_status,
+            "department_id": row.get("department_id"),
         })
 
     return {"documents": documents, "total": len(documents)}
+
+
+@app.patch("/sources/{source_id}/documents")
+async def update_source_document_department(
+    request: Request,
+    source_id: str,
+    payload: SourceDocumentDepartmentUpdate,
+    org_id: str = Query(...),
+):
+    """Move one synced document and all knowledge derived from it."""
+    user = await _authorized_org_user(request, org_id, manage=True)
+    department_id = await _validate_department_scope(
+        org_id, user, payload.department_id
+    )
+    source = await get_connected_source(org_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    result = await GraphClient.run_query(
+        """
+        MATCH (evidence:Evidence {org_id: $org_id, reference: $reference})
+        WHERE toLower(evidence.source) IN $source_types
+        SET evidence.department_id = $department_id
+        RETURN count(evidence) AS updated
+        """,
+        {
+            "org_id": org_id,
+            "reference": payload.reference,
+            "source_types": _source_evidence_types(source["type"]),
+            "department_id": department_id,
+        },
+    )
+    updated = result[0].get("updated", 0) if result else 0
+    if not updated:
+        raise HTTPException(status_code=404, detail="Synced document not found")
+    await _recalculate_entity_department_scopes(org_id)
+    return {
+        "reference": payload.reference,
+        "department_id": department_id,
+        "evidence_updated": updated,
+    }
 
 
 @app.delete("/sources/{source_id}/documents")
@@ -1480,6 +1869,7 @@ async def remove_source_document(
         {"org_id": org_id, "entity_ids": entity_ids},
     )
     entities_deleted = orphan_result[0].get("deleted", 0) if orphan_result else 0
+    await _recalculate_entity_department_scopes(org_id)
 
     await update_connected_source(
         org_id,
@@ -1502,10 +1892,12 @@ async def add_source(
     org_id: str = Query(...),
     source_type: str = Query(..., description="Source type: notion, slack, google, local, upload"),
     name: str = Query(..., description="Display name for the source"),
-    config: dict = None
+    config: dict = None,
+    department_id: Optional[str] = Query(default=None),
 ):
     """Register a connected source."""
-    await _authorized_org_user(request, org_id, manage=True)
+    user = await _authorized_org_user(request, org_id, manage=True)
+    department_id = await _validate_department_scope(org_id, user, department_id)
     if source_type not in {"notion", "slack", "google", "local", "upload"}:
         raise HTTPException(status_code=400, detail="Unsupported source type")
     return await create_connected_source(
@@ -1513,7 +1905,26 @@ async def add_source(
         source_type=source_type,
         name=name,
         config=config or {},
+        department_id=department_id,
     )
+
+
+@app.patch("/sources/{source_id}")
+async def update_source_department(
+    source_id: str,
+    payload: SourceDepartmentUpdate,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Set the default department for future connector items."""
+    user = await _authorized_org_user(request, org_id, manage=True)
+    department_id = await _validate_department_scope(
+        org_id, user, payload.department_id
+    )
+    source = await set_connected_source_department(org_id, source_id, department_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
 
 
 @app.delete("/sources/{source_id}")
@@ -1698,6 +2109,7 @@ async def sync_notion_source(org_id: str, source: dict) -> dict:
 
             if content and len(content.strip()) > 50:  # Skip near-empty pages
                 source_item = normalize_page(page, content, org_id)
+                source_item.department_id = source.get("departmentId")
                 print(f"[Notion Sync] Processing: {source_item.title[:40]}...")
 
                 result = await run_extraction(source_item, auto_confirm=auto_confirm)
@@ -1740,7 +2152,11 @@ async def sync_local_source(org_id: str, source: dict) -> dict:
     from integrations.local_docs import backfill_local_docs
 
     path = source.get("config", {}).get("path", "./docs")
-    result = await backfill_local_docs(org_id=org_id, docs_path=path)
+    result = await backfill_local_docs(
+        org_id=org_id,
+        docs_path=path,
+        department_id=source.get("departmentId"),
+    )
     if result.get("status") == "error":
         raise ValueError(result.get("error", "Local documents sync failed"))
     return result
@@ -1783,10 +2199,14 @@ MAX_UPLOAD_BYTES = 1024 * 1024
 async def upload_documents(
     request: Request,
     org_id: str = Query(...),
+    department_id: Optional[str] = Query(default=None),
     files: List[UploadFile] = File(...),
 ):
     """Extract uploaded text documents without persisting their raw contents."""
-    await _authorized_org_user(request, org_id, write=True)
+    user = await _authorized_org_user(request, org_id, write=True)
+    department_id = await _validate_department_scope(
+        org_id, user, department_id, require_for_limited_member=True
+    )
     if not files or len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(
             status_code=400,
@@ -1838,6 +2258,7 @@ async def upload_documents(
         digest = hashlib.sha256(content_bytes).hexdigest()
         source_item = SourceItem(
             org_id=org_id,
+            department_id=department_id,
             source=SourceType.UPLOAD,
             kind={
                 ".md": "markdown", ".markdown": "markdown",
@@ -1933,7 +2354,7 @@ async def get_graph(
 
     Returns nodes (entities) and edges (relationships).
     """
-    await _authorized_org_user(request, org_id)
+    user = await _authorized_org_user(request, org_id)
     types = [value.strip() for value in entity_types.split(",")] if entity_types else []
     invalid_types = sorted(set(types) - set(_CHAT_ENTITY_TYPES))
     if invalid_types:
@@ -1947,6 +2368,7 @@ async def get_graph(
     MATCH (e:Entity {{org_id: $org_id}})
     WHERE e.status IN ['proposed', 'confirmed']
       AND (size($entity_types) = 0 OR e.entity_type IN $entity_types)
+      AND {_knowledge_scope('e')}
     RETURN
         e.id as id,
         coalesce(e.name, e.statement) as name,
@@ -1958,11 +2380,10 @@ async def get_graph(
     LIMIT $limit
     """
 
-    nodes = await GraphClient.run_query(nodes_query, {
-        "org_id": org_id,
-        "limit": limit,
-        "entity_types": types,
-    })
+    nodes = await GraphClient.run_query(
+        nodes_query,
+        _scoped_params(org_id, user, limit=limit, entity_types=types),
+    )
 
     # Get all node IDs for edge filtering
     node_ids = [n["id"] for n in nodes]
@@ -1996,39 +2417,42 @@ async def get_graph(
 @app.get("/graph/stats")
 async def get_graph_stats(request: Request, org_id: str = Query(...)):
     """Get statistics about the knowledge graph."""
-    await _authorized_org_user(request, org_id)
+    user = await _authorized_org_user(request, org_id)
 
     # Count nodes by type
-    type_query = """
-    MATCH (e:Entity {org_id: $org_id})
-    WHERE e.status IN ['proposed', 'confirmed']
+    type_query = f"""
+    MATCH (e:Entity {{org_id: $org_id}})
+    WHERE e.status IN ['proposed', 'confirmed'] AND {_knowledge_scope('e')}
     RETURN e.entity_type as type, count(e) as count
     ORDER BY count DESC
     """
 
-    type_counts = await GraphClient.run_query(type_query, {"org_id": org_id})
+    params = _scoped_params(org_id, user)
+    type_counts = await GraphClient.run_query(type_query, params)
 
     # Count relationships by type
-    rel_query = """
-    OPTIONAL MATCH (s:Entity {org_id: $org_id})-[r]->(t:Entity {org_id: $org_id})
+    rel_query = f"""
+    OPTIONAL MATCH (s:Entity {{org_id: $org_id}})-[r]->(t:Entity {{org_id: $org_id}})
     WHERE NOT type(r) = 'CITED_BY'
+      AND {_knowledge_scope('s')} AND {_knowledge_scope('t')}
     RETURN type(r) as type, count(r) as count
     ORDER BY count DESC
     """
 
-    rel_counts = await GraphClient.run_query(rel_query, {"org_id": org_id})
+    rel_counts = await GraphClient.run_query(rel_query, params)
 
     # Total counts
-    totals_query = """
-    MATCH (e:Entity {org_id: $org_id})
-    WHERE e.status IN ['proposed', 'confirmed']
+    totals_query = f"""
+    MATCH (e:Entity {{org_id: $org_id}})
+    WHERE e.status IN ['proposed', 'confirmed'] AND {_knowledge_scope('e')}
     WITH count(e) as node_count
-    OPTIONAL MATCH (s:Entity {org_id: $org_id})-[r]->(t:Entity {org_id: $org_id})
+    OPTIONAL MATCH (s:Entity {{org_id: $org_id}})-[r]->(t:Entity {{org_id: $org_id}})
     WHERE NOT type(r) = 'CITED_BY'
+      AND {_knowledge_scope('s')} AND {_knowledge_scope('t')}
     RETURN node_count, count(r) as edge_count
     """
 
-    totals = await GraphClient.run_query(totals_query, {"org_id": org_id})
+    totals = await GraphClient.run_query(totals_query, params)
 
     node_count = totals[0]["node_count"] if totals else 0
     edge_count = totals[0]["edge_count"] if totals else 0
@@ -2051,7 +2475,7 @@ async def get_entity_neighbors(
     depth: int = Query(1, ge=1, le=2, description="How many hops to traverse"),
 ):
     """Get the neighborhood of a specific entity."""
-    await _authorized_org_user(request, org_id)
+    user = await _authorized_org_user(request, org_id)
 
     # Get the entity and its neighbors up to N hops
     query = f"""
@@ -2059,6 +2483,8 @@ async def get_entity_neighbors(
     WHERE neighbor.org_id = $org_id
       AND center.status IN ['proposed', 'confirmed']
       AND neighbor.status IN ['proposed', 'confirmed']
+      AND {_knowledge_scope('center')}
+      AND {_knowledge_scope('neighbor')}
     WITH center, neighbor, relationships(path) as rels
     UNWIND rels as r
     WITH center, neighbor, r, startNode(r) as source, endNode(r) as target
@@ -2073,25 +2499,21 @@ async def get_entity_neighbors(
         type(r) as edge_type
     """
 
-    results = await GraphClient.run_query(query, {
-        "entity_id": entity_id,
-        "org_id": org_id,
-    })
+    params = _scoped_params(org_id, user, entity_id=entity_id)
+    results = await GraphClient.run_query(query, params)
 
     # Build nodes and edges
     nodes = {}
     edges = []
 
     # Add center node
-    center_query = """
-    MATCH (e:Entity {id: $entity_id, org_id: $org_id})
+    center_query = f"""
+    MATCH (e:Entity {{id: $entity_id, org_id: $org_id}})
+    WHERE {_knowledge_scope('e')}
     RETURN e.id as id, coalesce(e.name, e.statement) as name,
            e.entity_type as type, e.detail as description
     """
-    center = await GraphClient.run_query(center_query, {
-        "entity_id": entity_id,
-        "org_id": org_id
-    })
+    center = await GraphClient.run_query(center_query, params)
 
     if center:
         nodes[entity_id] = {
@@ -2361,6 +2783,7 @@ def _fallback_chat_plan(message: str, broad: bool = False) -> dict:
 
 async def _browse_chat_entities(
     org_id: str,
+    user: dict,
     entity_types: List[str],
     limit: int,
     sort: str = "newest",
@@ -2374,7 +2797,8 @@ async def _browse_chat_entities(
     return await GraphClient.run_query(
         f"""
         MATCH (n:Entity {{org_id: $org_id, status: 'confirmed'}})
-        WHERE size($entity_types) = 0 OR n.entity_type IN $entity_types
+        WHERE (size($entity_types) = 0 OR n.entity_type IN $entity_types)
+          AND {_knowledge_scope('n')}
         RETURN n.id AS id, n.entity_type AS entity_type,
                n.statement AS statement, n.detail AS detail,
                n.status AS status, n.confidence AS confidence,
@@ -2382,43 +2806,48 @@ async def _browse_chat_entities(
         ORDER BY {order_by}
         LIMIT $limit
         """,
-        {"org_id": org_id, "entity_types": entity_types, "limit": limit},
+        _scoped_params(org_id, user, entity_types=entity_types, limit=limit),
     )
 
 
 async def _count_chat_entities(
     org_id: str,
+    user: dict,
     entity_types: List[str],
     group_by: str,
 ) -> List[dict]:
     """Run exact aggregate counts without letting the model generate database code."""
     if group_by == "source":
         return await GraphClient.run_query(
-            """
-            MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
-            WHERE size($entity_types) = 0 OR n.entity_type IN $entity_types
-            MATCH (n)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
+            f"""
+            MATCH (n:Entity {{org_id: $org_id, status: 'confirmed'}})
+            WHERE (size($entity_types) = 0 OR n.entity_type IN $entity_types)
+              AND {_knowledge_scope('n')}
+            MATCH (n)-[:CITED_BY]->(e:Evidence {{org_id: $org_id}})
+            WHERE {_evidence_scope('e')}
             WITH coalesce(e.reference, e.source, 'Unknown source') AS group,
                  count(DISTINCT n) AS count
             RETURN group, count
             ORDER BY count DESC, group
             """,
-            {"org_id": org_id, "entity_types": entity_types},
+            _scoped_params(org_id, user, entity_types=entity_types),
         )
 
     return await GraphClient.run_query(
-        """
-        MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
-        WHERE size($entity_types) = 0 OR n.entity_type IN $entity_types
+        f"""
+        MATCH (n:Entity {{org_id: $org_id, status: 'confirmed'}})
+        WHERE (size($entity_types) = 0 OR n.entity_type IN $entity_types)
+          AND {_knowledge_scope('n')}
         RETURN n.entity_type AS group, count(n) AS count
         ORDER BY group
         """,
-        {"org_id": org_id, "entity_types": entity_types},
+        _scoped_params(org_id, user, entity_types=entity_types),
     )
 
 
 async def _literal_chat_search(
     org_id: str,
+    user: dict,
     message: str,
     k: int = 8,
     entity_types: Optional[List[str]] = None,
@@ -2429,10 +2858,12 @@ async def _literal_chat_search(
         return []
 
     return await GraphClient.run_query(
-        """
-        MATCH (n:Entity {org_id: $org_id, status: 'confirmed'})
-        WHERE size($entity_types) = 0 OR n.entity_type IN $entity_types
-        OPTIONAL MATCH (n)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+        f"""
+        MATCH (n:Entity {{org_id: $org_id, status: 'confirmed'}})
+        WHERE (size($entity_types) = 0 OR n.entity_type IN $entity_types)
+          AND {_knowledge_scope('n')}
+        OPTIONAL MATCH (n)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+        WHERE {_evidence_scope('evidence')}
         WITH n, collect(DISTINCT evidence) AS evidence_items
         WITH n, evidence_items, [term IN $terms WHERE
             toLower(coalesce(n.statement, '')) CONTAINS term OR
@@ -2452,17 +2883,19 @@ async def _literal_chat_search(
         ORDER BY matches DESC, n.confirmed_at DESC
         LIMIT $k
         """,
-        {
-            "org_id": org_id,
-            "terms": terms,
-            "k": k,
-            "entity_types": entity_types or [],
-        },
+        _scoped_params(
+            org_id,
+            user,
+            terms=terms,
+            k=k,
+            entity_types=entity_types or [],
+        ),
     )
 
 
 async def _expand_chat_graph_context(
     org_id: str,
+    user: dict,
     seed_results: List[dict],
     limit: int = 20,
 ) -> List[dict]:
@@ -2470,13 +2903,13 @@ async def _expand_chat_graph_context(
     if not seed_results:
         return []
     return await GraphClient.run_query(
-        """
-        MATCH (seed:Entity {org_id: $org_id, status: 'confirmed'})
-        WHERE seed.id IN $seed_ids
-        MATCH (seed)-[relationship]-(neighbor:Entity {
+        f"""
+        MATCH (seed:Entity {{org_id: $org_id, status: 'confirmed'}})
+        WHERE seed.id IN $seed_ids AND {_knowledge_scope('seed')}
+        MATCH (seed)-[relationship]-(neighbor:Entity {{
             org_id: $org_id, status: 'confirmed'
-        })
-        WHERE NOT neighbor.id IN $seed_ids
+        }})
+        WHERE NOT neighbor.id IN $seed_ids AND {_knowledge_scope('neighbor')}
         RETURN DISTINCT neighbor.id AS id,
                neighbor.entity_type AS entity_type,
                neighbor.statement AS statement,
@@ -2489,11 +2922,12 @@ async def _expand_chat_graph_context(
         ORDER BY neighbor.confirmed_at DESC, neighbor.created_at DESC
         LIMIT $limit
         """,
-        {
-            "org_id": org_id,
-            "seed_ids": [result["id"] for result in seed_results],
-            "limit": limit,
-        },
+        _scoped_params(
+            org_id,
+            user,
+            seed_ids=[result["id"] for result in seed_results],
+            limit=limit,
+        ),
     )
 
 
@@ -2543,21 +2977,26 @@ def _duration_subject(statement: str, german: bool) -> str:
     return "Projekt" if german else "project"
 
 
-async def _attach_chat_evidence(org_id: str, entities: List[dict]) -> None:
+async def _attach_chat_evidence(
+    org_id: str, user: dict, entities: List[dict]
+) -> None:
     """Attach provenance owned by the same organization to selected entities."""
     if not entities:
         return
 
     rows = await GraphClient.run_query(
-        """
-        MATCH (entity:Entity {org_id: $org_id, status: 'confirmed'})
-        WHERE entity.id IN $entity_ids
-        OPTIONAL MATCH (entity)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+        f"""
+        MATCH (entity:Entity {{org_id: $org_id, status: 'confirmed'}})
+        WHERE entity.id IN $entity_ids AND {_knowledge_scope('entity')}
+        OPTIONAL MATCH (entity)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+        WHERE {_evidence_scope('evidence')}
         RETURN entity.id AS entity_id,
-               collect(DISTINCT evidence{.id, .source, .reference, .url,
-                                         .excerpt, .source_date}) AS evidence
+               collect(DISTINCT evidence{{.id, .source, .reference, .url,
+                                          .excerpt, .source_date}}) AS evidence
         """,
-        {"org_id": org_id, "entity_ids": [entity["id"] for entity in entities]},
+        _scoped_params(
+            org_id, user, entity_ids=[entity["id"] for entity in entities]
+        ),
     )
     evidence_by_entity = {
         row["entity_id"]: [item for item in row["evidence"] if item.get("id")]
@@ -2930,11 +3369,13 @@ async def get_chat_suggestions(
     limit: int = Query(4, ge=1, le=8),
 ):
     """Build starter questions from confirmed, cited organization knowledge."""
-    await _authorized_org_user(request, org_id)
+    user = await _authorized_org_user(request, org_id)
     rows = await GraphClient.run_query(
-        """
-        MATCH (entity:Entity {org_id: $org_id, status: 'confirmed'})
-        MATCH (entity)-[:CITED_BY]->(evidence:Evidence {org_id: $org_id})
+        f"""
+        MATCH (entity:Entity {{org_id: $org_id, status: 'confirmed'}})
+        WHERE {_knowledge_scope('entity')}
+        MATCH (entity)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+        WHERE {_evidence_scope('evidence')}
         WITH entity, head(collect(DISTINCT evidence)) AS evidence
         RETURN entity.id AS id, entity.entity_type AS entity_type,
                entity.statement AS statement, entity.detail AS detail,
@@ -2943,7 +3384,7 @@ async def get_chat_suggestions(
         ORDER BY evidence.source_date DESC, entity.confirmed_at DESC, entity.created_at DESC
         LIMIT 48
         """,
-        {"org_id": org_id},
+        _scoped_params(org_id, user),
     )
 
     rows.sort(key=lambda row: 0 if _extract_duration(
@@ -3049,10 +3490,14 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
         if operation in {"list", "overview", "count"}:
             if operation in {"count", "overview"}:
                 count_rows = await _count_chat_entities(
-                    payload.org_id, entity_types, plan.get("group_by", "none")
+                    payload.org_id,
+                    user,
+                    entity_types,
+                    plan.get("group_by", "none"),
                 )
             search_results = await _browse_chat_entities(
                 payload.org_id,
+                user,
                 entity_types,
                 limit=100 if operation in {"overview", "count"} else plan["limit"],
                 sort=plan.get("sort", "newest"),
@@ -3071,6 +3516,10 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
                     entity_types=None,
                     k=min(plan["limit"], 20),
                     status="confirmed",
+                    department_ids=user.get("department_ids") or [],
+                    access_all_departments=bool(
+                        user.get("access_all_departments")
+                    ),
                 )
             except Exception as search_error:
                 print(f"Hybrid search failed: {search_error}")
@@ -3086,6 +3535,7 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
                 ]):
                     for result in await _literal_chat_search(
                         payload.org_id,
+                        user,
                         literal_query,
                         k=min(plan["limit"], 20),
                         entity_types=None,
@@ -3108,7 +3558,7 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
             if plan.get("expand_graph"):
                 try:
                     neighbors = await _expand_chat_graph_context(
-                        payload.org_id, search_results, limit=8
+                        payload.org_id, user, search_results, limit=8
                     )
                     expanded = {result["id"]: result for result in search_results}
                     for neighbor in neighbors:
@@ -3117,7 +3567,7 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
                 except Exception as expansion_error:
                     print(f"Graph context expansion failed: {expansion_error}")
 
-        await _attach_chat_evidence(payload.org_id, search_results)
+        await _attach_chat_evidence(payload.org_id, user, search_results)
 
         # 3. Build context from results
         context, sources = _chat_context_and_sources(search_results)

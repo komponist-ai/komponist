@@ -18,6 +18,8 @@ export interface AuthUser {
   name: string
   avatar_url?: string | null
   role: Organization['role']
+  department_ids: string[]
+  access_all_departments: boolean
   organization: { id: string; name: string }
 }
 

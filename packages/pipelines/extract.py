@@ -314,6 +314,8 @@ async def dedup_node(state: ExtractionState) -> ExtractionState:
                     entity_type: $entity_type
                 })
                 WHERE e.status IN ['proposed', 'confirmed']
+                  AND ((size(coalesce(e.department_ids, [])) = 0 AND $department_id IS NULL)
+                       OR $department_id IN coalesce(e.department_ids, []))
                 OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
                 WITH e, collect(ev) AS evidence
                 WHERE e.source_fingerprint = $fingerprint
@@ -330,6 +332,7 @@ async def dedup_node(state: ExtractionState) -> ExtractionState:
                     "fingerprint": fingerprint,
                     "reference": source_item.reference,
                     "excerpt": fact.get("excerpt", ""),
+                    "department_id": source_item.department_id,
                 },
             )
         except Exception as error:
@@ -363,7 +366,12 @@ async def dedup_node(state: ExtractionState) -> ExtractionState:
                 query_embedding=fact["embedding"],
                 entity_types=[fact["type"]],
                 k=5,
-                status="confirmed"  # Check confirmed first
+                status="confirmed",  # Check confirmed first
+                department_ids=(
+                    [source_item.department_id] if source_item.department_id else []
+                ),
+                access_all_departments=False,
+                include_global=False,
             )
 
             # Also check proposed
@@ -372,7 +380,12 @@ async def dedup_node(state: ExtractionState) -> ExtractionState:
                 query_embedding=fact["embedding"],
                 entity_types=[fact["type"]],
                 k=5,
-                status="proposed"
+                status="proposed",
+                department_ids=(
+                    [source_item.department_id] if source_item.department_id else []
+                ),
+                access_all_departments=False,
+                include_global=False,
             )
 
             all_similar = similar + similar_proposed
@@ -456,7 +469,13 @@ async def link_node(state: ExtractionState) -> ExtractionState:
                     org_id=state["source_item"].org_id,
                     query_embedding=target_embedding,
                     k=3,
-                    status="confirmed"
+                    status="confirmed",
+                    department_ids=(
+                        [state["source_item"].department_id]
+                        if state["source_item"].department_id else []
+                    ),
+                    access_all_departments=False,
+                    include_global=False,
                 )
 
                 if candidates and candidates[0]["score"] > 0.85:
@@ -509,6 +528,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
             ON CREATE SET
                 e.org_id = $org_id,
                 e.source = $source,
+                e.department_id = $department_id,
                 e.title = $title,
                 e.reference = $reference,
                 e.url = $url,
@@ -521,6 +541,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                 "id": evidence_id,
                 "org_id": source_item.org_id,
                 "source": source_item.source.value,
+                "department_id": source_item.department_id,
                 "title": source_item.title,
                 "reference": source_item.reference,
                 "url": source_item.url,
@@ -556,6 +577,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                     confidence: $confidence,
                     embedding: $embedding,
                     source_fingerprint: $source_fingerprint,
+                    department_ids: $department_ids,
                     created_at: datetime(),
                     updated_at: datetime()
                 })
@@ -580,6 +602,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                     "confidence": fact.get("confidence", "medium"),
                     "embedding": fact.get("embedding"),
                     "source_fingerprint": fact["source_fingerprint"],
+                    "department_ids": [source_item.department_id] if source_item.department_id else [],
                     "evidence_id": evidence_id
                 })
 

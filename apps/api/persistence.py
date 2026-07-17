@@ -317,6 +317,7 @@ def _source_dict(source: ConnectedSource, include_config: bool = False) -> dict[
         "id": source.id,
         "type": source.source_type,
         "name": source.name,
+        "departmentId": source.department_id,
         "status": source.status,
         "lastSync": source.last_sync.isoformat() if source.last_sync else None,
         "itemCount": source.item_count,
@@ -463,12 +464,14 @@ async def create_connected_source(
     source_type: str,
     name: str,
     config: Optional[dict[str, Any]] = None,
+    department_id: Optional[str] = None,
 ) -> dict[str, Any]:
     row = ConnectedSource(
         id=str(uuid4()),
         org_id=org_id,
         source_type=source_type,
         name=name,
+        department_id=department_id,
         status="connected",
         item_count=0,
         config_ciphertext=_encrypt_config(config or {}),
@@ -485,6 +488,7 @@ async def upsert_single_source_type(
     name: str,
     config: dict[str, Any],
     preserve_existing_config: bool = False,
+    department_id: Optional[str] = None,
 ) -> dict[str, Any]:
     async with async_session() as session:
         row = (
@@ -501,12 +505,15 @@ async def upsert_single_source_type(
         if row is None:
             row = ConnectedSource(
                 id=str(uuid4()), org_id=org_id, source_type=source_type,
-                name=name, config_ciphertext=_encrypt_config(config),
+                name=name, department_id=department_id,
+                config_ciphertext=_encrypt_config(config),
             )
             session.add(row)
         else:
             row.name = name
             row.status = "connected"
+            if department_id is not None:
+                row.department_id = department_id
             if preserve_existing_config:
                 existing_config = _decrypt_config(row.config_ciphertext)
                 config = {**existing_config, **config}
@@ -534,6 +541,19 @@ async def update_connected_source(
             row.last_sync = last_sync
         if item_count is not None:
             row.item_count = item_count
+        row.updated_at = datetime.utcnow()
+        await session.commit()
+        return _source_dict(row)
+
+
+async def set_connected_source_department(
+    org_id: str, source_id: str, department_id: Optional[str]
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        row = await session.get(ConnectedSource, source_id)
+        if row is None or row.org_id != org_id:
+            return None
+        row.department_id = department_id
         row.updated_at = datetime.utcnow()
         await session.commit()
         return _source_dict(row)

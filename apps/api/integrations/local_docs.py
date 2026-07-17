@@ -103,7 +103,8 @@ def extract_title_from_markdown(content: str, filename: str) -> str:
 def normalize_local_doc(
     file_path: Path,
     content: str,
-    org_id: str
+    org_id: str,
+    department_id: Optional[str] = None,
 ) -> SourceItem:
     """
     Normalize a local document to SourceItem.
@@ -145,6 +146,7 @@ def normalize_local_doc(
 
     return SourceItem(
         org_id=org_id,
+        department_id=department_id,
         source=SourceType.MANUAL,  # Using MANUAL for local docs
         kind=kind,
         title=title,
@@ -209,7 +211,8 @@ async def read_file_async(file_path: Path) -> Optional[str]:
 
 async def scan_local_docs(
     org_id: str,
-    docs_path: Optional[str] = None
+    docs_path: Optional[str] = None,
+    department_id: Optional[str] = None,
 ) -> AsyncIterator[SourceItem]:
     """
     Scan local documents directory and yield SourceItems.
@@ -246,7 +249,9 @@ async def scan_local_docs(
         if len(content) < 50:
             continue
 
-        source_item = normalize_local_doc(file_path, content, org_id)
+        source_item = normalize_local_doc(
+            file_path, content, org_id, department_id=department_id
+        )
         print(f"  Document: {source_item.title[:60]}")
 
         yield source_item
@@ -255,6 +260,7 @@ async def scan_local_docs(
 async def backfill_local_docs(
     org_id: str,
     docs_path: Optional[str] = None,
+    department_id: Optional[str] = None,
     processor: Optional[Callable[[SourceItem], Awaitable[dict[str, Any]]]] = None,
 ) -> dict:
     """
@@ -292,7 +298,9 @@ async def backfill_local_docs(
     entity_ids: list[str] = []
     errors = 0
 
-    async for source_item in scan_local_docs(org_id, docs_path):
+    async for source_item in scan_local_docs(
+        org_id, docs_path, department_id=department_id
+    ):
         scanned += 1
         try:
             result = await processor(source_item)
