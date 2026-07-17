@@ -11,6 +11,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" /></a>
   <a href="docker/docker-compose.yml"><img src="https://img.shields.io/badge/Docker-Ready-blue" alt="Docker" /></a>
+  <a href="https://github.com/komponist-ai/komponist/actions/workflows/ci.yml"><img src="https://github.com/komponist-ai/komponist/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
 </p>
 
 <p align="center">
@@ -47,7 +48,7 @@ docker compose -f docker/docker-compose.yml up
 - **Human-in-the-loop** — Review and confirm extracted facts before they enter the brain.
 - **MCP integration** — AI coding assistants query via standard MCP tools.
 - **Data portability** — Export/import your brain as YAML.
-- **Configurable LLMs** — Use Anthropic, OpenAI, or local Ollama.
+- **OpenAI-native AI layer** — Responses API and OpenAI embeddings, with no-network mocks for development.
 
 ## How It Works
 
@@ -91,7 +92,8 @@ komponist/
 │   └── web/              # Next.js UI (review queue, graph browser)
 ├── packages/
 │   ├── core/             # Graph client, models, LLM/embedding clients
-│   └── pipelines/        # LangGraph extraction pipeline
+│   ├── pipelines/        # LangGraph extraction pipeline
+│   └── sdk-js/           # Typed JavaScript context client
 ├── docker/               # Docker Compose and Dockerfiles
 └── docs/                 # Documentation and design system
 ```
@@ -119,6 +121,28 @@ The MCP server exposes six tools to AI coding assistants:
 | `request_approval` | Ask for human approval on actions |
 | `get_approval_status` | Check pending approval requests |
 
+## JavaScript / TypeScript SDK
+
+Use the reviewed company context directly from trusted server-side code:
+
+```ts
+import { createKomponistClient } from '@komponist/sdk'
+
+const komponist = createKomponistClient({
+  url: process.env.KOMPONIST_URL ?? 'http://localhost:8000',
+  apiKey: process.env.KOMPONIST_API_KEY!,
+})
+
+const { data, error } = await komponist.context.search(
+  'What did we decide about authentication?',
+  { types: ['Decision', 'Constraint'] },
+)
+```
+
+The same client exposes `brain.info()` and project-scoped `decisions.list()`.
+See [`packages/sdk-js`](packages/sdk-js) for the complete contract. Keep API
+keys out of browser bundles.
+
 ### Claude Code Setup
 
 Add to your MCP configuration:
@@ -140,7 +164,10 @@ Or connect directly:
 {
   "mcpServers": {
     "komponist": {
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KOMPONIST_API_KEY}"
+      }
     }
   }
 }
@@ -151,23 +178,21 @@ Or connect directly:
 ### Environment Variables
 
 ```bash
-# LLM Provider (anthropic, openai, ollama)
-KOMPONIST_LLM_PROVIDER=anthropic
-KOMPONIST_LLM_MODEL=claude-sonnet-4-20250514
+# No key required: deterministic test doubles, not real AI
+KOMPONIST_AI_MODE=mock
 
-# Embeddings (openai, ollama)
+# Production providers
+KOMPONIST_LLM_PROVIDER=openai
+KOMPONIST_LLM_MODEL=gpt-5.6-terra
+KOMPONIST_OPENAI_STORE=false
 KOMPONIST_EMBEDDING_PROVIDER=openai
 KOMPONIST_EMBEDDING_MODEL=text-embedding-3-small
 
 # Local documents path
 KOMPONIST_LOCAL_DOCS_PATH=./docs
 
-# Ollama (for local models)
-OLLAMA_BASE_URL=http://ollama:11434
-
-# API Keys
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+# Leave empty in mock mode
+OPENAI_API_KEY=
 
 # OAuth (for connectors)
 NOTION_CLIENT_ID=...
@@ -178,24 +203,52 @@ SLACK_CLIENT_ID=...
 SLACK_CLIENT_SECRET=...
 ```
 
-### Local Models with Ollama
+### Develop Without OpenAI Credits
 
-Run entirely locally with Ollama:
+Mock mode exercises API, extraction-schema, embedding-dimension, and database
+contracts without a model or network call. Its hash vectors are deterministic
+test data and are **not** suitable for semantic search quality evaluation.
 
 ```bash
-# Pull models
-ollama pull llama3
-ollama pull nomic-embed-text
-
-# Configure .env
-KOMPONIST_LLM_PROVIDER=ollama
-KOMPONIST_LLM_MODEL=llama3
-KOMPONIST_EMBEDDING_PROVIDER=ollama
-KOMPONIST_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_BASE_URL=http://host.docker.internal:11434
+KOMPONIST_AI_MODE=mock
 ```
 
+Switch to centrally managed OpenAI calls only after adding a project-scoped key
+to the deployment `.env` file. Workspace users never enter or receive this key:
+
+```bash
+KOMPONIST_AI_MODE=live
+OPENAI_API_KEY=sk-project-key-here
+```
+
+When the compose file lives under `docker/`, explicitly load the root file:
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml up -d
+```
+
+Create separate, revocable Komponist access keys for agents under **Settings →
+API & MCP**. These keys authorize a single organization; they are not OpenAI
+keys.
+
 ## Development
+
+### Full stack with web hot reload
+
+Run the normal stack with the web development override:
+
+```bash
+docker compose --env-file .env \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.web-dev.yml \
+  up -d --build
+```
+
+Changes inside `apps/web` now appear at http://localhost:3000 without rebuilding
+the image. Next.js dependencies and generated `.next` files stay in Docker
+volumes, so they do not overwrite files on the host.
+
+### Run application services locally
 
 ```bash
 # Start databases only

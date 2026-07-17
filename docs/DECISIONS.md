@@ -37,7 +37,7 @@ These decisions will be the first Decision nodes in the Komponist brain (dogfood
 
 **Why:** Vector indexes are immutable regarding dimensionality. Changing models mid-flight requires full graph reindex (expensive, error-prone). Pick once, commit.
 
-**Chosen:** OpenAI text-embedding-3-small (1536 dims, $0.02/1M tokens, excellent quality).
+**Chosen:** OpenAI text-embedding-3-small (1536 dims).
 
 ## ADR-005: Centralized LLM Wrapper
 
@@ -94,6 +94,24 @@ Notion/CRM/email/transcripts are out of scope until design partners demand them.
 **Why:** False positives (blocking valid work) kill trust and cause tool uninstallation. False negatives (missing a violation) are caught in review. The system's value is governance, not gatekeeping.
 
 **Target:** ≤5% false block rate on benign actions.
+
+## ADR-011: OpenAI-Only AI Runtime
+
+**Decision:** Use the OpenAI Responses API for extraction, chat, and future tool
+workflows. Use OpenAI `text-embedding-3-small` for semantic retrieval. Do not
+require a local model runtime.
+
+**Development mode:** `KOMPONIST_AI_MODE=mock` uses deterministic test doubles
+for response schemas and 1536-dimensional vector contracts. Mock output is not
+AI-generated and must never be used to evaluate extraction or retrieval quality.
+
+**Why:** One production API and one project-scoped key reduce operational and
+billing complexity. Strict structured outputs make the extraction boundary
+testable, while mock mode lets infrastructure work continue before API credits
+are available.
+
+**Privacy default:** Responses are created with application storage disabled
+unless `KOMPONIST_OPENAI_STORE=true` is explicitly configured.
 
 ---
 

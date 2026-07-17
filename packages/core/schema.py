@@ -140,14 +140,11 @@ class GraphSchema:
 
         # Get counts
         counts_result = await GraphClient.run_query("""
-            MATCH (e:Entity)
-            WITH count(e) as entities
-            MATCH (v:Evidence)
-            WITH entities, count(v) as evidence
-            MATCH (p:Person)
-            WITH entities, evidence, count(p) as people
-            MATCH (w:WorkPack)
-            RETURN entities, evidence, people, count(w) as workpacks
+            CALL { MATCH (e:Entity) RETURN count(e) AS entities }
+            CALL { MATCH (v:Evidence) RETURN count(v) AS evidence }
+            CALL { MATCH (p:Person) RETURN count(p) AS people }
+            CALL { MATCH (w:WorkPack) RETURN count(w) AS workpacks }
+            RETURN entities, evidence, people, workpacks
         """)
 
         counts = counts_result[0] if counts_result else {
@@ -162,7 +159,7 @@ class GraphSchema:
         }
 
 
-async def seed_test_data(org_id: str = "test-org"):
+async def seed_test_data(org_id: str = "test-org", id_prefix: str = ""):
     """
     Seed test data for development/testing.
 
@@ -180,7 +177,7 @@ async def seed_test_data(org_id: str = "test-org"):
         # Decision 1: Use Neo4j (confirmed)
         """
         CREATE (d:Entity:Decision {
-            id: 'dec-neo4j',
+            id: $id_prefix + 'dec-neo4j',
             org_id: $org_id,
             entity_type: 'Decision',
             statement: 'Use Neo4j as the company brain storage',
@@ -192,7 +189,7 @@ async def seed_test_data(org_id: str = "test-org"):
             confirmed_at: datetime()
         })
         CREATE (e:Evidence {
-            id: 'ev-1',
+            id: $id_prefix + 'ev-1',
             org_id: $org_id,
             source: 'manual',
             reference: 'ADR-001',
@@ -205,7 +202,7 @@ async def seed_test_data(org_id: str = "test-org"):
         # Decision 2: Python backend (confirmed)
         """
         CREATE (d:Entity:Decision {
-            id: 'dec-python',
+            id: $id_prefix + 'dec-python',
             org_id: $org_id,
             entity_type: 'Decision',
             statement: 'Use Python FastAPI for the backend',
@@ -217,7 +214,7 @@ async def seed_test_data(org_id: str = "test-org"):
             confirmed_at: datetime()
         })
         CREATE (e:Evidence {
-            id: 'ev-2',
+            id: $id_prefix + 'ev-2',
             org_id: $org_id,
             source: 'manual',
             reference: 'ADR-003',
@@ -230,7 +227,7 @@ async def seed_test_data(org_id: str = "test-org"):
         # Decision 3: Old auth approach (superseded)
         """
         CREATE (d_old:Entity:Decision {
-            id: 'dec-auth-old',
+            id: $id_prefix + 'dec-auth-old',
             org_id: $org_id,
             entity_type: 'Decision',
             statement: 'Use internal auth service',
@@ -241,7 +238,7 @@ async def seed_test_data(org_id: str = "test-org"):
             updated_at: datetime()
         })
         CREATE (d_new:Entity:Decision {
-            id: 'dec-auth-new',
+            id: $id_prefix + 'dec-auth-new',
             org_id: $org_id,
             entity_type: 'Decision',
             statement: 'Use WorkOS for enterprise identity',
@@ -253,7 +250,7 @@ async def seed_test_data(org_id: str = "test-org"):
             confirmed_at: datetime()
         })
         CREATE (e:Evidence {
-            id: 'ev-3',
+            id: $id_prefix + 'ev-3',
             org_id: $org_id,
             source: 'github',
             reference: 'PR#142',
@@ -268,7 +265,7 @@ async def seed_test_data(org_id: str = "test-org"):
         # Goal 1: Ship MVP
         """
         CREATE (g:Entity:Goal {
-            id: 'goal-mvp',
+            id: $id_prefix + 'goal-mvp',
             org_id: $org_id,
             entity_type: 'Goal',
             statement: 'Ship Komponist MVP to 10 design partners',
@@ -280,7 +277,7 @@ async def seed_test_data(org_id: str = "test-org"):
             confirmed_at: datetime()
         })
         CREATE (e:Evidence {
-            id: 'ev-4',
+            id: $id_prefix + 'ev-4',
             org_id: $org_id,
             source: 'manual',
             reference: 'BUILD_PLAN',
@@ -293,7 +290,7 @@ async def seed_test_data(org_id: str = "test-org"):
         # Goal 2: YC application
         """
         CREATE (g:Entity:Goal {
-            id: 'goal-yc',
+            id: $id_prefix + 'goal-yc',
             org_id: $org_id,
             entity_type: 'Goal',
             statement: 'Apply to Y Combinator with demo and traction',
@@ -309,7 +306,7 @@ async def seed_test_data(org_id: str = "test-org"):
         # Constraint: No auto-confirm
         """
         CREATE (c:Entity:Constraint {
-            id: 'con-review',
+            id: $id_prefix + 'con-review',
             org_id: $org_id,
             entity_type: 'Constraint',
             statement: 'Never auto-confirm extracted entities',
@@ -322,7 +319,7 @@ async def seed_test_data(org_id: str = "test-org"):
             confirmed_at: datetime()
         })
         CREATE (e:Evidence {
-            id: 'ev-5',
+            id: $id_prefix + 'ev-5',
             org_id: $org_id,
             source: 'manual',
             reference: 'ADR-009',
@@ -335,7 +332,7 @@ async def seed_test_data(org_id: str = "test-org"):
         # Project: Step 2 Implementation
         """
         CREATE (p:Entity:Project {
-            id: 'proj-step2',
+            id: $id_prefix + 'proj-step2',
             org_id: $org_id,
             entity_type: 'Project',
             statement: 'Implement graph schema and core queries',
@@ -350,19 +347,21 @@ async def seed_test_data(org_id: str = "test-org"):
 
         # Relationships
         """
-        MATCH (p:Project {id: 'proj-step2', org_id: $org_id})
-        MATCH (g:Goal {id: 'goal-mvp', org_id: $org_id})
+        MATCH (p:Project {id: $id_prefix + 'proj-step2', org_id: $org_id})
+        MATCH (g:Goal {id: $id_prefix + 'goal-mvp', org_id: $org_id})
         MERGE (p)-[:ADVANCES]->(g)
         """,
         """
-        MATCH (d:Decision {id: 'dec-auth-new', org_id: $org_id})
-        MATCH (p:Project {id: 'proj-step2', org_id: $org_id})
+        MATCH (d:Decision {id: $id_prefix + 'dec-auth-new', org_id: $org_id})
+        MATCH (p:Project {id: $id_prefix + 'proj-step2', org_id: $org_id})
         MERGE (d)-[:AFFECTS]->(p)
         """,
     ]
 
     for query in queries:
-        await GraphClient.run_query(query.strip(), {"org_id": org_id})
+        await GraphClient.run_query(
+            query.strip(), {"org_id": org_id, "id_prefix": id_prefix}
+        )
 
     print(f"✓ Test data seeded (6 entities, relationships, evidence)")
 

@@ -26,6 +26,12 @@ RUN pip install --no-cache-dir -e packages/pipelines
 COPY apps/api/requirements.txt apps/api/
 RUN pip install --no-cache-dir -r apps/api/requirements.txt
 
+# CI can opt into test-only dependencies without adding them to production images.
+ARG INSTALL_TEST_DEPS=false
+RUN if [ "$INSTALL_TEST_DEPS" = "true" ]; then \
+      pip install --no-cache-dir -r packages/core/test-requirements.txt; \
+    fi
+
 # Copy API source code
 COPY apps/api/ apps/api/
 

@@ -75,7 +75,8 @@ def get_oauth_url(state: str) -> str:
         "owner": "user",  # or "workspace"
         "state": state,
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    from urllib.parse import urlencode
+    query = urlencode(params)
     return f"https://api.notion.com/v1/oauth/authorize?{query}"
 
 

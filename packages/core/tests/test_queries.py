@@ -5,6 +5,7 @@ Requires Neo4j running (docker compose -f infra/docker-compose.dev.yml up -d)
 """
 
 import pytest
+import pytest_asyncio
 from datetime import datetime
 from typing import List
 
@@ -15,15 +16,24 @@ from core.queries import BrainQueries
 
 # Test org ID
 TEST_ORG = "test-org-queries"
+ID_PREFIX = f"{TEST_ORG}:"
 
 
-@pytest.fixture(scope="module", autouse=True)
+def _test_id(value: str) -> str:
+    return f"{ID_PREFIX}{value}"
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module", autouse=True)
 async def setup_teardown():
     """Setup: initialize DB and schema. Teardown: clean up test data."""
     # Setup
     GraphClient.initialize()
     await GraphSchema.apply_schema()
-    await seed_test_data(org_id=TEST_ORG)
+    await GraphClient.run_query(
+        "MATCH (n) WHERE n.org_id = $org_id DETACH DELETE n",
+        {"org_id": TEST_ORG},
+    )
+    await seed_test_data(org_id=TEST_ORG, id_prefix=ID_PREFIX)
 
     yield
 
@@ -35,7 +45,7 @@ async def setup_teardown():
     await GraphClient.close()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_schema_verification():
     """Test schema is correctly applied."""
     verification = await GraphSchema.verify_schema()
@@ -50,7 +60,7 @@ async def test_schema_verification():
     assert verification["counts"]["evidence"] >= 5
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_active_decisions():
     """Test active decisions query (supersedes-aware)."""
     decisions = await BrainQueries.active_decisions(org_id=TEST_ORG)
@@ -60,56 +70,56 @@ async def test_active_decisions():
     assert len(decisions) == 3
 
     decision_ids = [d["id"] for d in decisions]
-    assert "dec-neo4j" in decision_ids
-    assert "dec-python" in decision_ids
-    assert "dec-auth-new" in decision_ids
-    assert "dec-auth-old" not in decision_ids
+    assert _test_id("dec-neo4j") in decision_ids
+    assert _test_id("dec-python") in decision_ids
+    assert _test_id("dec-auth-new") in decision_ids
+    assert _test_id("dec-auth-old") not in decision_ids
 
     # Each should have evidence
     for d in decisions:
         assert len(d["evidence"]) > 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_supersedes_chain():
     """Test supersedes chain query."""
     # Get chain for the new auth decision
     chain = await BrainQueries.supersedes_chain(
-        decision_id="dec-auth-old",
+        decision_id=_test_id("dec-auth-old"),
         org_id=TEST_ORG
     )
 
     # Should have 2 decisions: old -> new
     assert len(chain) == 2
-    assert chain[0]["id"] == "dec-auth-old"
+    assert chain[0]["id"] == _test_id("dec-auth-old")
     assert chain[0]["status"] == "superseded"
-    assert chain[1]["id"] == "dec-auth-new"
+    assert chain[1]["id"] == _test_id("dec-auth-new")
     assert chain[1]["status"] == "confirmed"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_context_expansion():
     """Test context expansion (1-2 hop neighborhood)."""
     # Start with the project entity
     expansion = await BrainQueries.context_expansion(
         org_id=TEST_ORG,
-        seed_ids=["proj-step2"],
+        seed_ids=[_test_id("proj-step2")],
         max_hops=2
     )
 
     assert len(expansion["seeds"]) > 0
-    assert expansion["seeds"][0]["id"] == "proj-step2"
+    assert expansion["seeds"][0]["id"] == _test_id("proj-step2")
 
     # Should find neighbors via ADVANCES and AFFECTS relationships
     neighbor_ids = [n["id"] for n in expansion["neighbors"]]
-    assert "goal-mvp" in neighbor_ids  # via ADVANCES
-    assert "dec-auth-new" in neighbor_ids  # via AFFECTS
+    assert _test_id("goal-mvp") in neighbor_ids  # via ADVANCES
+    assert _test_id("dec-auth-new") in neighbor_ids  # via AFFECTS
 
     # Should have evidence
     assert len(expansion["evidence"]) > 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_applicable_constraints():
     """Test applicable constraints (global + project-scoped)."""
     # Global constraints only (no project)
@@ -117,7 +127,7 @@ async def test_applicable_constraints():
 
     assert len(constraints) >= 1
     constraint_ids = [c["id"] for c in constraints]
-    assert "con-review" in constraint_ids
+    assert _test_id("con-review") in constraint_ids
 
     # Should have evidence
     for c in constraints:
@@ -125,7 +135,7 @@ async def test_applicable_constraints():
         assert c["enforcement"] in ["block", "approve", None]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_hybrid_search_fulltext():
     """Test hybrid search with fulltext only."""
     results = await BrainQueries.hybrid_search(
@@ -146,7 +156,7 @@ async def test_hybrid_search_fulltext():
         assert r["score"] > 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_hybrid_search_with_type_filter():
     """Test hybrid search filtered by entity type."""
     results = await BrainQueries.hybrid_search(
@@ -163,14 +173,14 @@ async def test_hybrid_search_with_type_filter():
         assert r["entity_type"] == "Goal"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="module")
 async def test_entity_lifecycle():
     """Test entity status filtering."""
     # Create a proposed entity
     await GraphClient.run_query(
         """
         CREATE (e:Entity:Decision {
-            id: 'test-proposed',
+            id: $entity_id,
             org_id: $org_id,
             entity_type: 'Decision',
             statement: 'Test proposed decision',
@@ -180,7 +190,7 @@ async def test_entity_lifecycle():
             updated_at: datetime()
         })
         """,
-        {"org_id": TEST_ORG}
+        {"org_id": TEST_ORG, "entity_id": _test_id("test-proposed")}
     )
 
     # Confirmed-only search should not include it
@@ -192,7 +202,7 @@ async def test_entity_lifecycle():
     )
 
     confirmed_ids = [r["id"] for r in confirmed_results]
-    assert "test-proposed" not in confirmed_ids
+    assert _test_id("test-proposed") not in confirmed_ids
 
     # Proposed search should find it
     proposed_results = await BrainQueries.hybrid_search(
@@ -203,12 +213,12 @@ async def test_entity_lifecycle():
     )
 
     proposed_ids = [r["id"] for r in proposed_results]
-    assert "test-proposed" in proposed_ids
+    assert _test_id("test-proposed") in proposed_ids
 
     # Cleanup
     await GraphClient.run_query(
-        "MATCH (e:Entity {id: 'test-proposed', org_id: $org_id}) DELETE e",
-        {"org_id": TEST_ORG}
+        "MATCH (e:Entity {id: $entity_id, org_id: $org_id}) DELETE e",
+        {"org_id": TEST_ORG, "entity_id": _test_id("test-proposed")}
     )
 
 

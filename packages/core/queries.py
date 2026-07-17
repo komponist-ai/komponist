@@ -23,10 +23,13 @@ class BrainQueries:
         query_embedding: Optional[List[float]] = None,
         entity_types: Optional[List[str]] = None,
         k: int = 8,
-        status: str = "confirmed"
+        status: str = "confirmed",
+        department_ids: Optional[List[str]] = None,
+        access_all_departments: bool = True,
+        include_global: bool = True,
     ) -> List[Dict[str, Any]]:
         """
-        Hybrid search: vector + fulltext, union, dedupe by id (max score wins).
+        Hybrid search: vector + fulltext, fused with reciprocal rank fusion.
 
         Args:
             org_id: Organization ID
@@ -39,20 +42,31 @@ class BrainQueries:
         Returns:
             List of entities with scores, sorted by score descending
         """
-        results = {}  # entity_id -> (entity, max_score)
+        entities: Dict[str, Dict[str, Any]] = {}
+        rank_scores: Dict[str, float] = {}
+
+        def add_ranked(items: List[Dict[str, Any]]) -> None:
+            # Raw vector and Lucene scores are not comparable. Reciprocal rank
+            # fusion combines their ordering without pretending the scales match.
+            for rank, item in enumerate(items, 1):
+                entity_id = item["id"]
+                entities.setdefault(entity_id, item)
+                rank_scores[entity_id] = (
+                    rank_scores.get(entity_id, 0.0) + 1.0 / (60 + rank)
+                )
 
         # Vector search (if embedding provided)
         if query_embedding:
-            type_filter = ""
-            if entity_types:
-                type_filter = f"AND node.entity_type IN {entity_types}"
-
-            vector_query = f"""
+            vector_query = """
             CALL db.index.vector.queryNodes('entity_embedding', $k, $query_embedding)
             YIELD node, score
             WHERE node.org_id = $org_id
               AND node.status = $status
-              {type_filter}
+              AND (size($entity_types) = 0 OR node.entity_type IN $entity_types)
+              AND ($access_all_departments
+                   OR ($include_global AND size(coalesce(node.department_ids, [])) = 0)
+                   OR any(department_id IN coalesce(node.department_ids, [])
+                          WHERE department_id IN $department_ids))
             RETURN
                 node.id as id,
                 node.entity_type as entity_type,
@@ -73,28 +87,27 @@ class BrainQueries:
                     "org_id": org_id,
                     "status": status,
                     "k": k,
-                    "query_embedding": query_embedding
+                    "query_embedding": query_embedding,
+                    "entity_types": entity_types or [],
+                    "department_ids": department_ids or [],
+                    "access_all_departments": access_all_departments,
+                    "include_global": include_global,
                 }
             )
-
-            for r in vector_results:
-                entity_id = r["id"]
-                if entity_id not in results or r["score"] > results[entity_id][1]:
-                    results[entity_id] = (r, r["score"])
+            add_ranked(vector_results)
 
         # Fulltext search (if text provided)
         if query_text:
-            type_filter = ""
-            if entity_types:
-                types_str = ", ".join(f"'{t}'" for t in entity_types)
-                type_filter = f"AND node.entity_type IN [{types_str}]"
-
-            fulltext_query = f"""
+            fulltext_query = """
             CALL db.index.fulltext.queryNodes('entity_text', $query_text)
             YIELD node, score
             WHERE node.org_id = $org_id
               AND node.status = $status
-              {type_filter}
+              AND (size($entity_types) = 0 OR node.entity_type IN $entity_types)
+              AND ($access_all_departments
+                   OR ($include_global AND size(coalesce(node.department_ids, [])) = 0)
+                   OR any(department_id IN coalesce(node.department_ids, [])
+                          WHERE department_id IN $department_ids))
             RETURN
                 node.id as id,
                 node.entity_type as entity_type,
@@ -115,19 +128,19 @@ class BrainQueries:
                     "org_id": org_id,
                     "status": status,
                     "query_text": query_text,
-                    "k": k
+                    "k": k,
+                    "entity_types": entity_types or [],
+                    "department_ids": department_ids or [],
+                    "access_all_departments": access_all_departments,
+                    "include_global": include_global,
                 }
             )
+            add_ranked(fulltext_results)
 
-            for r in fulltext_results:
-                entity_id = r["id"]
-                if entity_id not in results or r["score"] > results[entity_id][1]:
-                    results[entity_id] = (r, r["score"])
-
-        # Dedupe and sort by max score
+        # Dedupe and sort by fused rank score.
         dedupe_results = [
-            {**entity, "score": score}
-            for entity, score in results.values()
+            {**entity, "score": rank_scores[entity_id]}
+            for entity_id, entity in entities.items()
         ]
         dedupe_results.sort(key=lambda x: x["score"], reverse=True)
 
@@ -137,7 +150,8 @@ class BrainQueries:
     async def active_decisions(
         org_id: str,
         topic_embedding: Optional[List[float]] = None,
-        k: int = 20
+        k: int = 20,
+        project_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get active (non-superseded) decisions.
@@ -148,6 +162,7 @@ class BrainQueries:
             org_id: Organization ID
             topic_embedding: Optional filter by similarity to topic
             k: Limit results
+            project_id: Optional project scope
 
         Returns:
             List of active decisions with evidence
@@ -161,42 +176,57 @@ class BrainQueries:
               AND d.entity_type = 'Decision'
               AND d.status = 'confirmed'
               AND NOT EXISTS {
-                  MATCH (newer:Decision {status: 'confirmed'})-[:SUPERSEDES]->(d)
+                  MATCH (newer:Decision {org_id: $org_id, status: 'confirmed'})-[:SUPERSEDES]->(d)
               }
+              AND ($project_id IS NULL OR EXISTS {
+                  MATCH (d)-[:AFFECTS|RELATES_TO]-(project:Project {
+                      id: $project_id, org_id: $org_id
+                  })
+              })
             WITH d, score
             ORDER BY score DESC
             LIMIT $k
-            OPTIONAL MATCH (d)-[:CITED_BY]->(e:Evidence)
+            MATCH (d)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
             RETURN
                 d.id as id,
                 d.statement as statement,
                 d.detail as detail,
                 d.confidence as confidence,
                 d.confirmed_at as confirmed_at,
-                collect(e{.id, .source, .reference, .url, .excerpt}) as evidence,
+                collect(DISTINCT e{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence,
                 score
             ORDER BY score DESC
             """
-            params = {"org_id": org_id, "k": k, "topic_embedding": topic_embedding}
+            params = {
+                "org_id": org_id,
+                "k": k,
+                "topic_embedding": topic_embedding,
+                "project_id": project_id,
+            }
         else:
             # All active decisions
             query = """
             MATCH (d:Decision {org_id: $org_id, entity_type: 'Decision', status: 'confirmed'})
             WHERE NOT EXISTS {
-                MATCH (newer:Decision {status: 'confirmed'})-[:SUPERSEDES]->(d)
+                MATCH (newer:Decision {org_id: $org_id, status: 'confirmed'})-[:SUPERSEDES]->(d)
             }
-            OPTIONAL MATCH (d)-[:CITED_BY]->(e:Evidence)
+              AND ($project_id IS NULL OR EXISTS {
+                  MATCH (d)-[:AFFECTS|RELATES_TO]-(project:Project {
+                      id: $project_id, org_id: $org_id
+                  })
+              })
+            MATCH (d)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
             RETURN
                 d.id as id,
                 d.statement as statement,
                 d.detail as detail,
                 d.confidence as confidence,
                 d.confirmed_at as confirmed_at,
-                collect(e{.id, .source, .reference, .url, .excerpt}) as evidence
+                collect(DISTINCT e{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence
             ORDER BY d.confirmed_at DESC
             LIMIT $k
             """
-            params = {"org_id": org_id, "k": k}
+            params = {"org_id": org_id, "k": k, "project_id": project_id}
 
         results = await GraphClient.run_query(query, params)
         return results
@@ -233,7 +263,7 @@ class BrainQueries:
         OPTIONAL MATCH (neighbor)-[:CITED_BY]->(nev:Evidence)
         RETURN
             e{{.id, .entity_type, .statement, .detail, .status, .confidence}} as seed,
-            evidence{{.id, .source, .reference, .url, .excerpt}} as seed_evidence,
+            [item IN evidence | item{{.id, .source, .reference, .url, .excerpt}}] as seed_evidence,
             collect(DISTINCT neighbor{{.id, .entity_type, .statement, .detail, .status}}) as neighbors,
             collect(DISTINCT nev{{.id, .source, .reference, .url, .excerpt}}) as neighbor_evidence
         """
@@ -330,11 +360,11 @@ class BrainQueries:
             query = """
             MATCH (c:Constraint {org_id: $org_id, entity_type: 'Constraint', status: 'confirmed'})
             WHERE NOT EXISTS {
-                MATCH (c)-[:CONSTRAINS]->(:Project)
+                MATCH (c)-[:CONSTRAINS]->(:Project {org_id: $org_id})
             } OR EXISTS {
-                MATCH (c)-[:CONSTRAINS]->(:Project {id: $project_id})
+                MATCH (c)-[:CONSTRAINS]->(:Project {id: $project_id, org_id: $org_id})
             }
-            OPTIONAL MATCH (c)-[:CITED_BY]->(e:Evidence)
+            MATCH (c)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
             RETURN
                 c.id as id,
                 c.statement as statement,
@@ -342,7 +372,7 @@ class BrainQueries:
                 c.enforcement as enforcement,
                 c.confidence as confidence,
                 c.confirmed_at as confirmed_at,
-                collect(e{.id, .source, .reference, .url, .excerpt}) as evidence
+                collect(DISTINCT e{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence
             ORDER BY c.enforcement DESC, c.confirmed_at DESC
             """
             params = {"org_id": org_id, "project_id": project_id}
@@ -351,9 +381,9 @@ class BrainQueries:
             query = """
             MATCH (c:Constraint {org_id: $org_id, entity_type: 'Constraint', status: 'confirmed'})
             WHERE NOT EXISTS {
-                MATCH (c)-[:CONSTRAINS]->(:Project)
+                MATCH (c)-[:CONSTRAINS]->(:Project {org_id: $org_id})
             }
-            OPTIONAL MATCH (c)-[:CITED_BY]->(e:Evidence)
+            MATCH (c)-[:CITED_BY]->(e:Evidence {org_id: $org_id})
             RETURN
                 c.id as id,
                 c.statement as statement,
@@ -361,7 +391,7 @@ class BrainQueries:
                 c.enforcement as enforcement,
                 c.confidence as confidence,
                 c.confirmed_at as confirmed_at,
-                collect(e{.id, .source, .reference, .url, .excerpt}) as evidence
+                collect(DISTINCT e{.id, .source, .reference, .url, .excerpt, .source_date}) as evidence
             ORDER BY c.enforcement DESC, c.confirmed_at DESC
             """
             params = {"org_id": org_id}

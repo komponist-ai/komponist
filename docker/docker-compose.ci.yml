@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+      args:
+        INSTALL_TEST_DEPS: "true"
+    environment:
+      KOMPONIST_AI_MODE: mock
+      KOMPONIST_SECRET_KEY: ${KOMPONIST_SECRET_KEY}
+      KOMPONIST_ALLOW_UNSIGNED_WEBHOOKS: "false"
+      KOMPONIST_COOKIE_SECURE: "false"
+      OPENAI_API_KEY: ""
+
+  mcp:
+    environment:
+      KOMPONIST_AI_MODE: mock
+      OPENAI_API_KEY: ""
+
+  web:
+    environment:
+      API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_MCP_URL: http://localhost:8080/mcp

@@ -49,7 +49,8 @@ def get_oauth_url(state: str) -> str:
         "scope": scopes,
         "state": state,
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    from urllib.parse import urlencode
+    query = urlencode(params)
     return f"https://slack.com/oauth/v2/authorize?{query}"
 
 
@@ -95,11 +96,15 @@ def verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
         True if signature is valid
     """
     if not SLACK_SIGNING_SECRET:
-        return True  # Dev mode
+        return os.getenv("KOMPONIST_ALLOW_UNSIGNED_WEBHOOKS", "false").lower() == "true"
 
     # Check timestamp (prevent replay attacks)
+    try:
+        request_timestamp = int(timestamp)
+    except (TypeError, ValueError):
+        return False
     current_timestamp = int(datetime.utcnow().timestamp())
-    if abs(current_timestamp - int(timestamp)) > 60 * 5:
+    if abs(current_timestamp - request_timestamp) > 60 * 5:
         return False
 
     sig_basestring = f"v0:{timestamp}:{body.decode()}"
@@ -131,7 +136,10 @@ async def handle_slack_webhook(request: Request, org_id: str) -> Dict[str, Any]:
     if not verify_slack_signature(body, timestamp, signature):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    payload = json.loads(body)
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from error
 
     # Handle URL verification challenge
     if payload.get("type") == "url_verification":

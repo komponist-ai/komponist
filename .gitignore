@@ -20,6 +20,8 @@ pip-delete-this-directory.txt
 htmlcov/
 *.egg-info/
 dist/
+!packages/sdk-js/dist/
+!packages/sdk-js/dist/**
 build/
 
 # Node
@@ -67,3 +69,6 @@ logs/
 .tmp/
 tmp/
 temp/
+todo.md
+TODO.md
+Todo.md

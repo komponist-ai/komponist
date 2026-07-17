@@ -296,7 +296,10 @@ def parse_export_yaml(yaml_content: str) -> Dict[str, Any]:
     Returns:
         Parsed export data
     """
-    return yaml.safe_load(yaml_content)
+    try:
+        return yaml.safe_load(yaml_content)
+    except yaml.YAMLError as error:
+        raise ValueError("Invalid YAML export") from error
 
 
 async def import_brain_yaml(

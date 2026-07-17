@@ -42,6 +42,7 @@ class SourceType(str, Enum):
     GOOGLE = "google"
     AGENT_REPORT = "agent_report"
     MANUAL = "manual"
+    UPLOAD = "upload"
 
 
 class Entity(BaseModel):
@@ -99,6 +100,7 @@ class WorkPack(BaseModel):
 class SourceItem(BaseModel):
     """Normalized source item for extraction."""
     org_id: str
+    department_id: Optional[str] = None
     source: SourceType
     kind: str  # pr_merged, adr_file, issue, commit_batch, thread
     title: str

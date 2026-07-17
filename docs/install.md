@@ -32,14 +32,18 @@ nano ~/.claude/mcp.json
         "NEO4J_URI": "bolt://localhost:7687",
         "NEO4J_USERNAME": "neo4j",
         "NEO4J_PASSWORD": "your-password",
-        "OPENAI_API_KEY": "your-openai-key",
-        "ANTHROPIC_API_KEY": "your-anthropic-key",
+        "KOMPONIST_AI_MODE": "mock",
+        "KOMPONIST_LLM_PROVIDER": "openai",
+        "KOMPONIST_EMBEDDING_PROVIDER": "openai",
         "DATABASE_URL": "postgresql+asyncpg://..."
       }
     }
   }
 }
 ```
+
+Mock mode makes no AI network calls. For live extraction and semantic search,
+set `KOMPONIST_AI_MODE` to `live` and add a project-scoped `OPENAI_API_KEY`.
 
 ### 3. Verify installation
 
@@ -152,8 +156,14 @@ Tool call: report_result(
 )
 
 Result:
-✅ Report received. 1 new decision(s) added to review queue.
+Report received. Reference: `agent-report-...`.
+
+1 new decision proposal added to the review queue: `agent-decision-...`
 ```
+
+`report_result` does not call a model for already structured decisions. Reports
+are idempotent, retain `agent_report` Evidence, and always require human review
+before they become visible to agent searches.
 
 ## Testing the Connection
 

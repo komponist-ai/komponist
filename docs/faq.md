@@ -26,8 +26,8 @@ Agent memory stores chat session history. Komponist stores org-level context (go
 
 - Neo4j 5.x (Docker locally, or AuraDB for production)
 - Postgres (Docker locally, or Neon/Supabase)
-- OpenAI API key (for embeddings)
-- Anthropic API key (for LLM calls)
+- No AI key in mock mode
+- One OpenAI project API key for live chat, extraction, and embeddings
 - GitHub, Slack, and/or Linear accounts to connect
 
 ### How long does onboarding take?
@@ -96,8 +96,9 @@ OpenAI `text-embedding-3-small` (1536 dimensions). **This is fixed at initializa
 
 ### What LLM model do you use?
 
-- Haiku (claude-haiku-4-5-20251001) for classification (cheap gate)
-- Sonnet (claude-sonnet-4) for extraction, selection, constraint adjudication (quality)
+OpenAI `gpt-5.6-terra` is the initial live default for classification,
+extraction, chat, and constraint adjudication. Before API access is available,
+mock mode validates contracts only and does not run an AI model.
 
 ### How does deduplication work?
 

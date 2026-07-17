@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir -r apps/mcp/requirements.txt
 
 # Copy MCP source code
 COPY apps/mcp/ apps/mcp/
+COPY apps/api/database.py apps/api/database.py
 
 # Set working directory to MCP
 WORKDIR /app/apps/mcp
@@ -37,4 +38,4 @@ EXPOSE 8080
 
 # Run the MCP server
 # Note: fastmcp uses stdio by default, but we expose HTTP for Docker networking
-CMD ["python", "-m", "fastmcp", "run", "server:mcp", "--transport", "sse", "--port", "8080"]
+CMD ["fastmcp", "run", "server.py:mcp", "--transport", "http", "--host", "0.0.0.0", "--port", "8080"]
