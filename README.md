@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/images/komponist_logo_big.png" alt="Komponist" width="600" />
+  <img src="apps/web/app/icon.svg" alt="Komponist icon" width="112" height="112" />
 </p>
 
 <h1 align="center">Komponist</h1>
