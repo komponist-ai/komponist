@@ -214,17 +214,17 @@ flowchart LR
     sources["Uploads · Local docs · Notion · Slack · Drive"]
     extract["Extract Decisions, Goals, Constraints, Projects"]
     review["Human review queue"]
-    graph["Neo4j company brain"]
+    brain["Neo4j company brain"]
     studio["Studio chat and graph"]
     api["REST API and JS SDK"]
     mcp["MCP tools for agents"]
 
     sources --> extract --> review
-    review -->|confirm| graph
+    review -->|confirm| brain
     review -->|reject or merge| review
-    graph --> studio
-    graph --> api
-    graph --> mcp
+    brain --> studio
+    brain --> api
+    brain --> mcp
 ```
 
 Postgres stores users, sessions, organization memberships, departments,
