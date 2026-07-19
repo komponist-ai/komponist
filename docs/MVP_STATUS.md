@@ -18,11 +18,11 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | Chat Feature | ✅ Grounded live OpenAI flow verified | 88% |
 | Auth & Security | ✅ Session/API-key org isolation verified | 88% |
 | User Management | 🚧 Multi-org membership UI | 80% |
-| Deployment | ❌ Not implemented | 10% |
+| Deployment | 🚧 Hetzner/Coolify stack prepared | 40% |
 
-**Overall MVP Readiness: ~72%**
+**Overall MVP Readiness: ~75%**
 
-**Reality check:** The local-documents → extraction → review → confirmed graph → cited chat/API/MCP loop runs end-to-end in Docker. Browser routes are session- and role-protected; programmatic routes and MCP derive the organization from revocable API keys. Live external provider OAuth/webhooks, an external MCP host such as Claude Code, clean-machine setup, and deployment remain unverified.
+**Reality check:** The local-documents → extraction → review → confirmed graph → cited chat/API/MCP loop runs end-to-end in Docker. Browser routes are session- and role-protected; programmatic routes and MCP derive the organization from revocable API keys. A private production Compose topology and Hetzner/Coolify runbook now exist, but the first clean-machine public deployment remains unverified. Live external provider OAuth/webhooks and an external MCP host such as Claude Code also remain unverified.
 
 ---
 
@@ -222,6 +222,8 @@ The core local slice now has broad contract and restart coverage. External provi
 - [ ] Installation documentation that's been tested
 - [ ] Configuration wizard
 - [x] Docker Compose verified on the development Mac; clean-machine portability remains untested
+- [x] Private-port production Compose topology with health checks and persistent volumes
+- [x] Hetzner/Coolify pilot deployment and recovery runbook
 
 ### Observability
 - [ ] Metrics dashboard
@@ -239,7 +241,7 @@ The local vertical slice is verified, but important boundaries are still open:
 - Authenticated Streamable HTTP discovery is verified with a real FastMCP client;
   Claude Code interoperability is still unverified
 - Live OpenAI grounded chat is verified with `gpt-5.6-luna`; live extraction is still unverified
-- No cloud deployment or multi-user workflow has been tested
+- No public cloud deployment or hosted multi-user workflow has been tested
 
 ### 2. Authentication Is Enforced Locally, but Production Hardening Remains
 - Live Google login has not been completed with real credentials
@@ -267,7 +269,7 @@ Connected sources, organization settings, and approval requests now survive serv
 | Test Notion → Queue flow | 2-4 hours | Integration debugging |
 | Test MCP with Claude Code | 2-4 hours | Protocol debugging |
 | Test full review queue flow | 2-4 hours | UI debugging |
-| Deploy to cloud | 8-16 hours | Infrastructure + debugging |
+| Exercise prepared Hetzner deployment | 4-8 hours | DNS, build, OAuth, and recovery validation |
 | Add migrations + production rate limits | 6-10 hours | Deployment safety |
 | **Remaining to hosted pilot** | **20-40 hours** | Excludes provider approval delays |
 
@@ -293,6 +295,7 @@ Connected sources, organization settings, and approval requests now survive serv
 ### Deployment:
 - [ ] Self-hosted: `docker compose up` on any machine
 - [ ] Cloud: Live at komponist.dev
+- [x] Private production Compose and Hetzner/Coolify runbook prepared
 
 **Target: 10 design partners using the system daily**
 
@@ -323,10 +326,10 @@ Connected sources, organization settings, and approval requests now survive serv
 14. [x] Test all 6 tools with isolated graph data
 15. [x] Fix discovered protocol, citation, and project-scope issues
 
-### Phase 4: Deploy (2-3 days)
-16. Deploy to Fly.io
-17. Set up AuraDB (Neo4j)
-18. Set up Neon (Postgres)
+### Phase 4: Deploy (1-2 days)
+16. [x] Prepare a private production Compose stack
+17. [x] Document the Hetzner/Coolify pilot setup
+18. Deploy to an available 8 GB Hetzner instance and verify the recovery checklist
 19. [x] Create landing page
 
 ---

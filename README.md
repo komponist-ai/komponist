@@ -38,8 +38,10 @@ ontology-aligned claims beneath each document.
 > [!IMPORTANT]
 > Komponist is currently a local-first MVP, not a production-ready hosted
 > service. The complete local document → review → graph → cited chat/API/MCP
-> loop is verified. Real connector lifecycles, external MCP hosts, clean-machine
-> installation, and cloud deployment still need end-to-end validation. See the
+> loop is verified. A hardened Hetzner/Coolify pilot configuration exists, but
+> it has not yet been exercised on a public server. Real connector lifecycles,
+> external MCP hosts, clean-machine installation, and public deployment still
+> need end-to-end validation. See the
 > [detailed MVP status](docs/MVP_STATUS.md).
 
 ## Quick Start
@@ -140,6 +142,7 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 | API and SDK | Organization API keys plus `/v1/context`, `/v1/brain`, `/v1/decisions`, and the typed `@komponist/sdk` workspace package |
 | MCP | Six authenticated tools and the `company-brain://info` resource verified through a real FastMCP client |
 | CI | Provider-free Python contracts, web lint/build, SDK build/tests, and a full Docker end-to-end suite in GitHub Actions |
+| Deployment | Private production Compose topology and Hetzner/Coolify runbook; public-server deployment is not yet verified |
 
 ### Still unverified or missing
 
@@ -150,7 +153,7 @@ docker compose --env-file .env -f docker/docker-compose.yml down
   have been tested separately
 - Claude Code, Codex, Cursor, or another external MCP host connected to the
   running server
-- Clean-machine self-hosting and any public cloud deployment
+- Clean-machine self-hosting and the prepared public Hetzner deployment
 - Password reset, personal account settings, organization create/rename UI,
   billing, quotas, error tracking, and operational dashboards
 - Department-scoped programmatic keys; API and MCP keys currently authorize the
@@ -475,7 +478,8 @@ docker compose \
 
 - [MVP Status](docs/MVP_STATUS.md) — verified behavior, open boundaries, and next steps
 - [MCP Installation](docs/install.md) — agent-client setup and tool usage
-- [Deployment Guide](docs/deployment.md) — local and proposed production deployment
+- [Deployment Guide](docs/deployment.md) — local setup and production overview
+- [Hetzner + Coolify Runbook](deploy/hetzner/README.md) — pilot server, DNS, secrets, verification, and recovery
 - [Architecture Decisions](docs/DECISIONS.md) — ADRs and design rationale
 - [Design System](docs/design.md) — product UI conventions
 - [FAQ](docs/faq.md) — common questions
@@ -486,7 +490,7 @@ docker compose \
 | --- | --- |
 | Community | Source available under Apache 2.0; local Docker stack verified on the development Mac |
 | Cloud | Planned; no hosted service or production infrastructure exists yet |
-| Private deployment | Planned; no supported production deployment offering exists yet |
+| Private deployment | Hetzner/Coolify pilot topology prepared; first public-server deployment remains unverified |
 
 ## Contributing
 

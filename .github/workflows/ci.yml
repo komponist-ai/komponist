@@ -161,6 +161,9 @@ jobs:
             -f docker/docker-compose.ci.yml \
             config --quiet
 
+      - name: Validate production Compose configuration
+        run: bash scripts/deploy/check-production-compose.sh
+
       - name: Build and start the stack
         run: |
           docker compose \

@@ -35,8 +35,13 @@ RUN if [ "$INSTALL_TEST_DEPS" = "true" ]; then \
 # Copy API source code
 COPY apps/api/ apps/api/
 
+# Run application code without root privileges in production.
+RUN useradd --create-home --uid 10001 komponist
+
 # Set working directory to API
 WORKDIR /app/apps/api
+
+USER komponist
 
 # Expose port
 EXPOSE 8000

@@ -1,0 +1,201 @@
+name: komponist-production
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app-security: &app-security
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging: *default-logging
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: komponist
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a URL-safe PostgreSQL password}
+      POSTGRES_DB: komponist
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U komponist -d komponist"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  neo4j:
+    image: neo4j:5-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Set a URL-safe Neo4j password}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_dbms_security_procedures_allowlist: apoc.*
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL_SIZE:-256m}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX_SIZE:-1g}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE_SIZE:-512m}
+    expose:
+      - "7474"
+      - "7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#*/}\" 'RETURN 1' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 45s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  api:
+    <<: *app-security
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://komponist:${POSTGRES_PASSWORD:?}@postgres:5432/komponist
+      KOMPONIST_SECRET_KEY: ${KOMPONIST_SECRET_KEY:?Set a stable 64-character secret}
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?}
+      KOMPONIST_AI_MODE: ${KOMPONIST_AI_MODE:-live}
+      KOMPONIST_LLM_PROVIDER: ${KOMPONIST_LLM_PROVIDER:-openai}
+      KOMPONIST_LLM_MODEL: ${KOMPONIST_LLM_MODEL:-gpt-5.6-terra}
+      KOMPONIST_OPENAI_STORE: ${KOMPONIST_OPENAI_STORE:-false}
+      KOMPONIST_EMBEDDING_PROVIDER: ${KOMPONIST_EMBEDDING_PROVIDER:-openai}
+      KOMPONIST_EMBEDDING_MODEL: ${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      FRONTEND_URL: ${PUBLIC_WEB_URL:?Set the public HTTPS web URL}
+      CORS_ORIGINS: ${PUBLIC_WEB_URL:?}
+      KOMPONIST_COOKIE_SECURE: "true"
+      KOMPONIST_ALLOW_UNSIGNED_WEBHOOKS: "false"
+      GOOGLE_AUTH_CLIENT_ID: ${GOOGLE_AUTH_CLIENT_ID:-}
+      GOOGLE_AUTH_CLIENT_SECRET: ${GOOGLE_AUTH_CLIENT_SECRET:-}
+      GOOGLE_AUTH_REDIRECT_URI: ${PUBLIC_API_URL:?}/auth/login/google/callback
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${PUBLIC_API_URL:?}/auth/google/callback
+      GOOGLE_WEBHOOK_TOKEN: ${GOOGLE_WEBHOOK_TOKEN:-}
+      NOTION_CLIENT_ID: ${NOTION_CLIENT_ID:-}
+      NOTION_CLIENT_SECRET: ${NOTION_CLIENT_SECRET:-}
+      NOTION_REDIRECT_URI: ${PUBLIC_API_URL:?}/auth/notion/callback
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
+      SLACK_REDIRECT_URI: ${PUBLIC_API_URL:?}/auth/slack/callback
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_WATCHED_CHANNELS: ${SLACK_WATCHED_CHANNELS:-}
+      SLACK_APPROVALS_CHANNEL: ${SLACK_APPROVALS_CHANNEL:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      LINEAR_API_KEY: ${LINEAR_API_KEY:-}
+      LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+
+  mcp:
+    <<: *app-security
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
+    environment:
+      DATABASE_URL: postgresql+asyncpg://komponist:${POSTGRES_PASSWORD:?}@postgres:5432/komponist
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?}
+      KOMPONIST_AI_MODE: ${KOMPONIST_AI_MODE:-live}
+      KOMPONIST_LLM_PROVIDER: ${KOMPONIST_LLM_PROVIDER:-openai}
+      KOMPONIST_LLM_MODEL: ${KOMPONIST_LLM_MODEL:-gpt-5.6-terra}
+      KOMPONIST_OPENAI_STORE: ${KOMPONIST_OPENAI_STORE:-false}
+      KOMPONIST_EMBEDDING_PROVIDER: ${KOMPONIST_EMBEDDING_PROVIDER:-openai}
+      KOMPONIST_EMBEDDING_MODEL: ${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APPROVALS_CHANNEL: ${SLACK_APPROVALS_CHANNEL:-}
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; connection = socket.create_connection(('127.0.0.1', 8080), 5); connection.close()"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+
+  web:
+    <<: *app-security
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      args:
+        API_URL: http://api:8000
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?Set the public HTTPS API URL}
+        NEXT_PUBLIC_MCP_URL: ${PUBLIC_MCP_URL:?Set the public HTTPS MCP URL}/mcp
+    environment:
+      API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?}
+      NEXT_PUBLIC_MCP_URL: ${PUBLIC_MCP_URL:?}/mcp
+    expose:
+      - "3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_plugins:

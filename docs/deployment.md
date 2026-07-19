@@ -70,73 +70,26 @@ See [install.md](install.md) for connecting to Claude Code/Cursor.
 
 ## Production Deployment
 
-### Fly.io (API + Web)
+The recommended pilot architecture is one 8 GB Hetzner Cloud instance running
+self-hosted Coolify and the production Compose stack in
+[`docker/docker-compose.production.yml`](../docker/docker-compose.production.yml).
+It keeps PostgreSQL and Neo4j on a private Docker network while Coolify exposes
+only Web, API, and MCP through HTTPS.
+
+Follow the complete [Hetzner + Coolify runbook](../deploy/hetzner/README.md).
+The runbook covers server sizing, provider firewall rules, DNS, secrets,
+service-domain routing, OAuth callbacks, verification, backups, and operations.
+
+Validate the production topology locally or in CI with:
 
 ```bash
-# Install flyctl
-curl -L https://fly.io/install.sh | sh
-
-# Login
-fly auth login
-
-# Create apps
-fly apps create komponist-api
-fly apps create komponist-web
-
-# Set secrets
-fly secrets set -a komponist-api \
-  NEO4J_URI=<auradb_uri> \
-  NEO4J_USERNAME=neo4j \
-  NEO4J_PASSWORD=<password> \
-  DATABASE_URL=<neon_url> \
-  KOMPONIST_AI_MODE=live \
-  OPENAI_API_KEY=<key>
-
-# Deploy API
-cd apps/api
-fly deploy
-
-# Deploy Web
-cd apps/web
-fly deploy
+bash scripts/deploy/check-production-compose.sh
 ```
 
-### AuraDB (Neo4j)
-
-1. Create account at https://neo4j.com/cloud/aura/
-2. Create "AuraDB Professional" instance
-3. Save connection URI and password
-4. Enable APOC procedures in instance settings
-5. Use URI in NEO4J_URI env var
-
-### Neon (Postgres)
-
-1. Create account at https://neon.tech
-2. Create new project
-3. Copy connection string
-4. Use in DATABASE_URL env var
-
-### Alternative: Railway
-
-Railway provides simpler deployment for both services:
-
-```bash
-# Install railway CLI
-npm install -g @railway/cli
-
-# Login
-railway login
-
-# Create project
-railway init
-
-# Add services
-railway add  # Select PostgreSQL
-railway add  # Select Neo4j (if available, otherwise use AuraDB)
-
-# Deploy
-railway up
-```
+The single-server design is appropriate for an internal or design-partner
+pilot. It does not provide high availability. Before making uptime commitments,
+move application-consistent database backups off-server and consider separating
+the databases from the application host.
 
 ## Health Checks
 

@@ -30,8 +30,13 @@ RUN pip install --no-cache-dir -r apps/mcp/requirements.txt
 COPY apps/mcp/ apps/mcp/
 COPY apps/api/database.py apps/api/database.py
 
+# Run application code without root privileges in production.
+RUN useradd --create-home --uid 10001 komponist
+
 # Set working directory to MCP
 WORKDIR /app/apps/mcp
+
+USER komponist
 
 # Expose port
 EXPOSE 8080
