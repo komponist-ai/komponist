@@ -44,9 +44,9 @@ short, hourly billed deployment test, add 4 GB swap, and set these Coolify
 variables before deploying:
 
 ```dotenv
-NEO4J_HEAP_INITIAL_SIZE=128m
-NEO4J_HEAP_MAX_SIZE=512m
-NEO4J_PAGECACHE_SIZE=256m
+KOMPONIST_NEO4J_HEAP_INITIAL_SIZE=128m
+KOMPONIST_NEO4J_HEAP_MAX_SIZE=512m
+KOMPONIST_NEO4J_PAGECACHE_SIZE=256m
 ```
 
 CPX22 plus IPv4 is just below a €25 credit for a full month, but adding Hetzner
@@ -125,8 +125,8 @@ certificates.
 
 1. Create a Coolify project and a production environment.
 2. Add a **Docker Compose** resource from the Komponist Git repository.
-3. Select the deployment branch and set the Compose file to
-   `/docker/docker-compose.production.yml`.
+3. Select the deployment branch, set **Base Directory** to `/docker`, and set
+   **Docker Compose Location** to `/docker-compose.production.yml`.
 4. Copy every variable from [`.env.production.example`](.env.production.example)
    into Coolify's environment-variable editor.
 5. Generate three independent secrets locally:
@@ -137,13 +137,19 @@ certificates.
    openssl rand -hex 32
    ```
 
-   Use them for `POSTGRES_PASSWORD`, `NEO4J_PASSWORD`, and
+   Use them for `POSTGRES_PASSWORD`, `KOMPONIST_NEO4J_PASSWORD`, and
    `KOMPONIST_SECRET_KEY`. Keep `KOMPONIST_SECRET_KEY` stable: changing it makes
    already encrypted connector credentials unreadable.
 6. Add the centrally managed `OPENAI_API_KEY`. Members of customer
    organizations do not provide their own provider key.
 7. Keep optional connector variables empty until the matching integration is
    configured.
+
+Do not add resource-level variables named `NEO4J_PASSWORD`,
+`NEO4J_HEAP_INITIAL_SIZE`, `NEO4J_HEAP_MAX_SIZE`, or `NEO4J_PAGECACHE_SIZE` in
+Coolify. Coolify injects resource variables into the Neo4j container, where any
+`NEO4J_*` name is interpreted as a Neo4j configuration setting. Use only the
+`KOMPONIST_NEO4J_*` deployment inputs from the example file.
 
 Assign domains to services in Coolify using their internal ports:
 

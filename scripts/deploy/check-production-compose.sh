@@ -6,6 +6,17 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 compose_file="$repo_root/docker/docker-compose.production.yml"
 env_file="$repo_root/deploy/hetzner/.env.production.example"
 
+for variable in \
+  NEO4J_PASSWORD \
+  NEO4J_HEAP_INITIAL_SIZE \
+  NEO4J_HEAP_MAX_SIZE \
+  NEO4J_PAGECACHE_SIZE; do
+  if grep -Fq '${'"$variable" "$compose_file"; then
+    echo "Production Compose must not use resource input $variable; prefix it with KOMPONIST_ to avoid Coolify injecting an invalid Neo4j setting." >&2
+    exit 1
+  fi
+done
+
 if docker compose version >/dev/null 2>&1; then
   compose=(docker compose)
 elif [[ -x /Applications/Docker.app/Contents/Resources/cli-plugins/docker-compose ]]; then
