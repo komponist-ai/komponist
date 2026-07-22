@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 import { useAuth } from '../../components/AuthProvider'
 
-type SourceType = 'notion' | 'slack' | 'google' | 'local' | 'upload'
+type SourceType = 'notion' | 'slack' | 'google' | 'upload'
 type ConnectorStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 type UploadResult = {
@@ -31,11 +31,10 @@ const SOURCE_OPTIONS: Array<{
   meta: string
   badge: string
 }> = [
+  { type: 'upload', title: 'Upload documents', description: 'Upload files from this device and send extracted company context through review.', meta: 'Markdown · text · YAML', badge: 'Fastest start' },
   { type: 'notion', title: 'Notion', description: 'Turn shared pages and databases into reviewed company context.', meta: 'Pages · databases · docs', badge: 'Integration token' },
   { type: 'slack', title: 'Slack', description: 'Capture durable decisions and context from the channels you choose.', meta: 'Channels · threads · decisions', badge: 'OAuth' },
   { type: 'google', title: 'Google Drive', description: 'Sync the Docs and workspace files your agents should understand.', meta: 'Docs · Sheets · Drive', badge: 'OAuth' },
-  { type: 'upload', title: 'Upload documents', description: 'Test the full extraction and review loop from your browser.', meta: 'Markdown · text · YAML', badge: 'Fastest start' },
-  { type: 'local', title: 'Local documents', description: 'Index mounted files without sending raw documents to another platform.', meta: 'Self-hosted folder', badge: 'Local' },
 ]
 
 const SOURCE_TITLES: Record<SourceType, string> = {
@@ -43,7 +42,6 @@ const SOURCE_TITLES: Record<SourceType, string> = {
   slack: 'Slack',
   google: 'Google Drive',
   upload: 'Document uploads',
-  local: 'Local documents',
 }
 
 function OnboardContent() {
@@ -57,7 +55,6 @@ function OnboardContent() {
 
   // Form fields
   const [notionToken, setNotionToken] = useState('')
-  const [localDocsPath, setLocalDocsPath] = useState('/data/docs')
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([])
 
@@ -173,47 +170,6 @@ function OnboardContent() {
     }
   }
 
-  const handleConnectLocalDocs = async () => {
-    if (!localDocsPath.trim()) {
-      setError('Please enter a path')
-      return
-    }
-
-    setStatus('connecting')
-    setError(null)
-
-    try {
-      const addResponse = await apiFetch(
-        `${API_URL}/sources?org_id=${orgId}&source_type=local&name=${encodeURIComponent('Local Documents')}${departmentQuery}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: localDocsPath }),
-        }
-      )
-      const source = await addResponse.json()
-      if (!addResponse.ok || !source.id) {
-        throw new Error(source.detail || source.error || 'Failed to register local documents')
-      }
-
-      const syncResponse = await apiFetch(
-        `${API_URL}/sources/${source.id}/sync?org_id=${orgId}`,
-        { method: 'POST' }
-      )
-      const syncResult = await syncResponse.json()
-
-      if (syncResponse.ok && syncResult.status !== 'error') {
-        setStatus('connected')
-        setTimeout(() => router.push('/sources'), 1000)
-      } else {
-        throw new Error(syncResult.detail || syncResult.error || 'Failed to scan documents')
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to scan local documents')
-      setStatus('error')
-    }
-  }
-
   const handleDocumentUpload = async () => {
     if (uploadFiles.length === 0) {
       setError('Choose at least one document')
@@ -267,7 +223,7 @@ function OnboardContent() {
               </div>
             </div>
 
-            <section className="mt-9 grid gap-4 md:grid-cols-2" aria-label="Available source connectors">
+            <section className="mt-9 grid gap-4 md:grid-cols-2 lg:grid-cols-3" aria-label="Available source connectors">
               {SOURCE_OPTIONS.map((source, index) => (
                 <motion.button
                   key={source.type}
@@ -277,7 +233,7 @@ function OnboardContent() {
                   transition={{ delay: index * 0.04 }}
                   whileHover={{ y: -3 }}
                   onClick={() => setSelectedSource(source.type)}
-                  className={`group min-h-[190px] rounded-xl border-2 border-ink bg-white p-5 text-left shadow-[4px_4px_0_#d9cfc0] transition hover:bg-[#fffaf0] hover:shadow-[6px_6px_0_#201c15] ${source.type === 'upload' ? 'md:col-span-2' : ''}`}
+                  className={`group min-h-[190px] rounded-xl border-2 border-ink bg-white p-5 text-left shadow-[4px_4px_0_#d9cfc0] transition hover:bg-[#fffaf0] hover:shadow-[6px_6px_0_#201c15] ${source.type === 'upload' ? 'md:col-span-2 lg:col-span-3' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <SourceLogo type={source.type} />
@@ -308,7 +264,7 @@ function OnboardContent() {
         title={`Connect ${selectedSource === 'notion' ? 'Notion' :
           selectedSource === 'slack' ? 'Slack' :
           selectedSource === 'google' ? 'Google Workspace' :
-          selectedSource === 'upload' ? 'Upload Documents' : 'Local Documents'}`}
+          'Upload Documents'}`}
         description="Configure the connection, then sync company knowledge"
         icon={PlugZap}
         actions={
@@ -359,7 +315,7 @@ function OnboardContent() {
             </div>
           )}
 
-          {(['notion', 'upload', 'local'] as SourceType[]).includes(selectedSource) && (
+          {(['notion', 'upload'] as SourceType[]).includes(selectedSource) && (
             <div className="card mb-6">
               <div className="flex items-start gap-3">
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink bg-warning-soft"><LockKeyhole className="size-4" /></span>
@@ -489,7 +445,7 @@ function OnboardContent() {
             </div>
           )}
 
-          {/* Local docs form */}
+          {/* Direct document upload */}
           {selectedSource === 'upload' && (
             <div className="card">
               <div className="flex items-center gap-3 mb-4">
@@ -533,54 +489,6 @@ function OnboardContent() {
             </div>
           )}
 
-          {/* Local docs form */}
-          {selectedSource === 'local' && (
-            <div className="card">
-              <div className="flex items-center gap-3 mb-4">
-                <SourceLogo type="local" className="size-9 rounded-lg shadow-none" />
-                <h2 className="text-h3">Local Documents</h2>
-              </div>
-
-              <p className="text-muted mb-6">
-                Point to a folder of markdown, text, or YAML files to extract facts.
-              </p>
-
-              <div className="mb-6">
-                <label className="block text-small font-medium mb-2">
-                  Documents path
-                </label>
-                <input
-                  type="text"
-                  value={localDocsPath}
-                  onChange={(e) => setLocalDocsPath(e.target.value)}
-                  placeholder="/data/docs"
-                  className="input font-mono"
-                  disabled={status === 'connecting'}
-                />
-                <p className="text-caption text-faint mt-2">
-                  Docker mounts KOMPONIST_LOCAL_DOCS_HOST_PATH here by default
-                </p>
-              </div>
-
-              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
-                <p className="text-small font-medium mb-2">Supported files:</p>
-                <ul className="text-small text-muted space-y-1">
-                  <li>• Markdown (.md)</li>
-                  <li>• Text files (.txt)</li>
-                  <li>• YAML configs (.yaml, .yml)</li>
-                </ul>
-              </div>
-
-              <button
-                onClick={handleConnectLocalDocs}
-                className="btn btn-primary"
-                disabled={status === 'connecting' || status === 'connected'}
-              >
-                {status === 'connecting' ? 'Scanning...' :
-                 status === 'connected' ? 'Added ✓' : 'Add Documents'}
-              </button>
-            </div>
-          )}
           </div>
         </div>
       </main>

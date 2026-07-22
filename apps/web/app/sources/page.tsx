@@ -297,7 +297,7 @@ export default function SourcesPage() {
               <div>
                 <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-warning-soft text-orange-dark shadow-[4px_4px_0_#201c15]"><Database className="size-7" /></span>
                 <h2 className="mt-6 text-3xl">Bring in your first source.</h2>
-                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">Connect Notion, Slack, Google Drive, local files, or upload documents directly.</p>
+                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">Upload documents from this device or connect Notion, Slack, and Google Drive.</p>
                 <Button asChild className="mt-6"><Link href="/onboard"><Plus /> Add source</Link></Button>
               </div>
             </div>
