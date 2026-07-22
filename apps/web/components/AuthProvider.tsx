@@ -95,13 +95,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     path: '/auth/login/email' | '/auth/register',
     body: Record<string, string>,
   ) => {
-    const response = await fetch(`${API_URL}${path}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const payload = await response.json()
+    let response: Response
+    try {
+      response = await fetch(`${API_URL}${path}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    } catch {
+      throw new Error('Could not reach the Komponist API. Please check your connection and try again.')
+    }
+
+    const payload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(payload.detail || 'Authentication failed')
     await refresh()
   }, [refresh])

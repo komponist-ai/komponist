@@ -7,6 +7,7 @@ The programmable company brain.
 
 import os
 import hashlib
+import ipaddress
 import json
 import re
 import secrets
@@ -14,6 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Response
@@ -107,12 +109,43 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+def _cors_origins(value: str) -> list[str]:
+    """Include the apex/www counterpart for configured web origins.
+
+    Both hostnames can serve the web app during initial DNS setup. Allowing the
+    counterpart prevents an opaque browser "Failed to fetch" during login while
+    still keeping CORS restricted to explicitly related origins.
+    """
+    origins: list[str] = []
+    for raw_origin in value.split(","):
+        origin = raw_origin.strip().rstrip("/")
+        if not origin:
+            continue
+        origins.append(origin)
+
+        parsed = urlsplit(origin)
+        hostname = parsed.hostname
+        if not hostname or hostname == "localhost":
+            continue
+        try:
+            ipaddress.ip_address(hostname)
+            continue
+        except ValueError:
+            pass
+
+        alias_hostname = hostname[4:] if hostname.startswith("www.") else f"www.{hostname}"
+        alias_netloc = alias_hostname
+        if parsed.port:
+            alias_netloc = f"{alias_netloc}:{parsed.port}"
+        origins.append(urlunsplit((parsed.scheme, alias_netloc, "", "", "")))
+
+    return list(dict.fromkeys(origins))
+
+
 # CORS
-cors_origins = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
-    if origin.strip()
-]
+cors_origins = _cors_origins(
+    os.getenv("CORS_ORIGINS", "http://localhost:3000")
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
