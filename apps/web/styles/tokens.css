@@ -56,6 +56,22 @@
   /* Focus */
   --color-focus: #0e8a7d;
 
+  /* Semantic surface aliases used by legacy components */
+  --color-surface: var(--color-white);
+  --color-surface-raised: var(--color-paper);
+  --color-surface-subtle: var(--color-paper-2);
+  --color-surface-inverse: var(--color-ink);
+  --color-ink-secondary: var(--color-ink-2);
+  --color-ink-muted: var(--color-muted);
+  --color-ink-inverse: var(--color-white);
+  --color-line-strong: var(--color-ink);
+  --color-line-inverse: #4a443a;
+  --color-accent: var(--color-orange);
+  --color-accent-hover: var(--color-orange-dark);
+  --color-accent-pressed: #a8430a;
+  --color-accent-soft: var(--color-warning-soft);
+  --color-on-accent: #fffdf8;
+
   /* Typography */
   --font-display: "Arial Rounded MT Bold", "Bricolage Grotesque", "Avenir Next Rounded", sans-serif;
   --font-body: "Arial Rounded MT Bold", "Avenir Next Rounded", "Nunito", sans-serif;
@@ -93,6 +109,7 @@
   --container-max: 1280px;
   --container-reading: 760px;
   --sidebar-width: 240px;
+  --mobile-appbar-height: 60px;
   --gutter-mobile: 16px;
   --gutter-tablet: 24px;
   --gutter-desktop: 32px;
@@ -119,6 +136,48 @@
   --ease-enter: cubic-bezier(0, 0, 0.2, 1);
 }
 
+:root[data-theme='dark'] {
+  --color-paper: #100e0b;
+  --color-paper-2: #181510;
+  --color-paper-3: #242019;
+  --color-white: #1d1914;
+
+  --color-ink: #f7efe2;
+  --color-ink-2: #d6cbbb;
+  --color-muted: #aba092;
+  --color-faint: #7d7468;
+  --color-line: #3b342b;
+
+  --color-orange: #f47b35;
+  --color-orange-dark: #ff9a5f;
+  --color-orange-light: #f6aa78;
+  --color-teal: #43b9ac;
+  --color-teal-light: #83d1c7;
+
+  --color-success: #51c2b5;
+  --color-success-soft: #102d29;
+  --color-warning: #ff8a47;
+  --color-warning-soft: #352116;
+  --color-danger: #ff8b68;
+  --color-danger-soft: #351b16;
+  --color-info: #8baeff;
+  --color-info-soft: #192544;
+
+  --color-code-bg: #090806;
+  --color-code-surface: #15120f;
+  --color-code-text: #f7efe2;
+  --color-code-muted: #93887a;
+  --color-code-comment: #776d61;
+  --color-focus: #63c9bd;
+  --color-line-inverse: #51483c;
+  --color-accent-pressed: #d85d1c;
+  --color-on-accent: #140e09;
+
+  --shadow-subtle: 0 1px 3px rgb(0 0 0 / 0.35);
+  --shadow-card: 0 2px 10px rgb(0 0 0 / 0.28);
+  --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.45);
+}
+
 * {
   box-sizing: border-box;
   padding: 0;
@@ -133,6 +192,11 @@ html {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme='dark'],
+:root[data-theme='dark'] body {
+  color-scheme: dark;
 }
 
 body {
@@ -193,6 +257,132 @@ code {
   left: 0;
   bottom: 0;
   z-index: 100;
+  transition: transform var(--duration-slow) var(--ease-standard);
+}
+
+.sidebar-close,
+.mobile-app-bar,
+.sidebar-backdrop {
+  display: none;
+}
+
+.theme-toggle {
+  position: relative;
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid var(--color-ink);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  color: var(--color-ink);
+  box-shadow: 2px 2px 0 var(--color-ink);
+  cursor: pointer;
+  transition: transform var(--duration-fast), background var(--duration-fast), color var(--duration-fast);
+}
+
+.theme-toggle:hover { transform: translateY(-1px); background: var(--color-paper-2); }
+.theme-toggle svg { position: absolute; width: 18px; height: 18px; transition: transform var(--duration-base), opacity var(--duration-base); }
+.theme-toggle-moon { transform: translateY(22px) rotate(-45deg); opacity: 0; }
+:root[data-theme='dark'] .theme-toggle-sun { transform: translateY(-22px) rotate(45deg); opacity: 0; }
+:root[data-theme='dark'] .theme-toggle-moon { transform: translateY(0) rotate(0); opacity: 1; }
+
+@media (max-width: 900px) {
+  .app-layout { display: block; }
+
+  .mobile-app-bar {
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    display: grid;
+    height: var(--mobile-appbar-height);
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0 var(--space-4);
+    border-bottom: 2px solid var(--color-ink);
+    background: color-mix(in srgb, var(--color-paper) 92%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  .mobile-menu-button,
+  .sidebar-close {
+    display: inline-grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border: 2px solid var(--color-ink);
+    border-radius: var(--radius-md);
+    background: var(--color-white);
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+
+  .mobile-menu-button svg,
+  .sidebar-close svg { width: 19px; height: 19px; }
+
+  .mobile-app-brand {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .mobile-app-brand:hover { color: var(--color-ink); text-decoration: none; }
+
+  .sidebar {
+    width: min(86vw, 320px);
+    transform: translateX(-105%);
+    visibility: hidden;
+    pointer-events: none;
+    border-right: 2px solid var(--color-ink);
+    box-shadow: 12px 0 40px rgb(0 0 0 / 0.25);
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .nav-item { min-height: 44px; }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 95;
+    display: block;
+    border: 0;
+    background: rgb(0 0 0 / 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-base);
+  }
+
+  .sidebar-backdrop.is-visible { opacity: 1; pointer-events: auto; }
+
+  .main-content {
+    width: 100%;
+    min-height: calc(100dvh - var(--mobile-appbar-height));
+    margin-left: 0;
+  }
+
+  .studio-chat-shell {
+    height: calc(100dvh - var(--mobile-appbar-height)) !important;
+    min-height: 0 !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .mobile-app-bar { padding-inline: 12px; }
+  .mobile-app-brand span { font-size: 0.95rem; }
 }
 
 .sidebar-header {

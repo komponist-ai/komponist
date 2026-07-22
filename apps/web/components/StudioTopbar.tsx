@@ -17,7 +17,7 @@ export default function StudioTopbar({
   actions,
 }: StudioTopbarProps) {
   return (
-    <header className="flex min-h-[78px] items-center justify-between gap-4 border-b-2 border-ink bg-white px-5 py-3 sm:px-8 lg:px-10">
+    <header className="studio-topbar flex min-h-[78px] items-center justify-between gap-4 border-b-2 border-ink bg-white px-4 py-3 sm:px-8 lg:px-10">
       <div className="flex min-w-0 items-center gap-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange text-white shadow-[2px_2px_0_#201c15]">
           <Icon className="size-5" />
@@ -32,7 +32,7 @@ export default function StudioTopbar({
           </div>
         </div>
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2 sm:gap-3">{actions}</div>}
+      {actions && <div className="studio-topbar-actions flex shrink-0 items-center gap-2 sm:gap-3">{actions}</div>}
     </header>
   )
 }

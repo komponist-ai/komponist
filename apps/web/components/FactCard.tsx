@@ -252,7 +252,7 @@ export default function FactCard({
         )}
       </div>
 
-      <div className="flex flex-col-reverse gap-3 border-t-2 border-ink bg-[#fffaf0] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex flex-col-reverse gap-3 border-t-2 border-ink bg-paper px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         {isEditing ? (
           <>
             <Button type="button" variant="ghost" size="sm" onClick={cancelEdit} disabled={isBusy}><X /> Cancel</Button>

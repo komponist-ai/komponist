@@ -267,7 +267,7 @@ export default function ChatPage() {
 
   return (
     <AppLayout>
-      <div className="flex h-screen min-h-[680px] flex-col overflow-hidden bg-paper text-ink">
+      <div className="studio-chat-shell flex h-screen min-h-[680px] flex-col overflow-hidden bg-paper text-ink">
         <StudioTopbar
           section="Company brain"
           title="Ask Komponist"
@@ -323,7 +323,7 @@ export default function ChatPage() {
                   <p className="mt-6 max-w-xl text-lg leading-8 text-ink-2">
                     Ask for a direct answer across your confirmed company knowledge. Suggested questions adapt to the graph and documents in this workspace.
                   </p>
-                  <div className="mt-7 flex items-center gap-3 rounded-lg border-2 border-ink bg-[#f4d06f] p-3 text-sm font-semibold shadow-[4px_4px_0_#201c15] lg:max-w-sm">
+                  <div className="mt-7 flex items-center gap-3 rounded-lg border-2 border-ink bg-warning-soft p-3 text-sm font-semibold shadow-[4px_4px_0_#201c15] lg:max-w-sm">
                     <ShieldCheck className="size-5 shrink-0" />
                     Proposed facts stay out until you review them.
                   </div>

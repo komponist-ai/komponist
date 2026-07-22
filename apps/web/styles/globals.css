@@ -15,6 +15,28 @@
 body {
   font-size: var(--text-body);
   line-height: 1.6;
+  overflow-x: hidden;
+}
+
+input,
+textarea,
+select { color: var(--color-ink); }
+
+input::placeholder,
+textarea::placeholder { color: var(--color-faint); }
+
+:root[data-theme='dark'] {
+  scrollbar-color: var(--color-line) var(--color-paper);
+}
+
+:root[data-theme='dark'] .bg-\[\#fffaf0\] { background-color: var(--color-paper) !important; }
+:root[data-theme='dark'] .bg-\[\#f4d06f\] { background-color: var(--color-warning-soft) !important; }
+:root[data-theme='dark'] .bg-\[\#eee9db\] { background-color: var(--color-paper-2) !important; }
+
+.graph-page-body {
+  height: calc(100vh - 180px);
+  overflow: hidden;
+  padding: 0;
 }
 
 /* Typography */
@@ -513,6 +535,56 @@ h3 {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+@media (max-width: 900px) {
+  .studio-topbar {
+    min-height: 70px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .studio-topbar-actions {
+    max-width: 52%;
+    overflow-x: auto;
+    padding: 2px 2px 5px;
+    scrollbar-width: none;
+  }
+
+  .studio-topbar-actions::-webkit-scrollbar { display: none; }
+
+  .page-body { padding: var(--space-4); }
+  .table { display: block; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+  .chat-composer-wrap::before { left: 0; }
+
+  .graph-page-body {
+    height: auto;
+    min-height: calc(100dvh - var(--mobile-appbar-height) - 70px);
+    overflow: visible;
+  }
+
+  .graph-workspace {
+    min-height: 720px;
+    flex-direction: column;
+    overflow: visible;
+    padding-bottom: var(--space-6);
+  }
+
+  .graph-workspace > div:first-child { min-height: 560px; }
+  .graph-side-panel { width: 100%; height: auto; overflow: visible; }
+}
+
+@media (max-width: 560px) {
+  .studio-topbar { align-items: flex-start; gap: var(--space-3); }
+  .studio-topbar > div:first-child { width: 100%; }
+  .studio-topbar-actions { width: 100%; max-width: 100%; justify-content: flex-start; }
+  .studio-topbar h1 { font-size: 1.2rem; }
+  .studio-topbar [class*='size-10'] { width: 36px; height: 36px; }
+}
+
+@media (max-width: 430px) {
+  .landing-brand span { display: none; }
+  .landing-studio-button { padding-inline: 0.75rem; }
 }
 
 /* ============================================

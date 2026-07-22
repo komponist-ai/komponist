@@ -12,6 +12,7 @@ import BrandMark from '@/components/BrandMark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { API_URL } from '@/lib/api'
+import ThemeToggle from '@/components/ThemeToggle'
 
 const reveal = {
   initial: { opacity: 0, y: 24 },
@@ -188,9 +189,9 @@ export default function LandingPage() {
 
       <header className="sticky top-0 z-40 border-b-2 border-ink bg-paper/95 backdrop-blur">
         <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
-          <Link href="/" className="flex items-center gap-3 text-xl font-bold tracking-tight">
+          <Link href="/" className="landing-brand flex items-center gap-3 text-xl font-bold tracking-tight">
             <BrandMark />
-            Komponist
+            <span>Komponist</span>
           </Link>
           <nav className="hidden items-center gap-8 text-sm font-bold md:flex">
             <a href="#platform" className="hover:text-orange">Platform</a>
@@ -198,10 +199,11 @@ export default function LandingPage() {
             <a href="#developers" className="hover:text-orange">Developers</a>
           </nav>
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             <Button asChild variant="ghost" className="hidden sm:inline-flex">
               <Link href="/studio">Sign in</Link>
             </Button>
-            <Button asChild size="sm">
+            <Button asChild size="sm" className="landing-studio-button">
               <Link href="/studio">Open Studio <ArrowRight /></Link>
             </Button>
           </div>
@@ -216,7 +218,7 @@ export default function LandingPage() {
               <span className="size-2 rounded-full bg-teal" />
               Think Supabase — for your company&apos;s knowledge
             </Badge>
-            <h1 className="max-w-[760px] font-display text-[clamp(3.5rem,7vw,7rem)] font-bold leading-[0.86] tracking-[-0.065em]">
+            <h1 className="max-w-[760px] font-display text-[clamp(3rem,7vw,7rem)] font-bold leading-[0.9] tracking-[-0.06em] sm:leading-[0.86] sm:tracking-[-0.065em]">
               Build your company brain.
               <span className="mt-2 block text-orange">Ship context-aware AI.</span>
             </h1>
@@ -351,7 +353,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="border-b-2 border-ink bg-[#eee9db] px-5 py-5 sm:px-8 lg:px-12">
+      <section className="border-b-2 border-ink bg-paper-2 px-5 py-5 sm:px-8 lg:px-12">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-center gap-x-10 gap-y-3 font-mono text-xs font-semibold uppercase tracking-wider text-ink-2">
           <span className="text-orange-dark">One context layer underneath</span>
           <span>Humans</span><span className="text-faint">+</span><span>Claude</span><span className="text-faint">+</span><span>OpenAI</span><span className="text-faint">+</span><span>Codex</span><span className="text-faint">+</span><span>Your agent</span>

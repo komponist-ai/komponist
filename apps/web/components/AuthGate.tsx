@@ -9,6 +9,7 @@ import { useAuth } from './AuthProvider'
 import BrandMark from './BrandMark'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
+import ThemeToggle from './ThemeToggle'
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -60,7 +61,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return (
-      <main className="min-h-screen bg-paper text-ink">
+      <main className="relative min-h-screen bg-paper text-ink">
+        <ThemeToggle className="fixed right-4 top-4 z-50 sm:right-6 sm:top-6" />
         <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
           <section className="relative hidden overflow-hidden border-r-2 border-ink bg-ink p-10 text-white lg:flex lg:flex-col xl:p-14">
             <div className="absolute -right-24 top-24 size-72 rounded-full border-[48px] border-orange/90" />
@@ -118,7 +120,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             </p>
           </section>
 
-          <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-8 lg:px-12">
+          <section className="flex min-h-screen items-center justify-center px-5 py-20 sm:px-8 lg:px-12">
             <motion.div
               key={mode}
               initial={{ opacity: 0, y: 12 }}

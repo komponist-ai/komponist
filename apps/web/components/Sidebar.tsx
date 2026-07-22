@@ -5,10 +5,11 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
   Braces, CircleDot, Database, Download, GitBranch, KeyRound, MessageSquareText,
-  LogOut, Network, Plus, Presentation, Settings, Sparkles, UsersRound,
+  LogOut, Network, Plus, Presentation, Settings, Sparkles, UsersRound, X,
 } from 'lucide-react'
 import { useAuth } from './AuthProvider'
 import BrandMark from './BrandMark'
+import ThemeToggle from './ThemeToggle'
 
 const navigation = [
   {
@@ -41,7 +42,13 @@ const navigation = [
   },
 ]
 
-export default function Sidebar() {
+export default function Sidebar({
+  mobileOpen = false,
+  onMobileClose,
+}: {
+  mobileOpen?: boolean
+  onMobileClose?: () => void
+}) {
   const pathname = usePathname()
   const { user, organizations, logout, switchOrganization } = useAuth()
   const [switching, setSwitching] = useState(false)
@@ -57,12 +64,15 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`} aria-label="Studio navigation">
       <div className="sidebar-header">
-        <Link href="/studio" className="sidebar-brand flex items-center gap-2">
-          <BrandMark className="size-8 rounded-md shadow-[2px_2px_0_#201c15]" />
-          Komponist
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/studio" className="sidebar-brand flex items-center gap-2" onClick={onMobileClose}>
+            <BrandMark className="size-8 rounded-md shadow-[2px_2px_0_#201c15]" />
+            Komponist
+          </Link>
+          <button type="button" className="sidebar-close" onClick={onMobileClose} aria-label="Close navigation"><X /></button>
+        </div>
         <label className="org-switcher-label" htmlFor="organization-switcher">
           Workspace
         </label>
@@ -92,6 +102,7 @@ export default function Sidebar() {
                 key={item.href}
                 href={item.href}
                 className={`nav-item ${pathname === item.href ? 'active' : ''}`}
+                onClick={onMobileClose}
               >
                 <span className="nav-item-icon"><Icon size={16} strokeWidth={2} /></span>
                 {item.name}
@@ -103,6 +114,10 @@ export default function Sidebar() {
       </nav>
 
       <div className="sidebar-footer !p-3">
+        <div className="mb-3 flex items-center justify-between rounded-lg border border-line bg-paper-2 px-3 py-2">
+          <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">Appearance</span>
+          <ThemeToggle />
+        </div>
         <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_#d9cfc0]">
           <div className="flex min-w-0 items-center gap-3 p-3">
             <div className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange font-display text-sm font-black text-white shadow-[2px_2px_0_#201c15]" aria-hidden="true">

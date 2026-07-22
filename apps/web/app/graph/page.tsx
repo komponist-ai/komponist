@@ -8,6 +8,7 @@ import AppLayout from '../../components/AppLayout'
 import StudioTopbar from '../../components/StudioTopbar'
 import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
+import { useTheme } from '../../components/ThemeProvider'
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false,
@@ -47,7 +48,7 @@ interface GraphStats {
 }
 
 // Color palette for entity types
-const typeColors: Record<string, string> = {
+const lightTypeColors: Record<string, string> = {
   Person: '#e8641b',      // orange
   Concept: '#0e8a7d',     // teal
   Fact: '#6b6257',        // muted
@@ -62,7 +63,20 @@ const typeColors: Record<string, string> = {
   Note: '#f6eedf',        // paper-2
 }
 
+const darkTypeColors: Record<string, string> = {
+  ...lightTypeColors,
+  Fact: '#aba092',
+  Project: '#d6cbbb',
+  Location: '#b9aea0',
+  Organization: '#f7efe2',
+  Event: '#7d7468',
+  Instruction: '#b69b7b',
+  Note: '#685b4b',
+}
+
 export default function GraphPage() {
+  const { theme } = useTheme()
+  const typeColors = theme === 'dark' ? darkTypeColors : lightTypeColors
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] })
   const [stats, setStats] = useState<GraphStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -135,9 +149,10 @@ export default function GraphPage() {
     setSelectedNode(node as GraphNode)
   }, [])
 
-  const getNodeColor = (node: GraphNode) => {
-    return typeColors[node.type] || '#6b6257'
-  }
+  const getNodeColor = useCallback((node: GraphNode) => {
+    const palette = theme === 'dark' ? darkTypeColors : lightTypeColors
+    return palette[node.type] || (theme === 'dark' ? '#aba092' : '#6b6257')
+  }, [theme])
 
   const getNodeSize = (node: GraphNode) => {
     // Larger nodes for important types
@@ -155,10 +170,10 @@ export default function GraphPage() {
     ctx.arc(node.x, node.y, size, 0, 2 * Math.PI, false)
     ctx.fillStyle = color
     ctx.fill()
-    ctx.strokeStyle = '#fff'
+    ctx.strokeStyle = theme === 'dark' ? '#100e0b' : '#fffdf8'
     ctx.lineWidth = 1.5
     ctx.stroke()
-  }, [])
+  }, [getNodeColor, theme])
 
   return (
     <AppLayout>
@@ -180,7 +195,7 @@ export default function GraphPage() {
         }
       />
 
-      <div className="page-body" style={{ height: 'calc(100vh - 180px)', overflow: 'hidden', padding: '0' }}>
+      <div className="graph-page-body page-body">
         {error && (
           <div className="card mb-6" style={{ background: 'var(--color-danger-soft)', borderColor: 'var(--color-danger)' }}>
             <p className="text-small" style={{ color: 'var(--color-danger)' }}>
@@ -204,7 +219,7 @@ export default function GraphPage() {
             </div>
           </div>
         ) : (
-          <div className="flex gap-4 h-full overflow-hidden" style={{ padding: '0 1.5rem' }}>
+          <div className="graph-workspace flex h-full gap-4 overflow-hidden px-4 sm:px-6">
             {/* Graph visualization */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
               <div ref={graphContainerRef} className="card p-0 overflow-hidden" style={{ height: 'calc(100% - 60px)' }}>
@@ -223,12 +238,12 @@ export default function GraphPage() {
                   linkSource="source"
                   linkTarget="target"
                   linkLabel={(link: any) => link.type}
-                  linkColor={() => '#d9cfbf'}
+                  linkColor={() => theme === 'dark' ? '#51483c' : '#d9cfbf'}
                   linkWidth={1}
                   linkDirectionalArrowLength={3}
                   linkDirectionalArrowRelPos={1}
                   onNodeClick={handleNodeClick}
-                  backgroundColor="#fdf9f1"
+                  backgroundColor={theme === 'dark' ? '#100e0b' : '#fdf9f1'}
                   enableNodeDrag={true}
                   enableZoomInteraction={true}
                   enablePanInteraction={true}
@@ -253,7 +268,7 @@ export default function GraphPage() {
             </div>
 
             {/* Side panel */}
-            <div className="w-64 flex-shrink-0 space-y-4 overflow-y-auto h-full">
+            <div className="graph-side-panel h-full w-64 flex-shrink-0 space-y-4 overflow-y-auto">
               {/* Stats card */}
               {stats && (
                 <div className="card">
