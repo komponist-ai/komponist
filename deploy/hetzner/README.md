@@ -149,7 +149,10 @@ Do not add resource-level variables named `NEO4J_PASSWORD`,
 `NEO4J_HEAP_INITIAL_SIZE`, `NEO4J_HEAP_MAX_SIZE`, or `NEO4J_PAGECACHE_SIZE` in
 Coolify. Coolify injects resource variables into the Neo4j container, where any
 `NEO4J_*` name is interpreted as a Neo4j configuration setting. Use only the
-`KOMPONIST_NEO4J_*` deployment inputs from the example file.
+`KOMPONIST_NEO4J_*` deployment inputs from the example file. The production
+Compose file also removes these four legacy names at Neo4j startup so a stale
+Coolify variable cannot prevent the database from booting, but deleting the
+obsolete resource variables still keeps the deployment configuration clear.
 
 Assign domains to services in Coolify using their internal ports:
 

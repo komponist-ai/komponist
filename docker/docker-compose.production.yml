@@ -38,6 +38,22 @@ services:
   neo4j:
     image: neo4j:5-community
     restart: unless-stopped
+    # Coolify versions may retain removed resource variables and inject them
+    # into every service. Neo4j interprets all NEO4J_* variables as database
+    # settings, so discard only the legacy deployment inputs before invoking
+    # the image's original entrypoint. The valid settings below remain intact.
+    entrypoint:
+      - tini
+      - -g
+      - --
+      - /bin/bash
+      - -c
+      - |
+        unset NEO4J_PASSWORD
+        unset NEO4J_HEAP_INITIAL_SIZE
+        unset NEO4J_HEAP_MAX_SIZE
+        unset NEO4J_PAGECACHE_SIZE
+        exec /startup/docker-entrypoint.sh neo4j
     environment:
       NEO4J_AUTH: neo4j/${KOMPONIST_NEO4J_PASSWORD:?Set a URL-safe Neo4j password}
       NEO4J_PLUGINS: '["apoc"]'
