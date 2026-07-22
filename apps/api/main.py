@@ -2360,6 +2360,10 @@ async def run_extraction(source_item, auto_confirm: bool = False) -> dict:
         "entities_created": result.get("entities_created", 0),
         "relationships_created": result.get("relationships_created", 0),
         "entity_ids": entity_ids,
+        "reused_existing_extraction": result.get("reused_existing_extraction", False),
+        "reused_from_document_id": result.get("reused_from_document_id"),
+        "document_id": result.get("document_id"),
+        "provenance_created": result.get("provenance_created", True),
     }
 
 
@@ -2448,11 +2452,16 @@ async def upload_documents(
             extraction = await run_extraction(source_item, auto_confirm=auto_confirm)
             created = extraction["entities_created"]
             total_entities += created
+            reused = extraction.get("reused_existing_extraction", False)
             results.append({
                 "filename": filename,
-                "status": "processed",
+                "status": "reused" if reused else "processed",
                 "entities_created": created,
+                "entities_reused": len(extraction.get("entity_ids", [])) if reused else 0,
                 "entity_ids": extraction["entity_ids"],
+                "reused_from_document_id": extraction.get("reused_from_document_id"),
+                "document_id": extraction.get("document_id"),
+                "provenance_created": extraction.get("provenance_created", True),
             })
         except Exception as error:
             results.append({
@@ -2461,7 +2470,12 @@ async def upload_documents(
                 "error": str(error),
             })
 
-    processed = sum(item["status"] == "processed" for item in results)
+    processed = sum(item["status"] in {"processed", "reused"} for item in results)
+    new_documents = sum(
+        item["status"] in {"processed", "reused"}
+        and item.get("provenance_created", True)
+        for item in results
+    )
     if processed:
         source = await upsert_single_source_type(
             org_id=org_id,
@@ -2473,7 +2487,7 @@ async def upload_documents(
             org_id,
             source["id"],
             last_sync=datetime.utcnow(),
-            item_count=source.get("itemCount", 0) + processed,
+            item_count=source.get("itemCount", 0) + new_documents,
         )
 
     return {

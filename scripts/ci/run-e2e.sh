@@ -117,5 +117,7 @@ run_in_service mcp tests/approval_persistence_e2e.py verify
 
 run_in_service api \
   /app/packages/pipelines/tests/document_relationships_e2e.py
+run_in_service api \
+  /app/packages/pipelines/tests/identical_document_reuse_e2e.py
 
 echo "All provider-free end-to-end checks passed."

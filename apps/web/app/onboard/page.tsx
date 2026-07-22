@@ -17,8 +17,9 @@ type ConnectorStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 type UploadResult = {
   filename: string
-  status: 'processed' | 'error'
+  status: 'processed' | 'reused' | 'error'
   entities_created?: number
+  entities_reused?: number
   error?: string
 }
 
@@ -477,8 +478,14 @@ function OnboardContent() {
                 <h3 className="text-h3 mb-3">Extraction results</h3>
                 {uploadResults.map(result => <div key={result.filename} className="result-row">
                   <div><p className="text-small font-medium">{result.filename}</p>
-                    <p className="text-caption text-muted">{result.status === 'processed' ? `${result.entities_created || 0} entities extracted` : result.error}</p></div>
-                  <span className={`badge ${result.status === 'processed' ? 'badge-teal' : ''}`}>{result.status}</span>
+                    <p className="text-caption text-muted">{
+                      result.status === 'processed'
+                        ? `${result.entities_created || 0} entities extracted`
+                        : result.status === 'reused'
+                          ? `Identical content — reused ${result.entities_reused || 0} existing entities`
+                          : result.error
+                    }</p></div>
+                  <span className={`badge ${result.status !== 'error' ? 'badge-teal' : ''}`}>{result.status}</span>
                 </div>)}
                 <div className="flex gap-2 mt-4">
                   <button className="btn btn-primary" onClick={() => router.push('/queue')}>Open Review Queue</button>

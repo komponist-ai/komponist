@@ -120,6 +120,150 @@ def evidence_id_for(source_item: SourceItem, fact: Dict[str, Any]) -> str:
     return f"ev-{source_fact_fingerprint(source_item, fact)}"
 
 
+async def reuse_identical_document(source_item: SourceItem) -> Optional[Dict[str, Any]]:
+    """Reuse graph claims for byte-equivalent content before calling a model.
+
+    A renamed file or a copy arriving through another connector is still useful
+    provenance, but it must not produce a second, potentially different LLM
+    extraction. The new DocumentVersion and Evidence nodes retain that source's
+    metadata while pointing at the already extracted entities.
+    """
+    document = document_metadata(source_item)
+    rows = await GraphClient.run_query(
+        """
+        MATCH (existing:DocumentVersion {
+            org_id: $org_id,
+            content_hash: $content_hash
+        })
+        WHERE (($department_id IS NULL AND existing.department_id IS NULL)
+               OR existing.department_id = $department_id)
+        WITH existing
+        ORDER BY existing.created_at, existing.id
+        LIMIT 1
+        OPTIONAL MATCH (existing)-[:HAS_EVIDENCE]->(evidence:Evidence)
+        OPTIONAL MATCH (entity:Entity {org_id: $org_id})-[:CITED_BY]->(evidence)
+        RETURN existing.id AS document_id,
+               evidence.id AS evidence_id,
+               evidence.excerpt AS excerpt,
+               entity.id AS entity_id
+        """,
+        {
+            "org_id": source_item.org_id,
+            "content_hash": document["content_hash"],
+            "department_id": source_item.department_id,
+        },
+    )
+    if not rows:
+        return None
+
+    existing_document_id = rows[0]["document_id"]
+    entity_ids = list(dict.fromkeys(
+        row["entity_id"] for row in rows if row.get("entity_id")
+    ))
+
+    # A retry of the exact same source already has the required provenance.
+    if existing_document_id == document["document_id"]:
+        return {
+            "success": True,
+            "entity_ids": entity_ids,
+            "facts_extracted": 0,
+            "entities_created": 0,
+            "relationships_created": 0,
+            "reused_existing_extraction": True,
+            "reused_from_document_id": existing_document_id,
+            "document_id": document["document_id"],
+            "provenance_created": False,
+        }
+
+    await GraphClient.run_query(
+        """
+        MATCH (existing:DocumentVersion {id: $existing_document_id})
+        MERGE (document:DocumentVersion {id: $document_id})
+        ON CREATE SET
+            document.org_id = $org_id,
+            document.created_at = datetime(),
+            document.prov_type = 'Entity'
+        SET document.source = $source,
+            document.kind = $kind,
+            document.department_id = $department_id,
+            document.title = $title,
+            document.author = $author,
+            document.reference = $reference,
+            document.url = $url,
+            document.content_hash = $content_hash,
+            document.content_length = $content_length,
+            document.family_key = $family_key,
+            document.source_date = datetime($source_date),
+            document.last_seen_at = datetime(),
+            document.extraction_reused = true,
+            document.reused_from_document_id = $existing_document_id
+        MERGE (document)-[derived:WAS_DERIVED_FROM]->(existing)
+        SET derived.method = 'exact_content_hash',
+            derived.confidence = 1.0,
+            derived.created_at = coalesce(derived.created_at, datetime())
+        """,
+        {
+            **document,
+            "existing_document_id": existing_document_id,
+            "org_id": source_item.org_id,
+        },
+    )
+
+    for row in rows:
+        if not row.get("evidence_id"):
+            continue
+        evidence_id = "ev-reuse-" + hashlib.sha256(
+            f"{document['document_id']}\x1f{row['evidence_id']}".encode("utf-8")
+        ).hexdigest()
+        await GraphClient.run_query(
+            """
+            MATCH (document:DocumentVersion {id: $document_id})
+            MERGE (evidence:Evidence {id: $evidence_id})
+            ON CREATE SET
+                evidence.org_id = $org_id,
+                evidence.created_at = datetime()
+            SET evidence.source = $source,
+                evidence.department_id = $department_id,
+                evidence.title = $title,
+                evidence.reference = $reference,
+                evidence.url = $url,
+                evidence.excerpt = $excerpt,
+                evidence.source_date = datetime($source_date),
+                evidence.document_id = $document_id,
+                evidence.author = $author,
+                evidence.kind = $kind,
+                evidence.content_hash = $content_hash,
+                evidence.family_key = $family_key,
+                evidence.extraction_reused = true,
+                evidence.reused_from_evidence_id = $original_evidence_id
+            MERGE (document)-[:HAS_EVIDENCE]->(evidence)
+            WITH evidence
+            MATCH (entity:Entity {id: $entity_id, org_id: $org_id})
+            MERGE (entity)-[:CITED_BY]->(evidence)
+            """,
+            {
+                **document,
+                "org_id": source_item.org_id,
+                "evidence_id": evidence_id,
+                "original_evidence_id": row["evidence_id"],
+                "entity_id": row.get("entity_id"),
+                "excerpt": row.get("excerpt") or "",
+            },
+        )
+
+    return {
+        "success": True,
+        "entity_ids": entity_ids,
+        "facts_extracted": 0,
+        "entities_created": 0,
+        "relationships_created": 0,
+        "reused_existing_extraction": True,
+        "reused_from_document_id": existing_document_id,
+        "document_id": document["document_id"],
+        "provenance_created": True,
+    }
+
+
 async def classify_node(state: ExtractionState) -> ExtractionState:
     """
     Node 1: Classify if source contains extractable facts.
@@ -782,6 +926,14 @@ async def extract_from_source(source_item: SourceItem) -> Dict[str, Any]:
     Returns:
         Dict with created entity IDs and stats
     """
+    reused = await reuse_identical_document(source_item)
+    if reused is not None:
+        print(
+            "[Extract] Reused identical document extraction from "
+            f"{reused['reused_from_document_id']}"
+        )
+        return reused
+
     graph = build_extraction_graph()
 
     initial_state: ExtractionState = {

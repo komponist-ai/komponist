@@ -62,7 +62,8 @@ jobs:
           python -m pytest -q \
             packages/core/tests/test_ai_clients.py \
             packages/pipelines/tests/test_contracts.py \
-            packages/pipelines/tests/test_document_relationships.py
+            packages/pipelines/tests/test_document_relationships.py \
+            packages/pipelines/tests/test_identical_document_reuse.py
 
   web:
     name: Web lint and build
