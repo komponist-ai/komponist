@@ -25,10 +25,26 @@ export default function AppLayout({
     return () => { document.body.style.overflow = '' }
   }, [navigationOpen])
 
+  useEffect(() => {
+    if (!navigationOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNavigationOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [navigationOpen])
+
   return (
     <div className="app-layout">
       <header className="mobile-app-bar">
-        <button className="mobile-menu-button" type="button" onClick={() => setNavigationOpen(true)} aria-label="Open navigation">
+        <button
+          className="mobile-menu-button"
+          type="button"
+          onClick={() => setNavigationOpen(true)}
+          aria-label="Open navigation"
+          aria-controls="studio-navigation"
+          aria-expanded={navigationOpen}
+        >
           <Menu aria-hidden="true" />
         </button>
         <Link href="/studio" className="mobile-app-brand" aria-label="Komponist Studio">

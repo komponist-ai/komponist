@@ -575,11 +575,57 @@ h3 {
 }
 
 @media (max-width: 560px) {
-  .studio-topbar { align-items: flex-start; gap: var(--space-3); }
-  .studio-topbar > div:first-child { width: 100%; }
-  .studio-topbar-actions { width: 100%; max-width: 100%; justify-content: flex-start; }
+  .studio-topbar {
+    min-height: 64px;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding-block: 10px;
+  }
+
+  .studio-topbar > div:first-child {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  .studio-topbar-actions {
+    width: auto;
+    max-width: 44%;
+    flex: 0 1 auto;
+    justify-content: flex-end;
+  }
+
   .studio-topbar h1 { font-size: 1.2rem; }
   .studio-topbar [class*='size-10'] { width: 36px; height: 36px; }
+
+  .chat-input-shell {
+    padding: 10px 12px;
+  }
+
+  .chat-input-frame {
+    gap: var(--space-2);
+    padding: 8px;
+    box-shadow: 4px 4px 0 var(--color-ink);
+  }
+
+  .chat-input-meta > span:last-child {
+    display: none;
+  }
+
+  .studio-empty-title {
+    font-size: clamp(2.65rem, 14vw, 3.5rem);
+  }
+}
+
+@media (max-width: 400px) {
+  .chat-input-mark {
+    display: none;
+  }
+
+  .chat-input-frame textarea {
+    font-size: 0.9375rem;
+    line-height: 1.4;
+  }
 }
 
 .landing-studio-label-short { display: none; }

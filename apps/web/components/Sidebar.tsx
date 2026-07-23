@@ -72,7 +72,7 @@ export default function Sidebar({
   }
 
   return (
-    <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`} aria-label="Studio navigation">
+    <aside id="studio-navigation" className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`} aria-label="Studio navigation">
       <div className="sidebar-header">
         <div className="flex items-center justify-between gap-3">
           <Link href="/studio" className="sidebar-brand flex items-center gap-2" onClick={onMobileClose}>
@@ -137,14 +137,14 @@ export default function Sidebar({
         ))}
       </nav>
 
-      <div className="sidebar-footer !p-3">
-        <div className="mb-3 flex items-center justify-between rounded-lg border border-line bg-paper-2 px-3 py-2">
+      <div className="sidebar-footer">
+        <div className="sidebar-appearance mb-3 flex items-center justify-between rounded-lg border border-line bg-paper-2 px-3 py-2">
           <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">Appearance</span>
           <ThemeToggle />
         </div>
-        <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_#d9cfc0]">
-          <div className="flex min-w-0 items-center gap-3 p-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange font-display text-sm font-black text-white shadow-[2px_2px_0_#201c15]" aria-hidden="true">
+        <div className="sidebar-profile-card overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_#d9cfc0]">
+          <div className="sidebar-profile-main flex min-w-0 items-center gap-3 p-3">
+            <div className="sidebar-profile-avatar grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange font-display text-sm font-black text-white shadow-[2px_2px_0_#201c15]" aria-hidden="true">
               {user?.name?.slice(0, 1).toUpperCase() || '?'}
             </div>
             <div className="min-w-0 flex-1 leading-tight">

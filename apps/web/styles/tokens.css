@@ -547,6 +547,69 @@ code {
   padding: var(--space-6);
 }
 
+/*
+ * These overrides intentionally live after the desktop sidebar rules. The
+ * earlier mobile block sets up the drawer, while this block comes after the
+ * desktop width and margin declarations and therefore wins in the cascade.
+ */
+@media (max-width: 900px) {
+  .app-layout .main-content {
+    flex: 0 0 100%;
+    width: 100%;
+    margin-left: 0;
+    min-height: calc(100dvh - var(--mobile-appbar-height));
+  }
+
+  .app-layout .sidebar {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+
+  .sidebar .sidebar-header {
+    flex: 0 0 auto;
+    padding: var(--space-4);
+  }
+
+  .sidebar .org-switcher-label {
+    margin-top: var(--space-3);
+  }
+
+  .sidebar .sidebar-nav {
+    min-height: 0;
+    padding: var(--space-3);
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .sidebar .nav-section {
+    margin-bottom: var(--space-4);
+  }
+
+  .sidebar .nav-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .sidebar .sidebar-footer {
+    flex: 0 0 auto;
+    padding: 10px;
+  }
+
+  .sidebar .sidebar-appearance {
+    display: none;
+  }
+
+  .sidebar .sidebar-profile-main {
+    padding: 10px;
+  }
+
+  .sidebar .sidebar-profile-avatar {
+    width: 36px;
+    height: 36px;
+  }
+}
+
 /* ========================================
    Authentication
    ======================================== */

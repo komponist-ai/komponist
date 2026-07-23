@@ -36,10 +36,10 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
   }
 
   return (
-    <div className="relative z-10 shrink-0 border-t border-line bg-paper/90 px-4 pb-4 pt-3 backdrop-blur-xl">
+    <div className="chat-input-shell relative z-10 shrink-0 border-t border-line bg-paper/90 px-4 pb-4 pt-3 backdrop-blur-xl">
       <div className="mx-auto max-w-[880px]">
-        <div className="flex items-end gap-3 rounded-xl border-2 border-ink bg-white p-2.5 shadow-[5px_5px_0_#201c15] transition-shadow focus-within:shadow-[7px_7px_0_#e8641b]">
-          <div className={`grid size-10 shrink-0 place-items-center rounded-md border border-line bg-warning-soft text-orange-dark ${disabled ? 'animate-pulse' : ''}`}>
+        <div className="chat-input-frame flex items-end gap-3 rounded-xl border-2 border-ink bg-white p-2.5 shadow-[5px_5px_0_#201c15] transition-shadow focus-within:shadow-[7px_7px_0_#e8641b]">
+          <div className={`chat-input-mark grid size-10 shrink-0 place-items-center rounded-md border border-line bg-warning-soft text-orange-dark ${disabled ? 'animate-pulse' : ''}`}>
             <Sparkles className="size-4" />
           </div>
           <textarea
@@ -63,7 +63,7 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
             {disabled ? <LoaderCircle className="animate-spin" /> : <SendHorizontal />}
           </Button>
         </div>
-        <div className="flex items-center justify-between gap-4 px-2 pt-2 font-mono text-[9px] text-faint sm:text-[10px]">
+        <div className="chat-input-meta flex items-center justify-between gap-4 px-2 pt-2 font-mono text-[9px] text-faint sm:text-[10px]">
           <span className="flex items-center gap-1.5">
             {disabled ? <LoaderCircle className="size-3 animate-spin text-orange" /> : <ShieldCheck className="size-3 text-teal" />}
             {disabled ? 'Komponist is working on your answer' : 'confirmed graph only'}

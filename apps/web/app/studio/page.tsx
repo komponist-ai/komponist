@@ -317,7 +317,7 @@ export default function ChatPage() {
               <section className="mx-auto grid min-h-full w-[calc(100%-2rem)] max-w-[1040px] content-center gap-10 py-12 lg:grid-cols-[0.72fr_1.28fr] lg:items-center">
                 <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.45 }}>
                   <Badge variant="orange">Questions from your live graph</Badge>
-                  <h2 className="mt-5 font-display text-[clamp(3rem,6vw,5.7rem)] font-bold leading-[0.88] tracking-[-0.06em]">
+                  <h2 className="studio-empty-title mt-5 font-display text-[clamp(3rem,6vw,5.7rem)] font-bold leading-[0.88] tracking-[-0.06em]">
                     Ask the brain.<span className="mt-2 block text-orange">It has receipts.</span>
                   </h2>
                   <p className="mt-6 max-w-xl text-lg leading-8 text-ink-2">
