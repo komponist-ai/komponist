@@ -1,10 +1,11 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  AlignLeft, BookOpenCheck, Check, Clock3, Download, FileText,
-  LoaderCircle, Presentation, Sparkles, Trash2, UsersRound,
+  AlignLeft, ArrowUpRight, BookOpenCheck, Check, Clock3, Download,
+  ExternalLink, FileText, LoaderCircle, Presentation, Sparkles, Trash2, UsersRound,
   WandSparkles,
   type LucideIcon,
 } from 'lucide-react'
@@ -26,12 +27,21 @@ type ArtifactSource = {
   source: string
   reference: string
   excerpt?: string
+  url?: string
+  title?: string
+  page?: number
+  line_start?: number
+  line_end?: number
+  komponist_path?: string
 }
 
 type ArtifactBlock = {
+  layout?: 'statement' | 'list' | 'split' | 'timeline' | 'quote'
+  eyebrow?: string
   title: string
   body: string
   bullets: string[]
+  takeaway?: string
   speaker_notes: string
   source_ids: string[]
 }
@@ -102,6 +112,26 @@ function formatDate(value: string) {
 function ArtifactIcon({ type, className = 'size-4' }: { type: ArtifactType; className?: string }) {
   const Icon = formats.find((format) => format.value === type)?.icon ?? FileText
   return <Icon className={className} />
+}
+
+function sourceHref(source: ArtifactSource) {
+  return source.komponist_path || `/sources?evidence=${encodeURIComponent(source.id)}`
+}
+
+function sourceLocation(source: ArtifactSource) {
+  if (source.page != null) return `Page ${source.page}`
+  if (source.line_start != null) {
+    return source.line_end && source.line_end !== source.line_start
+      ? `Lines ${source.line_start}–${source.line_end}`
+      : `Line ${source.line_start}`
+  }
+  return {
+    slack: 'Thread passage',
+    notion: 'Notion passage',
+    google: 'Drive passage',
+    upload: 'Uploaded passage',
+    manual: 'Local passage',
+  }[source.source] || 'Source passage'
 }
 
 export default function CreatePage() {
@@ -352,11 +382,12 @@ export default function CreatePage() {
 
                 <label className="block">
                   <span className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Instructions <span className="normal-case tracking-normal text-faint">(optional)</span></span>
-                  <input
+                  <textarea
                     value={instructions}
                     onChange={(event) => setInstructions(event.target.value)}
-                    placeholder="Focus on risks, keep it concise…"
-                    className="h-11 w-full rounded-xl border-2 border-line bg-white px-3 text-sm outline-none transition focus:border-ink focus:ring-2 focus:ring-orange/30"
+                    rows={3}
+                    placeholder="e.g. Lead with the launch decision, compare current priorities, and close with documented constraints…"
+                    className="w-full resize-none rounded-xl border-2 border-line bg-white px-3 py-3 text-sm leading-5 outline-none transition focus:border-ink focus:ring-2 focus:ring-orange/30"
                   />
                 </label>
 
@@ -367,7 +398,7 @@ export default function CreatePage() {
 
                 <div className="flex items-start gap-2.5 rounded-xl border border-teal/25 bg-success-soft p-3 text-xs leading-5 text-teal-dark">
                   <BookOpenCheck className="mt-0.5 size-4 shrink-0" />
-                  Only confirmed knowledge you can access is included. Downloads carry their citations with them.
+                  Only confirmed knowledge you can access is included. Every citation opens the exact source passage in Komponist.
                 </div>
               </div>
             </section>
@@ -504,7 +535,7 @@ function ArtifactPreview({
           </div>
         </div>
         <div className="flex gap-2">
-          <Badge variant="teal"><Download className="size-3.5" /> PDF &amp; Markdown</Badge>
+          <Badge variant="teal"><Download className="size-3.5" /> Cited exports</Badge>
           <Button variant="ghost" size="icon" onClick={onDelete} aria-label="Delete deliverable"><Trash2 /></Button>
         </div>
       </div>
@@ -527,12 +558,22 @@ function ArtifactPreview({
             </div>
             <div className="mt-5 grid gap-3 lg:grid-cols-2">
               {artifact.sources.map((source, index) => (
-                <article key={source.id} className="rounded-xl border border-line bg-paper-2 p-4">
+                <article key={source.id} className="group rounded-xl border border-line bg-paper-2 p-4 transition hover:border-orange/50 hover:bg-white">
                   <div className="flex items-start gap-3">
                     <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-ink font-mono text-[10px] font-bold text-white">{index + 1}</span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2"><strong className="break-all text-xs">{source.reference}</strong><Badge variant="default" className="px-2 py-0 text-[8px]">{source.type}</Badge></div>
-                      <p className="mt-2 text-xs leading-5 text-muted">{source.excerpt || source.statement}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2"><strong className="break-all text-xs">{source.title || source.reference}</strong><Badge variant="default" className="px-2 py-0 text-[8px]">{source.type}</Badge><span className="font-mono text-[8px] font-bold uppercase tracking-wide text-orange-dark">{sourceLocation(source)}</span></div>
+                      <p className="mt-2 border-l-2 border-orange/40 pl-3 text-xs leading-5 text-muted">{source.excerpt || source.statement}</p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={sourceHref(source)}><BookOpenCheck /> Open highlighted passage <ArrowUpRight /></Link>
+                        </Button>
+                        {source.url && /^https?:\/\//i.test(source.url) && (
+                          <Button asChild variant="ghost" size="sm">
+                            <a href={source.url} target="_blank" rel="noreferrer">Original <ExternalLink /></a>
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </article>
@@ -545,16 +586,33 @@ function ArtifactPreview({
   )
 }
 
-function CitationMarkers({ numbers }: { numbers: number[] }) {
+function CitationMarkers({ numbers, sources }: { numbers: number[]; sources: ArtifactSource[] }) {
   if (!numbers.length) return null
-  return <span className="ml-2 font-mono text-[9px] font-bold text-orange-dark">{numbers.map((number) => `[${number}]`).join(' ')}</span>
+  return (
+    <span className="ml-2 inline-flex flex-wrap gap-1 align-middle font-mono text-[9px] font-bold text-orange-dark">
+      {numbers.map((number) => {
+        const source = sources[number - 1]
+        return source ? (
+          <Link
+            key={number}
+            href={sourceHref(source)}
+            title={`Open ${source.reference} · ${sourceLocation(source)}`}
+            className="rounded bg-orange/10 px-1 py-0.5 transition hover:bg-orange hover:text-white"
+          >
+            [{number}]
+          </Link>
+        ) : <span key={number}>[{number}]</span>
+      })}
+    </span>
+  )
 }
 
 function PresentationPreview({ artifact, citations }: { artifact: Artifact; citations: (ids: string[]) => number[] }) {
   const slides = [
     {
+      layout: 'statement' as const, eyebrow: 'Executive synthesis',
       title: 'Executive summary', body: artifact.content.executive_summary,
-      bullets: [] as string[], source_ids: artifact.content.source_ids,
+      bullets: [] as string[], takeaway: '', source_ids: artifact.content.source_ids,
     },
     ...artifact.content.blocks,
   ]
@@ -569,11 +627,37 @@ function PresentationPreview({ artifact, citations }: { artifact: Artifact; cita
       </div>
       <div className="grid gap-5 lg:grid-cols-2">
         {slides.map((slide, index) => (
-          <article key={`${slide.title}-${index}`} className="flex aspect-video flex-col rounded-2xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_#d9cfc0] sm:p-7">
-            <div className="flex items-start justify-between gap-3"><h3 className="text-xl font-bold sm:text-2xl">{slide.title}</h3><span className="font-mono text-[10px] text-muted">{String(index + 2).padStart(2, '0')}</span></div>
-            {slide.body && <p className="mt-5 line-clamp-5 text-sm leading-6 text-ink-2">{slide.body}</p>}
-            {!!slide.bullets?.length && <ul className="mt-5 space-y-2 text-xs leading-5 sm:text-sm">{slide.bullets.map((bullet) => <li key={bullet} className="flex gap-2"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-orange" />{bullet}</li>)}</ul>}
-            <div className="mt-auto border-t border-line pt-2"><CitationMarkers numbers={citations(slide.source_ids)} /></div>
+          <article key={`${slide.title}-${index}`} className="relative flex aspect-video min-h-[300px] flex-col overflow-hidden rounded-2xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_#d9cfc0] sm:p-7">
+            <div className="absolute inset-x-0 top-0 h-1.5 bg-orange" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-mono text-[8px] font-bold uppercase tracking-[0.14em] text-teal">{slide.eyebrow || 'Key context'}</p>
+                <h3 className="mt-2 text-xl font-bold leading-tight sm:text-2xl">{slide.title}</h3>
+              </div>
+              <span className="font-mono text-[10px] text-muted">{String(index + 2).padStart(2, '0')}</span>
+            </div>
+            <div className={`mt-4 grid min-h-0 flex-1 gap-4 ${slide.takeaway ? 'sm:grid-cols-[minmax(0,1fr)_34%]' : ''}`}>
+              <div className="min-w-0">
+                {slide.body && <p className={`${slide.layout === 'quote' ? 'border-l-4 border-orange pl-4 text-lg font-semibold' : ''} line-clamp-5 text-sm leading-6 text-ink-2`}>{slide.body}</p>}
+                {!!slide.bullets?.length && (
+                  <ul className={`mt-4 ${slide.layout === 'split' ? 'grid grid-cols-2 gap-2' : 'space-y-2'} text-xs leading-5 sm:text-sm`}>
+                    {slide.bullets.map((bullet, bulletIndex) => (
+                      <li key={bullet} className={`flex gap-2 ${slide.layout === 'split' || slide.layout === 'timeline' ? 'rounded-lg border border-line bg-paper-2 p-2.5' : ''}`}>
+                        <span className={`${slide.layout === 'timeline' ? 'grid size-5 shrink-0 place-items-center rounded-full bg-orange font-mono text-[8px] font-bold text-white' : 'mt-2 size-1.5 shrink-0 rounded-full bg-orange'}`}>{slide.layout === 'timeline' ? bulletIndex + 1 : ''}</span>
+                        <span className="line-clamp-3">{bullet}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {slide.takeaway && (
+                <aside className="rounded-xl border border-line bg-warning-soft p-3">
+                  <p className="font-mono text-[8px] font-bold uppercase tracking-wider text-orange-dark">Key takeaway</p>
+                  <p className="mt-2 line-clamp-5 text-xs font-bold leading-5 sm:text-sm">{slide.takeaway}</p>
+                </aside>
+              )}
+            </div>
+            <div className="mt-3 border-t border-line pt-2"><CitationMarkers numbers={citations(slide.source_ids)} sources={artifact.sources} /></div>
           </article>
         ))}
       </div>
@@ -592,13 +676,27 @@ function DocumentPreview({ artifact, citations }: { artifact: Artifact; citation
       </div>
       <section className="py-8">
         <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-orange-dark">Executive summary</p>
-        <p className="mt-3 text-lg leading-8 text-ink-2">{artifact.content.executive_summary}<CitationMarkers numbers={citations(artifact.content.source_ids)} /></p>
+        <div className="mt-3 rounded-2xl border border-orange/30 bg-warning-soft p-5 sm:p-6">
+          <p className="text-lg leading-8 text-ink-2">{artifact.content.executive_summary}<CitationMarkers numbers={citations(artifact.content.source_ids)} sources={artifact.sources} /></p>
+        </div>
       </section>
-      {artifact.content.blocks.map((block) => (
-        <section key={block.title} className="border-t border-line py-8">
-          <h2 className="text-2xl font-bold">{block.title}</h2>
-          {block.body && <p className="mt-3 leading-7 text-ink-2">{block.body}<CitationMarkers numbers={citations(block.source_ids)} /></p>}
-          {!!block.bullets.length && <ul className="mt-4 space-y-3">{block.bullets.map((bullet) => <li key={bullet} className="flex gap-3 leading-6"><span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-orange" /><span>{bullet}<CitationMarkers numbers={citations(block.source_ids)} /></span></li>)}</ul>}
+      {artifact.content.blocks.map((block, index) => (
+        <section key={`${block.title}-${index}`} className="border-t border-line py-8">
+          <div className="flex items-start gap-4">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-ink bg-ink font-mono text-[10px] font-bold text-white">{String(index + 1).padStart(2, '0')}</span>
+            <div className="min-w-0 flex-1">
+              <p className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-teal">{block.eyebrow || 'Key context'}</p>
+              <h2 className="mt-2 text-2xl font-bold">{block.title}</h2>
+            </div>
+          </div>
+          {block.body && <p className="mt-4 leading-7 text-ink-2">{block.body}<CitationMarkers numbers={citations(block.source_ids)} sources={artifact.sources} /></p>}
+          {!!block.bullets.length && <ul className={`mt-5 ${block.layout === 'split' ? 'grid gap-3 sm:grid-cols-2' : 'space-y-3'}`}>{block.bullets.map((bullet) => <li key={bullet} className={`flex gap-3 leading-6 ${block.layout === 'split' ? 'rounded-xl border border-line bg-paper-2 p-4' : ''}`}><span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-orange" /><span>{bullet}<CitationMarkers numbers={citations(block.source_ids)} sources={artifact.sources} /></span></li>)}</ul>}
+          {block.takeaway && (
+            <div className="mt-5 rounded-xl border border-orange/30 bg-warning-soft p-4">
+              <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-orange-dark">Key takeaway</p>
+              <p className="mt-2 font-bold leading-6">{block.takeaway}</p>
+            </div>
+          )}
         </section>
       ))}
     </article>

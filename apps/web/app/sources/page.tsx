@@ -14,6 +14,7 @@ import {
   Loader2,
   Layers3,
   Plus,
+  Quote,
   RefreshCw,
   ShieldCheck,
   Trash2,
@@ -52,6 +53,28 @@ interface SyncedDocument {
   department_id?: string | null
 }
 
+interface EvidencePassage {
+  id: string
+  source: string
+  source_type: Source['type']
+  reference: string
+  title: string
+  url?: string
+  excerpt: string
+  document_id?: string
+  document_kind?: string
+  source_date?: string
+  entity_types: string[]
+  statements: string[]
+  location: {
+    kind: string
+    label: string
+    page?: number
+    line_start?: number
+    line_end?: number
+  }
+}
+
 interface DisconnectModal {
   source: Source | null
   loading: boolean
@@ -82,7 +105,7 @@ function canOpenUrl(value?: string) {
 }
 
 export default function SourcesPage() {
-  const { user } = useAuth()
+  const { user, switchOrganization } = useAuth()
   const [sources, setSources] = useState<Source[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [documents, setDocuments] = useState<Record<string, SyncedDocument[]>>({})
@@ -97,10 +120,51 @@ export default function SourcesPage() {
   const [deletingDocument, setDeletingDocument] = useState(false)
   const [movingDocument, setMovingDocument] = useState<string | null>(null)
   const [movingSource, setMovingSource] = useState<string | null>(null)
+  const [evidenceId, setEvidenceId] = useState<string | null>(null)
+  const [passage, setPassage] = useState<EvidencePassage | null>(null)
+  const [passageLoading, setPassageLoading] = useState(false)
 
   const canManage = user?.role === 'owner' || user?.role === 'admin'
 
-  useEffect(() => setOrgId(getActiveOrgId()), [])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const requestedOrgId = params.get('org_id')
+    const requestedEvidenceId = params.get('evidence')
+    setEvidenceId(requestedEvidenceId)
+
+    const activeOrgId = getActiveOrgId()
+    if (requestedOrgId && requestedOrgId !== activeOrgId) {
+      void switchOrganization(requestedOrgId)
+        .then(() => setOrgId(requestedOrgId))
+        .catch(() => {
+          setError('You do not have access to the organization linked by this citation.')
+          setOrgId(activeOrgId)
+        })
+      return
+    }
+    setOrgId(activeOrgId)
+  }, [switchOrganization])
+
+  useEffect(() => {
+    if (!orgId || !evidenceId) {
+      setPassage(null)
+      return
+    }
+    setPassageLoading(true)
+    void apiFetch(
+      `${API_URL}/evidence/${encodeURIComponent(evidenceId)}?org_id=${encodeURIComponent(orgId)}`,
+    )
+      .then(async response => {
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.detail || 'Could not open cited passage')
+        setPassage(payload)
+      })
+      .catch(loadError => {
+        setPassage(null)
+        setError(loadError instanceof Error ? loadError.message : 'Could not open cited passage')
+      })
+      .finally(() => setPassageLoading(false))
+  }, [evidenceId, orgId])
 
   const fetchDocuments = useCallback(async (sourceId: string) => {
     if (!orgId) return
@@ -144,6 +208,35 @@ export default function SourcesPage() {
   }, [fetchDocuments, orgId])
 
   useEffect(() => { void fetchSources() }, [fetchSources])
+
+  useEffect(() => {
+    if (!passage || !sources.length) return
+    const source = sources.find(item => (
+      item.type === passage.source_type
+      && (documents[item.id] ?? []).some(document => document.reference === passage.reference)
+    )) ?? sources.find(item => item.type === passage.source_type)
+    if (!source) return
+    setExpanded(source.id)
+    const targetDocument = (documents[source.id] ?? []).find(
+      item => item.reference === passage.reference,
+    )
+    window.setTimeout(() => {
+      window.document.getElementById(
+        targetDocument
+          ? `source-document-${source.id}-${targetDocument.id}`
+          : `source-connection-${source.id}`,
+      )?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 220)
+  }, [documents, passage, sources])
+
+  const closePassage = () => {
+    setEvidenceId(null)
+    setPassage(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('evidence')
+    url.searchParams.delete('org_id')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}`)
+  }
 
   const handleSync = async (source: Source) => {
     setSyncing(source.id)
@@ -265,6 +358,49 @@ export default function SourcesPage() {
             </div>
           )}
 
+          {passageLoading && (
+            <div className="mb-7 flex items-center gap-3 rounded-xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_#d9cfc0]">
+              <Loader2 className="size-5 animate-spin text-orange" />
+              <div><p className="text-sm font-bold">Opening cited passage</p><p className="mt-1 text-xs text-muted">Checking your current source permissions…</p></div>
+            </div>
+          )}
+
+          {passage && (
+            <motion.section
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="relative mb-7 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[6px_6px_0_#e8641b]"
+              aria-label="Highlighted source passage"
+            >
+              <div className="absolute inset-y-0 left-0 w-2 bg-orange" />
+              <div className="flex flex-col gap-5 p-5 pl-7 sm:p-6 sm:pl-8 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 max-w-4xl">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="orange"><Quote className="size-3" /> Cited passage</Badge>
+                    <Badge variant="default">{passage.location.label}</Badge>
+                    {passage.entity_types.map(type => <Badge key={type} variant="teal">{type}</Badge>)}
+                  </div>
+                  <h2 className="mt-4 text-2xl">{passage.title}</h2>
+                  <p className="mt-1 break-all font-mono text-[9px] text-faint">{passage.reference}</p>
+                  <blockquote className="mt-5 rounded-xl border border-orange/30 bg-warning-soft p-4 text-sm leading-7 text-ink-2">
+                    <mark className="box-decoration-clone rounded bg-[#ffdcae] px-1 py-0.5 text-ink">{passage.excerpt || passage.statements[0]}</mark>
+                  </blockquote>
+                  {passage.statements[0] && (
+                    <p className="mt-3 text-xs leading-5 text-muted"><strong className="text-ink">Confirmed fact:</strong> {passage.statements[0]}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {canOpenUrl(passage.url) && (
+                    <Button asChild variant="outline" size="sm">
+                      <a href={passage.url} target="_blank" rel="noreferrer"><ExternalLink /> Open original</a>
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={closePassage}><X /> Close</Button>
+                </div>
+              </div>
+            </motion.section>
+          )}
+
           <section className="mb-7 grid overflow-hidden rounded-xl border-2 border-ink bg-ink sm:grid-cols-3">
             {[
               ['Connections', sources.length, 'Active data sources'],
@@ -309,7 +445,7 @@ export default function SourcesPage() {
                 const isExpanded = expanded === source.id
                 const isSyncing = syncing === source.id
                 return (
-                  <motion.article key={source.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: sourceIndex * 0.04 }} className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
+                  <motion.article id={`source-connection-${source.id}`} key={source.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: sourceIndex * 0.04 }} className="scroll-mt-24 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
                     <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex min-w-0 items-center gap-4">
                         <SourceLogo type={source.type} />
@@ -367,20 +503,33 @@ export default function SourcesPage() {
                             <div className="px-5 py-8 text-center"><FileText className="mx-auto size-6 text-faint" /><p className="mt-3 text-sm font-semibold">No synced documents found</p><p className="mt-1 text-xs text-muted">Run a sync or upload a document to populate this connection.</p></div>
                           ) : (
                             <div className="divide-y divide-line">
-                              {sourceDocuments.map((document) => (
-                                <div key={document.id} className="grid gap-4 bg-white px-4 py-4 transition hover:bg-[#fffaf0] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+                              {sourceDocuments.map((document) => {
+                                const isHighlighted = passage?.reference === document.reference
+                                  && passage.source_type === source.type
+                                return (
+                                <div
+                                  id={`source-document-${source.id}-${document.id}`}
+                                  key={document.id}
+                                  className={`scroll-mt-24 grid gap-4 px-4 py-4 transition sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5 ${isHighlighted ? 'bg-warning-soft ring-2 ring-inset ring-orange' : 'bg-white hover:bg-[#fffaf0]'}`}
+                                >
                                   <div className="flex min-w-0 items-start gap-3">
-                                    <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-paper-2"><FileText className="size-4" /></span>
+                                    <span className={`grid size-9 shrink-0 place-items-center rounded-lg border ${isHighlighted ? 'border-orange bg-white text-orange-dark' : 'border-line bg-paper-2'}`}><FileText className="size-4" /></span>
                                     <div className="min-w-0">
                                       <div className="flex flex-wrap items-center gap-2">
                                         <p className="truncate text-sm font-bold text-ink">{document.title}</p>
                                         <Badge variant={document.review_status === 'confirmed' ? 'teal' : document.review_status === 'proposed' ? 'orange' : 'default'} className="px-2 py-0.5 text-[8px]">{document.review_status}</Badge>
+                                        {isHighlighted && <Badge variant="orange" className="px-2 py-0.5 text-[8px]"><Quote className="size-2.5" /> Citation</Badge>}
                                       </div>
                                       <p className="mt-1 truncate font-mono text-[9px] text-faint" title={document.reference}>{document.reference}</p>
                                       <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted">
                                         <span>{document.entity_count} extracted fact{document.entity_count === 1 ? '' : 's'}</span>
                                         <span className="flex items-center gap-1"><Clock3 className="size-3" /> {formatDate(document.synced_at)}</span>
                                       </div>
+                                      {isHighlighted && passage && (
+                                        <blockquote className="mt-3 max-w-2xl border-l-2 border-orange pl-3 text-xs leading-5 text-ink-2">
+                                          <mark className="bg-[#ffdcae] px-0.5 text-ink">{passage.excerpt || passage.statements[0]}</mark>
+                                        </blockquote>
+                                      )}
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-1 sm:justify-end">
@@ -400,7 +549,7 @@ export default function SourcesPage() {
                                     <Button variant="ghost" size="icon" title="Remove from Komponist" aria-label={`Remove ${document.title} from Komponist`} className="text-danger hover:bg-danger-soft hover:text-danger" onClick={() => setDeleteModal({ source, document })}><Trash2 /></Button>
                                   </div>
                                 </div>
-                              ))}
+                              )})}
                             </div>
                           )}
                         </motion.div>

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from core.models import SourceItem, SourceType
 from core.versioning import document_metadata
-from pipelines.extract import reuse_identical_document
+from pipelines.extract import reuse_identical_document, source_excerpt_location
 
 
 def uploaded_document(filename: str) -> SourceItem:
@@ -32,6 +32,8 @@ class IdenticalDocumentReuseTests(unittest.IsolatedAsyncioTestCase):
             "document_id": "doc-original",
             "evidence_id": "ev-original",
             "excerpt": "Decision: Ship the reviewed context MVP.",
+            "line_start": 3,
+            "line_end": 3,
             "entity_id": "decision-1",
         }]
 
@@ -59,6 +61,16 @@ class IdenticalDocumentReuseTests(unittest.IsolatedAsyncioTestCase):
         evidence_params = run_query.await_args_list[2].args[1]
         self.assertEqual(evidence_params["entity_id"], "decision-1")
         self.assertEqual(evidence_params["reference"], source_item.reference)
+        self.assertEqual(evidence_params["line_start"], 3)
+        self.assertEqual(evidence_params["line_end"], 3)
+
+    def test_excerpt_location_tracks_exact_source_lines(self) -> None:
+        body = "# Plan\n\nContext.\n\nDecision: Ship.\nAcross two lines."
+        self.assertEqual(
+            source_excerpt_location(body, "Decision: Ship.\nAcross two lines."),
+            (5, 6),
+        )
+        self.assertEqual(source_excerpt_location(body, "Missing excerpt"), (None, None))
 
     async def test_retry_of_same_document_only_reads_existing_claims(self) -> None:
         source_item = uploaded_document("strategy.md")

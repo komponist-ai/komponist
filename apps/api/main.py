@@ -79,6 +79,7 @@ from artifacts import (
     generation_prompt,
     mock_artifact_content,
     sanitize_artifact_content,
+    source_deep_link_path,
 )
 
 
@@ -1736,6 +1737,43 @@ def _source_evidence_types(source_type: str) -> list[str]:
     return SOURCE_EVIDENCE_TYPES.get(source_type.lower(), [source_type.lower()])
 
 
+def _connector_type_for_evidence(source_type: str) -> str:
+    return {
+        "manual": "local",
+        "google_drive": "google",
+        "gdrive": "google",
+    }.get(source_type.casefold(), source_type.casefold())
+
+
+def _evidence_location(source_type: str, row: dict) -> dict:
+    page = row.get("page")
+    line_start = row.get("line_start")
+    line_end = row.get("line_end")
+    if page is not None:
+        return {"kind": "page", "label": f"Page {page}", "page": page}
+    if line_start is not None:
+        is_range = bool(line_end and line_end != line_start)
+        return {
+            "kind": "lines",
+            "label": (
+                f"Lines {line_start}–{line_end}"
+                if is_range else f"Line {line_start}"
+            ),
+            "line_start": line_start,
+            "line_end": line_end,
+        }
+    labels = {
+        "slack": ("thread", "Highlighted thread passage"),
+        "notion": ("page", "Highlighted Notion passage"),
+        "google": ("document", "Highlighted Google Drive passage"),
+        "google_drive": ("document", "Highlighted Google Drive passage"),
+        "upload": ("passage", "Highlighted uploaded passage"),
+        "manual": ("passage", "Highlighted local passage"),
+    }
+    kind, label = labels.get(source_type.casefold(), ("passage", "Highlighted passage"))
+    return {"kind": kind, "label": label}
+
+
 def _document_title(reference: str) -> str:
     """Create a human label for legacy evidence without a persisted title."""
     if reference.startswith("upload:"):
@@ -1756,6 +1794,73 @@ async def list_sources(request: Request, org_id: str = Query(...)):
         source for source in org_sources if _source_visible_to_user(source, user)
     ]
     return {"sources": org_sources, "total": len(org_sources)}
+
+
+@app.get("/evidence/{evidence_id}")
+async def get_evidence_passage(
+    evidence_id: str,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Resolve one citation into a permission-checked source passage."""
+    user = await _authorized_org_user(request, org_id)
+    rows = await GraphClient.run_query(
+        f"""
+        MATCH (entity:Entity {{
+            org_id: $org_id,
+            status: 'confirmed'
+        }})-[:CITED_BY]->(evidence:Evidence {{
+            org_id: $org_id,
+            id: $evidence_id
+        }})
+        WHERE {_knowledge_scope('entity')} AND {_evidence_scope('evidence')}
+        RETURN
+            evidence.id AS id,
+            evidence.source AS source,
+            evidence.reference AS reference,
+            evidence.title AS title,
+            evidence.url AS url,
+            evidence.excerpt AS excerpt,
+            evidence.document_id AS document_id,
+            evidence.kind AS document_kind,
+            evidence[$page_property] AS page,
+            evidence[$line_start_property] AS line_start,
+            evidence[$line_end_property] AS line_end,
+            toString(evidence.source_date) AS source_date,
+            collect(DISTINCT entity.entity_type) AS entity_types,
+            collect(DISTINCT entity.statement) AS statements
+        LIMIT 1
+        """,
+        _scoped_params(
+            org_id,
+            user,
+            evidence_id=evidence_id,
+            page_property="page",
+            line_start_property="line_start",
+            line_end_property="line_end",
+        ),
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Source passage not found")
+
+    row = rows[0]
+    source_type = str(row.get("source") or "unknown")
+    reference = str(row.get("reference") or "Unknown reference")
+    return {
+        "id": row["id"],
+        "source": source_type,
+        "source_type": _connector_type_for_evidence(source_type),
+        "reference": reference,
+        "title": row.get("title") or _document_title(reference),
+        "url": row.get("url"),
+        "excerpt": row.get("excerpt") or "",
+        "document_id": row.get("document_id"),
+        "document_kind": row.get("document_kind"),
+        "source_date": row.get("source_date"),
+        "entity_types": [item for item in row.get("entity_types", []) if item],
+        "statements": [item for item in row.get("statements", []) if item],
+        "location": _evidence_location(source_type, row),
+    }
 
 
 @app.get("/sources/{source_id}/documents")
@@ -3260,12 +3365,21 @@ async def _attach_chat_evidence(
         OPTIONAL MATCH (entity)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
         WHERE {_evidence_scope('evidence')}
         RETURN entity.id AS entity_id,
-               collect(DISTINCT evidence{{.id, .source, .reference, .url,
-                                          .excerpt, .source_date,
+               collect(DISTINCT evidence{{.id, .source, .reference, .title,
+                                          .url, .excerpt, .source_date,
+                                          .document_id, .kind,
+                                          page: evidence[$page_property],
+                                          line_start: evidence[$line_start_property],
+                                          line_end: evidence[$line_end_property],
                                           .department_id}}) AS evidence
         """,
         _scoped_params(
-            org_id, user, entity_ids=[entity["id"] for entity in entities]
+            org_id,
+            user,
+            entity_ids=[entity["id"] for entity in entities],
+            page_property="page",
+            line_start_property="line_start",
+            line_end_property="line_end",
         ),
     )
     evidence_by_entity = {
@@ -3296,9 +3410,15 @@ def _chat_context_and_sources(search_results: List[dict]) -> tuple[str, List[dic
                 "statement": result["statement"],
                 "source": evidence.get("source") or "unknown",
                 "reference": evidence.get("reference") or "Unknown reference",
+                "title": evidence.get("title"),
                 "url": evidence.get("url"),
                 "excerpt": evidence.get("excerpt"),
                 "source_date": source_date,
+                "document_id": evidence.get("document_id"),
+                "document_kind": evidence.get("kind"),
+                "page": evidence.get("page"),
+                "line_start": evidence.get("line_start"),
+                "line_end": evidence.get("line_end"),
                 "department_id": evidence.get("department_id"),
                 "department_ids": result.get("department_ids") or [],
             })
@@ -3775,7 +3895,7 @@ async def generate_artifact(
             candidate = await get_llm().call_json(
                 prompt=prompt,
                 system=system,
-                max_tokens=5000,
+                max_tokens=8000,
                 schema=ARTIFACT_SCHEMA,
             )
             content = sanitize_artifact_content(candidate, fallback, entities)
@@ -3785,6 +3905,8 @@ async def generate_artifact(
     source_entity_ids = list(dict.fromkeys(
         entity["id"] for entity in entities if entity.get("evidence")
     ))
+    for source in sources:
+        source["komponist_path"] = source_deep_link_path(org_id, source["id"])
     department_ids = sorted({
         department_id
         for entity in entities

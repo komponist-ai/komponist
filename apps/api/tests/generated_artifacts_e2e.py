@@ -142,12 +142,17 @@ async def run() -> None:
                 })
                 CREATE (e1:Evidence {
                     id: 'artifact-evidence-1', org_id: $org_id, source: 'upload',
-                    reference: 'northstar-plan.md', excerpt: 'Launch in September.',
+                    title: 'Northstar plan', reference: 'northstar-plan.md',
+                    url: 'upload://northstar-plan.md', excerpt: 'Launch in September.',
+                    line_start: 12, line_end: 12,
                     source_date: datetime()
                 })
                 CREATE (e2:Evidence {
                     id: 'artifact-evidence-2', org_id: $org_id, source: 'upload',
-                    reference: 'northstar-plan.md', excerpt: 'The pilot lasts four weeks.',
+                    title: 'Northstar plan', reference: 'northstar-plan.md',
+                    url: 'upload://northstar-plan.md',
+                    excerpt: 'The pilot lasts four weeks.',
+                    line_start: 18, line_end: 18,
                     source_date: datetime()
                 })
                 CREATE (e3:Evidence {
@@ -188,6 +193,9 @@ async def run() -> None:
             owner_payload = owner_deck.json()
             assert owner_payload["content"]["blocks"], owner_payload
             assert owner_payload["sources"], owner_payload
+            assert owner_payload["sources"][0]["komponist_path"].startswith(
+                f"/sources?org_id={owner['org_id']}&evidence="
+            ), owner_payload["sources"][0]
             assert "artifact-proposed" not in owner_payload["source_entity_ids"]
 
             member_list = await member_client.get(
@@ -211,6 +219,11 @@ async def run() -> None:
             assert set(member_payload["source_entity_ids"]) == {
                 "artifact-decision", "artifact-goal"
             }, member_payload
+            assert all(
+                block.get("layout") and block.get("eyebrow")
+                and block.get("takeaway")
+                for block in member_payload["content"]["blocks"]
+            ), member_payload["content"]["blocks"]
             serialized_member = str(member_payload)
             assert "900000" not in serialized_member
             assert "Unreviewed target" not in serialized_member
@@ -275,6 +288,22 @@ async def run() -> None:
             )
             assert deck_markdown.status_code == 200, deck_markdown.text
             assert "## Sources" in deck_markdown.text
+            assert "http://localhost:3000/sources?org_id=" in deck_markdown.text
+            assert "line 12" in deck_markdown.text
+
+            cited_passage = await member_client.get(
+                "/evidence/artifact-evidence-1",
+                params={"org_id": owner["org_id"]},
+            )
+            assert cited_passage.status_code == 200, cited_passage.text
+            cited_payload = cited_passage.json()
+            assert cited_payload["excerpt"] == "Launch in September.", cited_payload
+            assert cited_payload["location"] == {
+                "kind": "lines",
+                "label": "Line 12",
+                "line_start": 12,
+                "line_end": 12,
+            }, cited_payload
 
             briefing = await member_client.post(
                 "/artifacts/generate",

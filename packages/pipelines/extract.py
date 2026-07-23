@@ -120,6 +120,18 @@ def evidence_id_for(source_item: SourceItem, fact: Dict[str, Any]) -> str:
     return f"ev-{source_fact_fingerprint(source_item, fact)}"
 
 
+def source_excerpt_location(body: str, excerpt: str) -> tuple[Optional[int], Optional[int]]:
+    """Locate a verbatim extracted passage in a line-oriented source document."""
+    if not body or not excerpt:
+        return None, None
+    start = body.find(excerpt)
+    if start < 0:
+        return None, None
+    line_start = body.count("\n", 0, start) + 1
+    line_end = line_start + excerpt.count("\n")
+    return line_start, line_end
+
+
 async def reuse_identical_document(source_item: SourceItem) -> Optional[Dict[str, Any]]:
     """Reuse graph claims for byte-equivalent content before calling a model.
 
@@ -145,6 +157,8 @@ async def reuse_identical_document(source_item: SourceItem) -> Optional[Dict[str
         RETURN existing.id AS document_id,
                evidence.id AS evidence_id,
                evidence.excerpt AS excerpt,
+               evidence.line_start AS line_start,
+               evidence.line_end AS line_end,
                entity.id AS entity_id
         """,
         {
@@ -228,6 +242,8 @@ async def reuse_identical_document(source_item: SourceItem) -> Optional[Dict[str
                 evidence.reference = $reference,
                 evidence.url = $url,
                 evidence.excerpt = $excerpt,
+                evidence.line_start = $line_start,
+                evidence.line_end = $line_end,
                 evidence.source_date = datetime($source_date),
                 evidence.document_id = $document_id,
                 evidence.author = $author,
@@ -248,6 +264,8 @@ async def reuse_identical_document(source_item: SourceItem) -> Optional[Dict[str
                 "original_evidence_id": row["evidence_id"],
                 "entity_id": row.get("entity_id"),
                 "excerpt": row.get("excerpt") or "",
+                "line_start": row.get("line_start"),
+                "line_end": row.get("line_end"),
             },
         )
 
@@ -669,6 +687,9 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
 
             # Create Evidence node
             evidence_id = evidence_id_for(source_item, fact)
+            line_start, line_end = source_excerpt_location(
+                source_item.body, fact.get("excerpt", "")
+            )
             evidence_query = """
             MERGE (document:DocumentVersion {id: $document_id})
             ON CREATE SET
@@ -697,6 +718,8 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                 e.reference = $reference,
                 e.url = $url,
                 e.excerpt = $excerpt,
+                e.line_start = $line_start,
+                e.line_end = $line_end,
                 e.source_date = datetime($source_date),
                 e.created_at = datetime()
             SET
@@ -720,6 +743,8 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                 "reference": source_item.reference,
                 "url": source_item.url,
                 "excerpt": fact.get("excerpt", ""),
+                "line_start": line_start,
+                "line_end": line_end,
                 "source_date": source_item.source_date.isoformat(),
                 "content_hash": document["content_hash"],
                 "content_length": document["content_length"],
