@@ -1,0 +1,95 @@
+name: Bug report
+description: Report reproducible behavior that appears incorrect.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Komponist. Remove credentials, personal data,
+        company data, tokens, and private URLs before submitting. Security
+        vulnerabilities must be reported through the Security tab.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+        - label: I removed credentials, personal data, and private company information.
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: A concise description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable reproduction.
+      placeholder: |
+        1. Start Komponist with …
+        2. Open …
+        3. Select …
+        4. Observe …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: AI mode
+      options:
+        - Mock / provider-free
+        - OpenAI live mode
+        - Not related to AI
+        - Unknown
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: Commit SHA, tag, or deployment date
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: OS, browser, Docker version, deployment method
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove secrets, identifiers, private URLs, and organization data.
+      render: shell

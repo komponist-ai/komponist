@@ -1,0 +1,18 @@
+# Default ownership
+* @sovinmanuel
+
+# Security-sensitive and deployment surfaces
+/apps/api/ @sovinmanuel
+/apps/mcp/ @sovinmanuel
+/packages/core/ @sovinmanuel
+/docker/ @sovinmanuel
+/deploy/ @sovinmanuel
+/.github/ @sovinmanuel
+
+# Product and public documentation
+/apps/web/ @sovinmanuel
+/README.md @sovinmanuel
+/SECURITY.md @sovinmanuel
+/LICENSE @sovinmanuel
+/NOTICE @sovinmanuel
+/TRADEMARKS.md @sovinmanuel
