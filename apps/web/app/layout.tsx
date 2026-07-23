@@ -9,8 +9,13 @@ export const metadata: Metadata = {
   title: 'Komponist — The programmable company brain',
   description: 'Company context, composed for every agent. Turn scattered company knowledge into governed context that humans and AI agents can use.',
   icons: {
-    icon: '/icon.svg',
-    shortcut: '/icon.svg',
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/brand/favicon-32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/brand/favicon-16.png', type: 'image/png', sizes: '16x16' },
+    ],
+    shortcut: '/brand/favicon-32.png',
+    apple: [{ url: '/brand/apple-touch-icon.png', type: 'image/png', sizes: '180x180' }],
   },
 }
 
