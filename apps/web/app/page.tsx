@@ -9,6 +9,8 @@ import {
   LoaderCircle, Send, ShieldCheck, Sparkles, TerminalSquare, Upload, UsersRound,
 } from 'lucide-react'
 import BrandMark from '@/components/BrandMark'
+import GitHubMark from '@/components/GitHubMark'
+import GitHubStars from '@/components/GitHubStars'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { API_URL } from '@/lib/api'
@@ -197,6 +199,14 @@ export default function LandingPage() {
             <a href="#platform" className="hover:text-orange">Platform</a>
             <a href="#workflow" className="hover:text-orange">How it works</a>
             <a href="#developers" className="hover:text-orange">Developers</a>
+            <a
+              href="https://github.com/komponist-ai/komponist"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 hover:text-orange"
+            >
+              <GitHubMark className="size-4" /> GitHub <GitHubStars />
+            </a>
           </nav>
           <div className="flex items-center gap-3">
             <ThemeToggle />
@@ -489,7 +499,17 @@ export default function LandingPage() {
       <footer className="bg-paper px-5 py-12 sm:px-8 lg:px-12">
         <div className="mx-auto flex max-w-[1440px] flex-col justify-between gap-8 sm:flex-row sm:items-end">
           <div><div className="flex items-center gap-3 text-xl font-bold"><BrandMark /> Komponist</div><p className="mt-4 max-w-md text-sm text-muted">The programmable company brain. Built by people who also forgot where the roadmap lives.</p></div>
-          <div className="font-mono text-xs text-muted">© 2026 Komponist · SELECT * FROM company_brain;</div>
+          <div className="flex flex-col items-start gap-4 sm:items-end">
+            <a
+              href="https://github.com/komponist-ai/komponist"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 text-sm font-bold transition hover:text-orange"
+            >
+              <GitHubMark className="size-4" /> Open source on GitHub <GitHubStars />
+            </a>
+            <div className="font-mono text-xs text-muted">© 2026 Komponist · SELECT * FROM company_brain;</div>
+          </div>
         </div>
       </footer>
     </main>

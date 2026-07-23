@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { useAuth } from './AuthProvider'
 import BrandMark from './BrandMark'
+import GitHubMark from './GitHubMark'
+import GitHubStars from './GitHubStars'
 import ThemeToggle from './ThemeToggle'
 
 const navigation = [
@@ -38,6 +40,12 @@ const navigation = [
       { name: 'Team & departments', href: '/settings/team', icon: UsersRound },
       { name: 'API & MCP', href: '/settings/api', icon: KeyRound },
       { name: 'Export', href: '/settings/export', icon: Download },
+    ],
+  },
+  {
+    title: 'Resources',
+    items: [
+      { name: 'GitHub', href: 'https://github.com/komponist-ai/komponist', icon: GitHubMark, external: true },
     ],
   },
 ]
@@ -97,6 +105,22 @@ export default function Sidebar({
             <div className="nav-section-title">{section.title}</div>
             {section.items.map((item) => {
               const Icon = item.icon
+              if ('external' in item && item.external) {
+                return (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    className="nav-item"
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={onMobileClose}
+                  >
+                    <span className="nav-item-icon"><Icon size={16} strokeWidth={2} /></span>
+                    {item.name}
+                    <GitHubStars className="ml-auto" />
+                  </a>
+                )
+              }
               return (
               <Link
                 key={item.href}
