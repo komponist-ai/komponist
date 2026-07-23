@@ -125,6 +125,11 @@ docker-compose --env-file .env -f docker/docker-compose.yml up -d --build
 8. Create an organization-scoped key under **Settings → API & MCP** when you
    want to connect server-side code or an agent.
 
+> [!NOTE]
+> All companies, people, timelines, metrics, URLs, and events in
+> `test-data`, `docs/demo`, and built-in product examples are fictional and
+> exist only to demonstrate and test Komponist.
+
 Stop the stack with:
 
 ```bash

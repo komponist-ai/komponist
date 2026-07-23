@@ -1,5 +1,11 @@
 # Document upload test pack
 
+> [!IMPORTANT]
+> This directory contains fictional test data only. Company names (including
+> Northstar Labs), people, timelines, metrics, URLs, and events do not describe
+> real organizations or individuals. Do not add confidential or production
+> data to this directory.
+
 Upload `01-product-strategy.md`, `02-security-policy.md`, and
 `03-customer-interview.txt` together from **Add Source → Upload Documents**.
 
