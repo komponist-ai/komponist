@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/app/icon.svg" alt="Komponist icon" width="112" height="112" />
+  <img src="apps/web/public/brand/icon-512.png" alt="Komponist icon" width="112" height="112" />
 </p>
 
 <h1 align="center">Komponist</h1>
@@ -12,7 +12,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" /></a>
   <a href="docker/docker-compose.yml"><img src="https://img.shields.io/badge/Docker-Ready-blue" alt="Docker" /></a>
   <a href="https://github.com/komponist-ai/komponist/actions/workflows/ci.yml"><img src="https://github.com/komponist-ai/komponist/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/status-local--first%20MVP-orange" alt="Local-first MVP" />
+  <a href="https://komponist.build"><img src="https://img.shields.io/badge/pilot-komponist.build-e8641b" alt="Komponist pilot" /></a>
+  <img src="https://img.shields.io/badge/status-self--hostable%20MVP-orange" alt="Self-hostable MVP" />
 </p>
 
 <p align="center">
@@ -20,7 +21,8 @@
   <a href="#what-works-today">Current Status</a> ·
   <a href="#product-capabilities">Capabilities</a> ·
   <a href="#api-sdk-and-mcp">API & MCP</a> ·
-  <a href="#development">Development</a>
+  <a href="#development">Development</a> ·
+  <a href="https://komponist.build">Website</a>
 </p>
 
 ---
@@ -36,12 +38,13 @@ revisions across sources, traces editors and timestamps, and compares the
 ontology-aligned claims beneath each document.
 
 > [!IMPORTANT]
-> Komponist is currently a local-first MVP, not a production-ready hosted
-> service. The complete local document → review → graph → cited chat/API/MCP
-> loop is verified. A hardened Hetzner/Coolify pilot configuration exists, but
-> it has not yet been exercised on a public server. Real connector lifecycles,
-> external MCP hosts, clean-machine installation, and public deployment still
-> need end-to-end validation. See the
+> Komponist is currently a self-hostable MVP, not a production-ready managed
+> cloud service. The complete document → review → graph → cited chat/API/MCP
+> loop is verified locally. The production Compose stack has also been deployed
+> as a public HTTPS pilot on a single Ubuntu server through Coolify, including
+> persistent PostgreSQL and Neo4j services. Real connector lifecycles, external
+> MCP hosts, backup restoration, and production operations still need
+> end-to-end validation. See the
 > [detailed MVP status](docs/MVP_STATUS.md).
 
 ## Quick Start
@@ -142,7 +145,7 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 | API and SDK | Organization API keys plus `/v1/context`, `/v1/brain`, `/v1/decisions`, and the typed `@komponist/sdk` workspace package |
 | MCP | Six authenticated tools and the `company-brain://info` resource verified through a real FastMCP client |
 | CI | Provider-free Python contracts, web lint/build, SDK build/tests, and a full Docker end-to-end suite in GitHub Actions |
-| Deployment | Private production Compose topology and Hetzner/Coolify runbook; public-server deployment is not yet verified |
+| Deployment | Production Compose stack deployed through Coolify on a single Ubuntu pilot server with HTTPS routing, health checks, and persistent PostgreSQL/Neo4j storage |
 
 ### Still unverified or missing
 
@@ -153,7 +156,8 @@ docker compose --env-file .env -f docker/docker-compose.yml down
   have been tested separately
 - Claude Code, Codex, Cursor, or another external MCP host connected to the
   running server
-- Clean-machine self-hosting and the prepared public Hetzner deployment
+- Off-server backup restoration, disaster recovery, upgrade rehearsal,
+  monitoring, and alerting for the public pilot
 - Password reset, personal account settings, organization create/rename UI,
   billing, quotas, error tracking, and operational dashboards
 - Department-scoped programmatic keys; API and MCP keys currently authorize the
@@ -359,6 +363,7 @@ komponist/
 │   ├── pipelines/        # LangGraph extraction and work-pack pipelines
 │   └── sdk-js/           # Typed company-context client
 ├── docker/               # Full, development, hot-reload, and CI Compose files
+├── deploy/               # Hetzner/Coolify pilot runbook and deployment checks
 ├── scripts/ci/           # Provider-free end-to-end test runner
 ├── test-data/upload/     # Ready-to-upload MVP test documents
 └── docs/                 # Status, deployment, design, FAQ, and decisions
@@ -489,8 +494,8 @@ docker compose \
 | Edition | State |
 | --- | --- |
 | Community | Source available under Apache 2.0; local Docker stack verified on the development Mac |
-| Cloud | Planned; no hosted service or production infrastructure exists yet |
-| Private deployment | Hetzner/Coolify pilot topology prepared; first public-server deployment remains unverified |
+| Cloud | Planned; the current public instance is a private pilot, not a managed multi-tenant cloud product |
+| Private deployment | Single-server Ubuntu/Coolify pilot deployed with HTTPS and persistent databases; backup recovery and production operations remain to be validated |
 
 ## Contributing
 
