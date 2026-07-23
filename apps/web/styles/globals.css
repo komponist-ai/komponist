@@ -582,9 +582,13 @@ h3 {
   .studio-topbar [class*='size-10'] { width: 36px; height: 36px; }
 }
 
+.landing-studio-label-short { display: none; }
+
 @media (max-width: 430px) {
-  .landing-brand span { display: none; }
+  .landing-brand-name { display: none; }
   .landing-studio-button { padding-inline: 0.75rem; }
+  .landing-studio-label-full { display: none; }
+  .landing-studio-label-short { display: inline; }
 }
 
 /* ============================================

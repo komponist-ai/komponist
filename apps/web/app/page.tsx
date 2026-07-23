@@ -2,11 +2,11 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowRight, Braces, Check, ChevronRight, DatabaseZap, FileCheck2,
   FileText, GitBranch, KeyRound, MessageSquareText, Network, Search,
-  LoaderCircle, Send, ShieldCheck, Sparkles, TerminalSquare, Upload, UsersRound,
+  LoaderCircle, Menu, Send, ShieldCheck, Sparkles, TerminalSquare, Upload, UsersRound, X,
 } from 'lucide-react'
 import BrandMark from '@/components/BrandMark'
 import GitHubMark from '@/components/GitHubMark'
@@ -155,6 +155,7 @@ export default function LandingPage() {
   const [demoResult, setDemoResult] = useState<DemoResult | null>(null)
   const [demoStatus, setDemoStatus] = useState<'checking' | 'live' | 'fallback'>('checking')
   const [demoLoading, setDemoLoading] = useState(true)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const runDemo = useCallback(async (question: string) => {
     const normalizedQuestion = question.trim()
@@ -193,7 +194,7 @@ export default function LandingPage() {
         <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
           <Link href="/" className="landing-brand flex items-center gap-3 text-xl font-bold tracking-tight">
             <BrandMark />
-            <span>Komponist</span>
+            <span className="landing-brand-name">Komponist</span>
           </Link>
           <nav className="hidden items-center gap-8 text-sm font-bold md:flex">
             <a href="#platform" className="hover:text-orange">Platform</a>
@@ -208,27 +209,75 @@ export default function LandingPage() {
               <GitHubMark className="size-4" /> GitHub <GitHubStars />
             </a>
           </nav>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              className="grid size-10 place-items-center rounded-md border-2 border-ink bg-white text-ink shadow-[2px_2px_0_#201c15] md:hidden"
+              aria-label={mobileMenuOpen ? 'Close navigation' : 'Open navigation'}
+              aria-expanded={mobileMenuOpen}
+              onClick={() => setMobileMenuOpen(current => !current)}
+            >
+              {mobileMenuOpen ? <X className="size-4" /> : <Menu className="size-4" />}
+            </button>
             <ThemeToggle />
             <Button asChild variant="ghost" className="hidden sm:inline-flex">
               <Link href="/studio">Sign in</Link>
             </Button>
             <Button asChild size="sm" className="landing-studio-button">
-              <Link href="/studio">Open Studio <ArrowRight /></Link>
+              <Link href="/studio">
+                <span className="landing-studio-label-full">Open Studio</span>
+                <span className="landing-studio-label-short">Studio</span>
+                <ArrowRight />
+              </Link>
             </Button>
           </div>
         </div>
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.nav
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="absolute left-3 right-3 top-[calc(100%+8px)] rounded-xl border-2 border-ink bg-white p-2 text-sm font-bold shadow-[6px_6px_0_#201c15] md:hidden"
+              aria-label="Mobile navigation"
+            >
+              {[
+                ['Platform', '#platform'],
+                ['How it works', '#workflow'],
+                ['Developers', '#developers'],
+              ].map(([label, href]) => (
+                <a
+                  key={href}
+                  href={href}
+                  className="flex min-h-11 items-center rounded-lg px-3 hover:bg-paper-2"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  {label}
+                </a>
+              ))}
+              <a
+                href="https://github.com/komponist-ai/komponist"
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-paper-2"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <GitHubMark className="size-4" /> GitHub <GitHubStars className="ml-auto" />
+              </a>
+            </motion.nav>
+          )}
+        </AnimatePresence>
       </header>
 
       <section className="relative border-b-2 border-ink">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(#d9cfbf55_1px,transparent_1px),linear-gradient(90deg,#d9cfbf55_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
-        <div className="relative mx-auto grid max-w-[1440px] gap-14 px-5 py-20 sm:px-8 sm:py-28 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:px-12 lg:py-32">
+        <div className="relative mx-auto grid max-w-[1440px] gap-14 px-5 py-16 sm:px-8 sm:py-28 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:px-12 lg:py-32">
           <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
             <Badge variant="default" className="mb-7 normal-case tracking-normal">
               <span className="size-2 rounded-full bg-teal" />
               Think Supabase — for your company&apos;s knowledge
             </Badge>
-            <h1 className="max-w-[760px] font-display text-[clamp(3rem,7vw,7rem)] font-bold leading-[0.9] tracking-[-0.06em] sm:leading-[0.86] sm:tracking-[-0.065em]">
+            <h1 className="max-w-[760px] font-display text-[clamp(2.75rem,13vw,7rem)] font-bold leading-[0.9] tracking-[-0.06em] sm:text-[clamp(3rem,7vw,7rem)] sm:leading-[0.86] sm:tracking-[-0.065em]">
               Build your company brain.
               <span className="mt-2 block text-orange">Ship context-aware AI.</span>
             </h1>
@@ -236,17 +285,17 @@ export default function LandingPage() {
               Komponist is the backend platform for company context: connect scattered sources, turn them into reviewed knowledge with citations, then serve the same truth to your team, product, and AI agents.
             </p>
             <div className="mt-9 flex flex-wrap gap-4">
-              <Button asChild size="lg" variant="dark">
+              <Button asChild size="lg" variant="dark" className="w-full min-[430px]:w-auto">
                 <Link href="/studio">Start building with Komponist <ArrowRight /></Link>
               </Button>
-              <Button asChild size="lg" variant="outline">
+              <Button asChild size="lg" variant="outline" className="w-full min-[430px]:w-auto">
                 <a href="#platform">See what is inside <ChevronRight /></a>
               </Button>
             </div>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted">
-              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> One workspace per organization</span>
-              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> Human-governed</span>
-              <span className="flex items-center gap-2"><Check className="size-4 text-teal" /> API + MCP ready</span>
+              <span className="flex items-center gap-2"><Check className="size-4 shrink-0 text-teal" /> One workspace per organization</span>
+              <span className="flex items-center gap-2"><Check className="size-4 shrink-0 text-teal" /> Human-governed</span>
+              <span className="flex items-center gap-2"><Check className="size-4 shrink-0 text-teal" /> API + MCP ready</span>
             </div>
           </motion.div>
 
@@ -254,15 +303,15 @@ export default function LandingPage() {
             initial={{ opacity: 0, rotate: 1.5, y: 30 }}
             animate={{ opacity: 1, rotate: 0, y: 0 }}
             transition={{ duration: 0.65, delay: 0.1 }}
-            className="relative lg:pl-6"
+            className="relative min-w-0 lg:pl-6"
           >
-            <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[10px_10px_0_#e8641b]">
-              <div className="flex items-center justify-between border-b-2 border-ink bg-ink px-4 py-3 text-white">
-                <div className="flex items-center gap-2">
+            <div className="max-w-full overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[5px_5px_0_#e8641b] sm:shadow-[10px_10px_0_#e8641b]">
+              <div className="flex items-center justify-between gap-2 border-b-2 border-ink bg-ink px-3 py-3 text-white sm:px-4">
+                <div className="flex min-w-0 items-center gap-2">
                   <span className="size-2.5 rounded-full bg-orange" />
                   <span className="size-2.5 rounded-full bg-teal" />
                   <span className="size-2.5 rounded-full bg-white/25" />
-                  <span className="ml-2 font-mono text-xs text-white/60">komponist / demo-api</span>
+                  <span className="ml-1 hidden truncate font-mono text-xs text-white/60 min-[360px]:inline sm:ml-2">komponist / demo-api</span>
                 </div>
                 <Badge variant="dark" className="border-white/20 px-2 py-0.5 text-[9px]">
                   {demoStatus === 'live' ? 'API live' : demoStatus === 'fallback' ? 'Browser demo' : 'Checking API'}
@@ -270,25 +319,27 @@ export default function LandingPage() {
               </div>
 
               <div className="grid min-h-[480px] md:grid-cols-[180px_1fr]">
-                <div className="border-b-2 border-ink bg-paper-2 p-4 md:border-b-0 md:border-r-2">
+                <div className="min-w-0 border-b-2 border-ink bg-paper-2 p-4 md:border-b-0 md:border-r-2">
                   <p className="mb-4 font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Sources</p>
-                  {[
-                    ['UP', 'Product strategy', '6 facts'],
-                    ['UP', 'Security policy', '6 facts'],
-                    ['NO', 'Notion workspace', 'connected'],
-                  ].map(([abbr, name, meta], index) => (
-                    <div key={name} className="mb-2 flex items-center gap-2 rounded-md border border-line bg-white p-2.5 shadow-sm">
-                      <span className={`grid size-8 place-items-center rounded border border-line font-mono text-[9px] font-bold ${index === 2 ? 'bg-ink text-white' : 'bg-warning-soft text-orange-dark'}`}>{abbr}</span>
-                      <span className="min-w-0">
-                        <strong className="block truncate text-xs">{name}</strong>
-                        <span className="font-mono text-[9px] text-muted">{meta}</span>
-                      </span>
-                    </div>
-                  ))}
-                  <div className="mt-5 rounded-md border border-dashed border-muted/50 p-3 text-center font-mono text-[10px] text-muted">+ connect source</div>
+                  <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 md:mx-0 md:block md:overflow-visible md:px-0 md:pb-0">
+                    {[
+                      ['UP', 'Product strategy', '6 facts'],
+                      ['UP', 'Security policy', '6 facts'],
+                      ['NO', 'Notion workspace', 'connected'],
+                    ].map(([abbr, name, meta], index) => (
+                      <div key={name} className="flex min-w-[150px] items-center gap-2 rounded-md border border-line bg-white p-2.5 shadow-sm md:mb-2 md:min-w-0">
+                        <span className={`grid size-8 shrink-0 place-items-center rounded border border-line font-mono text-[9px] font-bold ${index === 2 ? 'bg-ink text-white' : 'bg-warning-soft text-orange-dark'}`}>{abbr}</span>
+                        <span className="min-w-0">
+                          <strong className="block truncate text-xs">{name}</strong>
+                          <span className="font-mono text-[9px] text-muted">{meta}</span>
+                        </span>
+                      </div>
+                    ))}
+                    <div className="grid min-w-[150px] place-items-center rounded-md border border-dashed border-muted/50 p-3 text-center font-mono text-[10px] text-muted md:mt-5 md:min-w-0">+ connect source</div>
+                  </div>
                 </div>
 
-                <div className="relative overflow-hidden p-5 sm:p-7">
+                <div className="relative min-w-0 overflow-hidden p-4 sm:p-7">
                   <div className="mb-6 flex items-center justify-between">
                     <div>
                       <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Context graph</p>
@@ -327,7 +378,7 @@ export default function LandingPage() {
                         maxLength={240}
                         className="min-w-0 flex-1 rounded-md border-2 border-ink bg-white px-3 py-2 text-xs font-semibold outline-none focus:shadow-[2px_2px_0_#e8641b]"
                       />
-                      <Button className="size-9 shrink-0 p-0" aria-label="Ask Komponist" disabled={demoLoading || demoQuestion.trim().length < 3}>
+                      <Button className="size-10 shrink-0 p-0" aria-label="Ask Komponist" disabled={demoLoading || demoQuestion.trim().length < 3}>
                         {demoLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
                       </Button>
                     </form>
@@ -346,7 +397,7 @@ export default function LandingPage() {
                           key={question}
                           type="button"
                           onClick={() => void runDemo(question)}
-                          className="rounded-full border border-line bg-white px-2 py-1 font-mono text-[8px] font-semibold text-muted transition hover:border-ink hover:text-ink"
+                          className="min-h-9 rounded-full border border-line bg-white px-3 py-1 font-mono text-[9px] font-semibold text-muted transition hover:border-ink hover:text-ink"
                         >
                           Try 0{index + 1}
                         </button>
@@ -518,7 +569,7 @@ export default function LandingPage() {
 
 function GraphNode({ className, icon: Icon, label, detail, color }: { className: string; icon: typeof Sparkles; label: string; detail: string; color: string }) {
   return (
-    <div className={`absolute flex w-32 items-center gap-2 rounded-lg border-2 border-ink ${color} p-2.5 shadow-[3px_3px_0_#201c15] ${className}`}>
+    <div className={`absolute flex w-[110px] items-center gap-2 rounded-lg border-2 border-ink ${color} p-2 shadow-[3px_3px_0_#201c15] min-[380px]:w-32 sm:p-2.5 ${className}`}>
       <Icon className="size-4 shrink-0" />
       <span className="min-w-0"><strong className="block text-xs">{label}</strong><span className="block truncate font-mono text-[8px] text-muted">{detail}</span></span>
     </div>
