@@ -2,6 +2,15 @@
   "name": "@komponist/sdk",
   "version": "0.1.0",
   "description": "Typed JavaScript client for the Komponist company-context API",
+  "homepage": "https://github.com/komponist-ai/komponist/tree/main/packages/sdk-js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/komponist-ai/komponist.git",
+    "directory": "packages/sdk-js"
+  },
+  "bugs": {
+    "url": "https://github.com/komponist-ai/komponist/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

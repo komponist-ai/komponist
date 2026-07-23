@@ -504,7 +504,10 @@ Issues and pull requests are welcome. Please read
 
 ## License
 
-Apache 2.0. See [LICENSE](LICENSE).
+The software and documentation are available under the
+[Apache License 2.0](LICENSE). Attribution information is collected in
+[NOTICE](NOTICE). The Komponist name and logos are governed separately by the
+[trademark policy](TRADEMARKS.md).
 
 ---
 

@@ -7,10 +7,19 @@ name = "komponist-pipelines"
 version = "0.1.0"
 description = "LangGraph extraction and compiler graphs for Komponist"
 requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Komponist contributors" },
+]
 dependencies = [
     "langgraph>=0.0.20",
     "langchain>=0.1.0",
 ]
+
+[project.urls]
+Homepage = "https://komponist.build"
+Repository = "https://github.com/komponist-ai/komponist"
+Issues = "https://github.com/komponist-ai/komponist/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

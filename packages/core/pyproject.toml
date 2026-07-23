@@ -7,11 +7,20 @@ name = "komponist-core"
 version = "0.1.0"
 description = "Core package for Komponist: graph client, models, LLM wrapper, embeddings"
 requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Komponist contributors" },
+]
 dependencies = [
     "neo4j>=5.14.0",
     "openai>=2.38.0,<3",
     "pydantic>=2.5.0",
 ]
+
+[project.urls]
+Homepage = "https://komponist.build"
+Repository = "https://github.com/komponist-ai/komponist"
+Issues = "https://github.com/komponist-ai/komponist/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
