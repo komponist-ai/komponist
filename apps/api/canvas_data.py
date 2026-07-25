@@ -13,8 +13,15 @@ Two invariants hold for every query in this module:
   parameters. The only strings interpolated into a query come from closed
   enums validated by :mod:`canvas_spec`, so a filter cannot carry a query.
 
+* **Nothing is shown uncited.** Every query that presents a fact requires at
+  least one piece of evidence the viewer can actually open. A confirmed entity
+  whose only evidence sits in a department they cannot read drops out entirely
+  rather than appearing as an unsourced claim.
+
 Aggregates are computed *after* scoping, so a count cannot be used to infer
-the existence of knowledge the viewer may not read.
+the existence of knowledge the viewer may not read. They are also computed
+over cited entities only, so a number never counts something the reader
+cannot verify.
 """
 
 import asyncio
@@ -170,12 +177,56 @@ async def _run(query: str, params: dict[str, Any]) -> list[dict]:
     return await GraphClient.run_query(query, params) or []
 
 
+# ------------------------------------------------------- project scope ----
+
+# Evidence projection reused by every query, so a row can never be returned
+# without the shape needed to cite it.
+_EVIDENCE_PROJECTION = """[item IN evidence WHERE item IS NOT NULL | {
+                   id: item.id, title: item.title, reference: item.reference,
+                   excerpt: item.excerpt, page: item.page,
+                   line_start: item.line_start, line_end: item.line_end
+               }]"""
+
+
+def _project_scope(binding: Any, alias: str) -> tuple[str, dict[str, Any]]:
+    """Restrict a query to knowledge belonging to one named project.
+
+    Uses the same relationship vocabulary as the project-scoped queries in
+    packages/core/queries.py so Canvas cannot drift into a second, laxer
+    notion of "belongs to this project".
+
+    Extracted knowledge does not always carry an explicit project edge, so a
+    statement naming the project counts too. That is a looser match than an
+    edge, but the alternative — a project dashboard that silently shows
+    unrelated company data — is worse.
+    """
+    if not binding.project:
+        return "", {}
+    clause = f"""
+          AND (
+            toLower(coalesce({alias}.statement, '')) CONTAINS toLower($project_name)
+            OR EXISTS {{
+                MATCH ({alias})-[:AFFECTS|RELATES_TO|ADVANCES|CONSTRAINS]-(p:Project)
+                WHERE p.org_id = $org_id
+                  AND toLower(coalesce(p.statement, '')) CONTAINS toLower($project_name)
+            }}
+          )"""
+    return clause, {"project_name": binding.project}
+
+
+def _entity_where(binding: Any, alias: str) -> tuple[str, dict[str, Any]]:
+    """The full server-owned WHERE tail: filters plus project scope."""
+    clauses, params = _entity_filters(binding, alias)
+    project_clause, project_params = _project_scope(binding, alias)
+    where = ("AND " + " AND ".join(clauses)) if clauses else ""
+    return f"{where}{project_clause}", {**params, **project_params}
+
+
 # ------------------------------------------------------------- queries ----
 
 
 async def _entity_list(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
-    clauses, params = _entity_filters(binding, "e")
-    where = ("AND " + " AND ".join(clauses)) if clauses else ""
+    where, params = _entity_where(binding, "e")
     id_clause = "AND e.id IN $entity_ids" if binding.entity_ids else ""
 
     records = await _run(
@@ -188,17 +239,14 @@ async def _entity_list(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
         OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
         WHERE ev.org_id = $org_id AND {_evidence_scope('ev')}
         WITH e, collect(DISTINCT ev) AS evidence
+        WHERE size(evidence) > 0
         {_order_clause(binding, 'e')}
         LIMIT $limit
         RETURN e.id AS id, e.entity_type AS entity_type, e.statement AS statement,
                e.detail AS detail, e.confidence AS confidence,
                e.department_ids AS department_ids, e.created_at AS created_at,
-               [item IN evidence | item.id] AS source_ids,
-               [item IN evidence | {{
-                   id: item.id, title: item.title, reference: item.reference,
-                   excerpt: item.excerpt, page: item.page,
-                   line_start: item.line_start, line_end: item.line_end
-               }}] AS evidence
+               [item IN evidence WHERE item IS NOT NULL | item.id] AS source_ids,
+               {_EVIDENCE_PROJECTION} AS evidence
         """,
         {
             "org_id": org_id,
@@ -219,20 +267,46 @@ async def _entity_list(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
 
 
 async def _entity_count(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
-    clauses, params = _entity_filters(binding, "e")
-    where = ("AND " + " AND ".join(clauses)) if clauses else ""
+    """A count, plus the evidence behind the things counted.
+
+    A number is a factual claim too, so it carries the same traceability as a
+    statement rather than appearing as an unsourced figure.
+    """
+    where, params = _entity_where(binding, "e")
     records = await _run(
         f"""
         MATCH (e:Entity)
         WHERE e.org_id = $org_id AND e.status = 'confirmed'
           AND {_knowledge_scope('e')}
           {where}
-        RETURN count(e) AS value
+        OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
+        WHERE ev.org_id = $org_id AND {_evidence_scope('ev')}
+        WITH e, collect(DISTINCT ev) AS ev_list
+        WHERE size(ev_list) > 0
+        UNWIND ev_list AS ev
+        WITH collect(DISTINCT e.id) AS entity_ids, collect(DISTINCT ev) AS evidence
+        RETURN size(entity_ids) AS value, entity_ids AS entity_ids,
+               [item IN evidence WHERE item IS NOT NULL | item.id] AS source_ids,
+               {_EVIDENCE_PROJECTION} AS evidence
         """,
         {"org_id": org_id, **_scope_params(user), **params},
     )
-    value = records[0]["value"] if records else 0
-    return {"value": value, "rows": [], "sources": []}
+    if not records:
+        return {"value": 0, "rows": [], "sources": []}
+
+    record = records[0]
+    sources = [
+        _source_row(item, org_id)
+        for item in (record.get("evidence") or [])[:12]
+        if item and item.get("id")
+    ]
+    return {
+        "value": record.get("value") or 0,
+        "rows": [],
+        "sources": sources,
+        "entity_ids": record.get("entity_ids") or [],
+        "source_ids": record.get("source_ids") or [],
+    }
 
 
 async def _entity_fact(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
@@ -240,8 +314,8 @@ async def _entity_fact(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
 
     Deliberately not a lookup of an arbitrary property name: the graph stores
     statements, so inventing a `duration` field would return nothing useful.
-    The subject and the optional extra term are matched against the statement.
     """
+    where, params = _entity_where(binding, "e")
     terms = " ".join(part for part in [binding.entity_name, binding.field] if part)
     records = await _run(
         f"""
@@ -249,28 +323,27 @@ async def _entity_fact(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
         WHERE e.org_id = $org_id AND e.status = 'confirmed'
           AND {_knowledge_scope('e')}
           AND toLower(coalesce(e.statement, '')) CONTAINS toLower($subject)
+          {where}
         OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
         WHERE ev.org_id = $org_id AND {_evidence_scope('ev')}
         WITH e, collect(DISTINCT ev) AS evidence,
              CASE WHEN toLower(coalesce(e.statement, '')) CONTAINS toLower($terms)
                   THEN 1 ELSE 0 END AS exact
+        WHERE size(evidence) > 0
         ORDER BY exact DESC, e.confirmed_at DESC
         LIMIT 1
         RETURN e.id AS id, e.entity_type AS entity_type, e.statement AS statement,
                e.detail AS detail, e.confidence AS confidence,
                e.department_ids AS department_ids, e.created_at AS created_at,
-               [item IN evidence | item.id] AS source_ids,
-               [item IN evidence | {{
-                   id: item.id, title: item.title, reference: item.reference,
-                   excerpt: item.excerpt, page: item.page,
-                   line_start: item.line_start, line_end: item.line_end
-               }}] AS evidence
+               [item IN evidence WHERE item IS NOT NULL | item.id] AS source_ids,
+               {_EVIDENCE_PROJECTION} AS evidence
         """,
         {
             "org_id": org_id,
             "subject": binding.entity_name,
             "terms": terms,
             **_scope_params(user),
+            **params,
         },
     )
     if not records:
@@ -290,10 +363,10 @@ async def _aggregate(
     """Group confirmed knowledge by a fixed dimension.
 
     Grouping happens after the scope predicate, so a bucket count can never
-    reveal that knowledge exists outside the viewer's departments.
+    reveal that knowledge exists which the viewer may not read. Each bucket
+    carries the evidence behind it, so no number is shown uncited.
     """
-    clauses, params = _entity_filters(binding, "e")
-    where = ("AND " + " AND ".join(clauses)) if clauses else ""
+    where, params = _entity_where(binding, "e")
     property_name = "entity_type" if dimension == "type" else "confidence"
     records = await _run(
         f"""
@@ -301,10 +374,21 @@ async def _aggregate(
         WHERE e.org_id = $org_id AND e.status = 'confirmed'
           AND {_knowledge_scope('e')}
           {where}
-        WITH coalesce(e.{property_name}, 'unspecified') AS bucket, count(e) AS total
+        OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
+        WHERE ev.org_id = $org_id AND {_evidence_scope('ev')}
+        WITH e, collect(DISTINCT ev) AS ev_list
+        WHERE size(ev_list) > 0
+        UNWIND ev_list AS ev
+        WITH coalesce(e.{property_name}, 'unspecified') AS bucket,
+             e.id AS entity_id, ev
+        WITH bucket, collect(DISTINCT entity_id) AS entity_ids,
+             collect(DISTINCT ev) AS evidence
+        RETURN bucket AS bucket, size(entity_ids) AS total,
+               entity_ids AS entity_ids,
+               [item IN evidence WHERE item IS NOT NULL | item.id] AS source_ids,
+               {_EVIDENCE_PROJECTION} AS evidence
         ORDER BY total DESC
         LIMIT $limit
-        RETURN bucket, total
         """,
         {
             "org_id": org_id,
@@ -313,15 +397,29 @@ async def _aggregate(
             **params,
         },
     )
-    rows = [
-        {"label": record["bucket"], "value": record["total"]} for record in records
-    ]
-    return {"rows": rows, "sources": [], "value": sum(row["value"] for row in rows)}
+
+    rows = []
+    sources: dict[str, dict] = {}
+    for record in records:
+        rows.append({
+            "label": record["bucket"],
+            "value": record["total"],
+            "entity_ids": record.get("entity_ids") or [],
+            "source_ids": record.get("source_ids") or [],
+        })
+        for item in record.get("evidence") or []:
+            if item and item.get("id"):
+                sources.setdefault(item["id"], _source_row(item, org_id))
+    return {
+        "rows": rows,
+        "sources": list(sources.values()),
+        "value": sum(row["value"] for row in rows),
+    }
 
 
 async def _relationship_list(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
-    clauses, params = _entity_filters(binding, "a")
-    where = ("AND " + " AND ".join(clauses)) if clauses else ""
+    """Relationships between confirmed facts, cited from both endpoints."""
+    where, params = _entity_where(binding, "a")
     records = await _run(
         f"""
         MATCH (a:Entity)-[r]->(b:Entity)
@@ -329,11 +427,22 @@ async def _relationship_list(org_id: str, user: dict, binding: Any) -> dict[str,
           AND a.status = 'confirmed' AND b.status = 'confirmed'
           AND {_knowledge_scope('a')} AND {_knowledge_scope('b')}
           {where}
+        WITH a, r, b
+        OPTIONAL MATCH (a)-[:CITED_BY]->(ea:Evidence)
+        WHERE ea.org_id = $org_id AND {_evidence_scope('ea')}
+        WITH a, r, b, collect(DISTINCT ea) AS from_evidence
+        OPTIONAL MATCH (b)-[:CITED_BY]->(eb:Evidence)
+        WHERE eb.org_id = $org_id AND {_evidence_scope('eb')}
+        WITH a, r, b, from_evidence, collect(DISTINCT eb) AS to_evidence
+        WHERE size(from_evidence) > 0 AND size(to_evidence) > 0
+        WITH a, r, b, from_evidence + to_evidence AS evidence
+        LIMIT $limit
         RETURN a.id AS from_id, a.statement AS from_statement,
                a.entity_type AS from_type, type(r) AS relation,
                b.id AS to_id, b.statement AS to_statement,
-               b.entity_type AS to_type
-        LIMIT $limit
+               b.entity_type AS to_type,
+               [item IN evidence WHERE item IS NOT NULL | item.id] AS source_ids,
+               {_EVIDENCE_PROJECTION} AS evidence
         """,
         {
             "org_id": org_id,
@@ -342,8 +451,10 @@ async def _relationship_list(org_id: str, user: dict, binding: Any) -> dict[str,
             **params,
         },
     )
-    rows = [
-        {
+    rows = []
+    sources: dict[str, dict] = {}
+    for record in records:
+        rows.append({
             "from_id": record["from_id"],
             "from_statement": record["from_statement"] or "",
             "from_type": record["from_type"] or "Fact",
@@ -351,15 +462,16 @@ async def _relationship_list(org_id: str, user: dict, binding: Any) -> dict[str,
             "to_id": record["to_id"],
             "to_statement": record["to_statement"] or "",
             "to_type": record["to_type"] or "Fact",
-        }
-        for record in records
-    ]
-    return {"rows": rows, "sources": []}
+            "source_ids": list(dict.fromkeys(record.get("source_ids") or [])),
+        })
+        for item in record.get("evidence") or []:
+            if item and item.get("id"):
+                sources.setdefault(item["id"], _source_row(item, org_id))
+    return {"rows": rows, "sources": list(sources.values())}
 
 
 async def _timeline_events(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
-    clauses, params = _entity_filters(binding, "e")
-    where = ("AND " + " AND ".join(clauses)) if clauses else ""
+    where, params = _entity_where(binding, "e")
     records = await _run(
         f"""
         MATCH (e:Entity)
@@ -371,16 +483,13 @@ async def _timeline_events(org_id: str, user: dict, binding: Any) -> dict[str, A
         WHERE ev.org_id = $org_id AND {_evidence_scope('ev')}
         WITH e, collect(DISTINCT ev) AS evidence,
              coalesce(e.confirmed_at, e.created_at) AS occurred_at
+        WHERE size(evidence) > 0
         ORDER BY occurred_at DESC
         LIMIT $limit
         RETURN e.id AS id, e.entity_type AS entity_type, e.statement AS statement,
                occurred_at AS occurred_at,
-               [item IN evidence | item.id] AS source_ids,
-               [item IN evidence | {{
-                   id: item.id, title: item.title, reference: item.reference,
-                   excerpt: item.excerpt, page: item.page,
-                   line_start: item.line_start, line_end: item.line_end
-               }}] AS evidence
+               [item IN evidence WHERE item IS NOT NULL | item.id] AS source_ids,
+               {_EVIDENCE_PROJECTION} AS evidence
         """,
         {
             "org_id": org_id,
@@ -415,8 +524,7 @@ async def _evidence_list(
     Requiring a confirmed entity keeps Canvas consistent with Chat: a passage
     is only shown when it actually backs a trusted fact.
     """
-    clauses, params = _entity_filters(binding, "e")
-    where = ("AND " + " AND ".join(clauses)) if clauses else ""
+    where, params = _entity_where(binding, "e")
     records = await _run(
         f"""
         MATCH (e:Entity)-[:CITED_BY]->(ev:Evidence)
@@ -446,7 +554,12 @@ async def _evidence_list(
         if not record.get("id") or record["id"] in seen:
             continue
         seen.add(record["id"])
-        sources.append({**_source_row(record, org_id), "supports": record.get("supports") or ""})
+        sources.append({
+            **_source_row(record, org_id),
+            "supports": record.get("supports") or "",
+            # A passage is its own citation.
+            "source_ids": [record["id"]],
+        })
 
     if not group_by_source:
         return {"rows": sources, "sources": sources}
@@ -454,8 +567,17 @@ async def _evidence_list(
     grouped: dict[str, dict[str, Any]] = {}
     for source in sources:
         key = source["reference"] or source["title"]
-        bucket = grouped.setdefault(key, {"reference": key, "title": source["title"], "passages": []})
+        bucket = grouped.setdefault(
+            key,
+            {
+                "reference": key,
+                "title": source["title"],
+                "passages": [],
+                "source_ids": [],
+            },
+        )
         bucket["passages"].append(source)
+        bucket["source_ids"].append(source["id"])
     return {"rows": list(grouped.values()), "sources": sources}
 
 

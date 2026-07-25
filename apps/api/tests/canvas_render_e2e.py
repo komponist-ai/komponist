@@ -91,7 +91,25 @@ async def cleanup() -> None:
 async def seed_graph(org_id: str, board_department_id: str) -> None:
     await GraphClient.run_query(
         """
-        CREATE (decision:Entity {
+        CREATE (project:Entity:Project {
+            id: 'cv-project', org_id: $org_id, entity_type: 'Project',
+            statement: 'Northstar pilot programme.',
+            status: 'confirmed', confidence: 'high', department_ids: [],
+            created_at: datetime(), confirmed_at: datetime(), updated_at: datetime()
+        })
+        CREATE (unrelated:Entity:Decision {
+            id: 'cv-unrelated', org_id: $org_id, entity_type: 'Decision',
+            statement: 'Move the office coffee machine to the second floor.',
+            status: 'confirmed', confidence: 'high', department_ids: [],
+            created_at: datetime(), confirmed_at: datetime(), updated_at: datetime()
+        })
+        CREATE (e6:Evidence {
+            id: 'cv-evidence-unrelated', org_id: $org_id, source: 'upload',
+            title: 'Office notes', reference: 'office-notes.md',
+            excerpt: 'Coffee machine moves upstairs.', line_start: 3, line_end: 3,
+            source_date: datetime()
+        })
+        CREATE (decision:Entity:Decision {
             id: 'cv-decision', org_id: $org_id, entity_type: 'Decision',
             statement: 'Launch the Northstar pilot in September.',
             detail: 'Confirmed with the pilot team.',
@@ -158,7 +176,9 @@ async def seed_graph(org_id: str, board_department_id: str) -> None:
         CREATE (constraint)-[:CITED_BY]->(e3)
         CREATE (secret)-[:CITED_BY]->(e4)
         CREATE (proposed)-[:CITED_BY]->(e5)
+        CREATE (unrelated)-[:CITED_BY]->(e6)
         CREATE (decision)-[:ADVANCES]->(goal)
+        CREATE (decision)-[:RELATES_TO]->(project)
         """,
         {"org_id": org_id, "board": board_department_id, "secret": SECRET_AMOUNT},
     )
@@ -235,7 +255,7 @@ async def run() -> None:
 
             # --- Bindings return real graph data --------------------------
             decisions = components["confirmed-decisions"]
-            assert decisions["value"] == 1, decisions
+            assert decisions["value"] == 2, decisions
             mix = components["knowledge-mix"]
             labels = {row["label"] for row in mix["rows"]}
             assert "Decision" in labels and "Goal" in labels, mix
@@ -269,7 +289,36 @@ async def run() -> None:
                 assert "://" not in source["komponist_path"], source
             cited = {source["id"] for source in body["data"]["sources"]}
             assert "cv-evidence-decision" in cited, cited
-            print("✓ every rendered fact carries a Komponist-internal citation")
+
+            # Not "sources exist somewhere" but "every row that asserts
+            # something carries its own evidence, and that evidence is
+            # actually offered to the reader".
+            factual_queries = {
+                "entity_list", "entity_fact", "timeline_events",
+                "relationship_list", "aggregate_by_type",
+                "aggregate_by_confidence", "evidence_list", "source_passages",
+            }
+            checked = 0
+            for component in body["spec"]["components"]:
+                payload = components[component["id"]]
+                if payload["kind"] not in factual_queries:
+                    continue
+                available = {source["id"] for source in payload["sources"]}
+                for row in payload["rows"]:
+                    assert row.get("source_ids"), (
+                        f"{component['id']} returned an uncited row: {row}"
+                    )
+                    assert set(row["source_ids"]) <= available, (
+                        f"{component['id']} cites evidence it does not offer: {row}"
+                    )
+                    checked += 1
+            assert checked > 0, "no factual rows were checked"
+
+            # A count is a factual claim too, so it carries its evidence.
+            assert components["confirmed-decisions"]["sources"], (
+                components["confirmed-decisions"]
+            )
+            print(f"✓ all {checked} factual rows carry evidence the reader can open")
 
             # --- Each render honours the viewer's own department scope ----
             # The organization owner has access to every department, so the
@@ -310,19 +359,67 @@ async def run() -> None:
             print("✓ a shared canvas resolves per viewer, not as a stored snapshot")
 
             # --- Aggregates are computed after scoping --------------------
-            # Four confirmed facts exist; the limited viewer may read three.
+            # Six confirmed facts exist, but one has no evidence and is
+            # therefore never shown or counted; the limited viewer may
+            # read four of the remaining five.
             # A differing count is exactly the point: the aggregate is computed
             # after the scope predicate, so it cannot betray what it excludes.
             owner_total = components["knowledge-mix"]["value"]
             limited_total = limited_json["data"]["components"]["knowledge-mix"]["value"]
-            assert owner_total == 4, owner_total
-            assert limited_total == 3, limited_total
+            assert owner_total == 5, owner_total
+            assert limited_total == 4, limited_total
             constraints = limited_json["data"]["components"]["open-constraints"]
             assert constraints["rows"], constraints
             assert all(
                 SECRET_AMOUNT not in row["statement"] for row in constraints["rows"]
             ), constraints
             print("✓ aggregate counts are scoped and cannot reveal excluded knowledge")
+
+            # --- A project-scoped view excludes unrelated knowledge -------
+            scoped = await owner_c.post(
+                "/canvases/examples",
+                params={"org_id": org_id},
+                json={"example": "northstar-command-center", "visibility": "private"},
+            )
+            assert scoped.status_code == 201, scoped.text
+            scoped_id = scoped.json()["id"]
+
+            # Rewrite the stored spec to scope every binding to the project,
+            # exercising the same path a generated project dashboard takes.
+            async with async_session() as session:
+                version = (
+                    await session.execute(
+                        select(CanvasVersion).where(
+                            CanvasVersion.canvas_id == scoped_id
+                        )
+                    )
+                ).scalars().first()
+                spec_payload = dict(version.spec)
+                spec_payload["components"] = [
+                    {
+                        **component,
+                        "binding": {**component["binding"], "project": "Northstar"},
+                    }
+                    for component in spec_payload["components"]
+                ]
+                version.spec = spec_payload
+                await session.commit()
+
+            project_view = await owner_c.get(
+                f"/canvases/{scoped_id}", params={"org_id": org_id}
+            )
+            assert project_view.status_code == 200, project_view.text
+            project_body = str(project_view.json()["data"])
+            assert "Northstar" in project_body, "the project's own knowledge is missing"
+            assert "coffee machine" not in project_body.lower(), (
+                "a project-scoped view leaked unrelated company knowledge"
+            )
+            assert "cv-unrelated" not in project_body, project_body[:300]
+            # And the unscoped view does show it, so the exclusion is real.
+            assert "coffee machine" in str(body["data"]).lower(), (
+                "the unscoped view should contain the unrelated decision"
+            )
+            print("✓ a project-scoped view excludes unrelated company knowledge")
 
             # --- Only the creator may change it ---------------------------
             refused = await limited_c.patch(
