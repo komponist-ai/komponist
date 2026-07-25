@@ -442,6 +442,69 @@ class WorkroomTask(Base):
     )
 
 
+class Canvas(Base):
+    """A saved dynamic view over confirmed company knowledge.
+
+    A Canvas stores only the *specification* of a view. The data is resolved
+    per render against the viewer's own permissions, so sharing a Canvas
+    shares the question, never a snapshot of someone else's answer.
+    """
+    __tablename__ = "canvases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str] = mapped_column(Text, default="")
+    # "organization" | "departments" | "private", matching Workroom rooms.
+    visibility: Mapped[str] = mapped_column(
+        String(20), default="private", index=True
+    )
+    department_ids: Mapped[list] = mapped_column(JSON, default=list)
+    current_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True
+    )
+    current_version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    created_by_user_id: Mapped[str] = mapped_column(String(36), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+
+
+class CanvasVersion(Base):
+    """One immutable revision of a Canvas specification.
+
+    Every generation and every refinement appends a version. Nothing is ever
+    overwritten, so a view can be explained and restored later.
+    """
+    __tablename__ = "canvas_versions"
+    __table_args__ = (
+        UniqueConstraint("canvas_id", "version", name="uq_canvas_version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    canvas_id: Mapped[str] = mapped_column(String(36), index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    # What the person asked for, kept so a view can be explained.
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    # "generated" | "refined" | "restored" | "example"
+    origin: Mapped[str] = mapped_column(String(20), default="generated")
+    spec: Mapped[dict] = mapped_column(JSON, default=dict)
+    # The knowledge scope the spec was generated against, for explanation
+    # only. Rendering always re-resolves against the current viewer.
+    context_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Operational metadata only; no model reasoning is requested or stored.
+    provider: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    restored_from_version: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    created_by_user_id: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class WorkroomArtifact(Base):
     """Links a generated deliverable to the Workroom that produced it.
 
