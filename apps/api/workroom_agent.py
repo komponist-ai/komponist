@@ -21,6 +21,11 @@ from uuid import uuid4
 
 import workroom_queue as queue
 from artifacts import source_deep_link_path
+from workroom_context import (
+    apply_context_pack,
+    build_context_snapshot,
+    list_context_items,
+)
 from workrooms import (
     append_event,
     get_room_record,
@@ -82,20 +87,6 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 
 def can_transition(from_status: str, to_status: str) -> bool:
     return to_status in ALLOWED_TRANSITIONS.get(from_status, set())
-
-
-def sources_for_snapshot(sources: list[dict]) -> list[dict]:
-    """Keep only the citation fields a reviewer needs to verify a claim."""
-    return [
-        {
-            key: source.get(key)
-            for key in (
-                "id", "title", "reference", "excerpt", "page",
-                "line_start", "line_end", "komponist_path",
-            )
-        }
-        for source in sources[:12]
-    ]
 
 
 async def _control_signal(org_id: str, run_id: str) -> Optional[str]:
@@ -221,6 +212,13 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
     for source in sources:
         source["komponist_path"] = source_deep_link_path(org_id, source["id"])
 
+    # Retrieval above is already permission-scoped; the context pack only
+    # narrows and reorders it, so it can never widen what the agent reads.
+    context_items = await list_context_items(org_id, room.id)
+    entities, sources, applied_pack = apply_context_pack(
+        entities, sources, context_items
+    )
+
     if not entities or not sources:
         failed = await transition_run(
             org_id,
@@ -255,20 +253,19 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
         )
         return
 
-    findings = [
-        {
-            "id": entity["id"],
-            "type": entity.get("entity_type") or "Fact",
-            "statement": entity.get("statement") or entity.get("detail") or "",
-            "source_ids": [
-                evidence["id"]
-                for evidence in (entity.get("evidence") or [])
-                if evidence.get("id")
-            ],
-        }
-        for entity in entities[:12]
-    ]
-    snapshot_sources = sources_for_snapshot(sources)
+    snapshot = build_context_snapshot(
+        entities=entities,
+        sources=sources,
+        room=room,
+        applied=applied_pack,
+        scope={
+            "visibility": room.visibility or "organization",
+            "department_ids": room.department_ids or [],
+            "access_all_departments": False,
+        },
+    )
+    findings = snapshot["findings"]
+    snapshot_sources = snapshot["sources"]
     lead_findings = [
         finding["statement"] for finding in findings if finding["statement"]
     ][:3]
@@ -279,7 +276,6 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
     if lead_findings:
         summary += " Key evidence: " + " ".join(lead_findings)
 
-    snapshot = {"findings": findings, "sources": snapshot_sources}
     result = {
         "summary": summary,
         "finding_count": len(entities),

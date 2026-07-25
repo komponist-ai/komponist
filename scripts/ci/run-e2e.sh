@@ -79,6 +79,7 @@ api_tests=(
   workroom_queue_e2e.py
   workroom_roles_e2e.py
   workroom_plans_e2e.py
+  workroom_context_e2e.py
   workrooms_e2e.py
   platform_ai_and_api_keys_e2e.py
   chat_history_e2e.py

@@ -442,6 +442,38 @@ class WorkroomTask(Base):
     )
 
 
+class WorkroomContextItem(Base):
+    """One explicit inclusion or exclusion in a Workroom's context pack.
+
+    These only ever narrow or prioritise within what the room may already
+    read. A pin can never reach knowledge outside the room's permission scope.
+    """
+    __tablename__ = "workroom_context_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "workroom_id",
+            "item_kind",
+            "reference_id",
+            name="uq_workroom_context_item",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    # "source" (an Evidence passage) or "entity" (a confirmed fact)
+    item_kind: Mapped[str] = mapped_column(String(20), index=True)
+    reference_id: Mapped[str] = mapped_column(String(120), index=True)
+    # "include" pins the item; "exclude" removes it from every run
+    mode: Mapped[str] = mapped_column(String(20), default="include", index=True)
+    label: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    added_by_user_id: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class WorkroomPlanVersion(Base):
     """One generated-or-edited plan draft and its approval state.
 

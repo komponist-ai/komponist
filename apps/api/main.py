@@ -83,6 +83,12 @@ from artifacts import (
     source_deep_link_path,
 )
 import workroom_queue
+from workroom_context import (
+    build_context_preview,
+    list_context_items as list_workroom_context_items,
+    remove_context_item as remove_workroom_context_item,
+    set_context_item as set_workroom_context_item,
+)
 from workroom_plans import (
     PlanGenerationError,
     PlanSpec,
@@ -2994,6 +3000,13 @@ class WorkroomTaskReorderRequest(BaseModel):
     task_ids: List[str] = Field(min_length=1, max_length=60)
 
 
+class WorkroomContextItemRequest(BaseModel):
+    item_kind: Literal["source", "entity"]
+    reference_id: str = Field(min_length=1, max_length=120)
+    mode: Literal["include", "exclude"] = "include"
+    label: Optional[str] = Field(default=None, max_length=200)
+
+
 class WorkroomTaskCreateRequest(BaseModel):
     title: str = Field(min_length=2, max_length=180)
     description: str = Field(default="", max_length=2000)
@@ -4576,6 +4589,98 @@ async def _room_context_lines(org_id: str, user: dict, room: Any) -> list[str]:
         if statement:
             lines.append(f"{entity.get('entity_type') or 'Fact'}: {statement}")
     return lines
+
+
+@app.get("/workrooms/{room_id}/context")
+async def get_workroom_context(
+    room_id: str, request: Request, org_id: str = Query(...)
+):
+    """Preview exactly what the agent may read, before starting any run."""
+    user, room, _ = await _authorized_workroom(request, org_id, room_id)
+    scoped_user = _workroom_scoped_user(user, room)
+    try:
+        entities, sources = await _artifact_context(
+            org_id, scoped_user, room.objective
+        )
+    except Exception:  # noqa: BLE001 - an empty preview beats a broken page
+        entities, sources = [], []
+    for source in sources:
+        source["komponist_path"] = source_deep_link_path(org_id, source["id"])
+
+    items = await list_workroom_context_items(org_id, room_id)
+    return await build_context_preview(
+        org_id=org_id,
+        room=room,
+        entities=entities,
+        sources=sources,
+        items=items,
+        accessible_department_ids=(
+            user.get("department_ids") or []
+            if not user.get("access_all_departments")
+            else (room.department_ids or [])
+        ),
+    )
+
+
+@app.post("/workrooms/{room_id}/context", status_code=201)
+async def add_workroom_context_item(
+    room_id: str,
+    payload: WorkroomContextItemRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Pin or exclude a source or fact for every future run in this room."""
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="edit"
+    )
+    item = await set_workroom_context_item(
+        org_id=org_id,
+        room_id=room_id,
+        item_kind=payload.item_kind,
+        reference_id=payload.reference_id,
+        mode=payload.mode,
+        label=" ".join(payload.label.split()) if payload.label else None,
+        user_id=user["id"],
+    )
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="context_changed",
+        message=(
+            f"{'Pinned' if payload.mode == 'include' else 'Excluded'} a "
+            f"{payload.item_kind} in the Workroom context."
+        ),
+        payload={
+            "item_kind": payload.item_kind,
+            "mode": payload.mode,
+            "reference_id": payload.reference_id,
+        },
+    )
+    return item
+
+
+@app.delete("/workrooms/{room_id}/context/{item_id}")
+async def delete_workroom_context_item(
+    room_id: str, item_id: str, request: Request, org_id: str = Query(...)
+):
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="edit"
+    )
+    item = await remove_workroom_context_item(org_id, room_id, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Context item not found")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="context_changed",
+        message="Removed a Workroom context rule.",
+        payload={"item_kind": item["item_kind"], "reference_id": item["reference_id"]},
+    )
+    return item
 
 
 @app.post("/workrooms/{room_id}/plans", status_code=201)
