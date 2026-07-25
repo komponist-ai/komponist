@@ -47,7 +47,7 @@ import sys
 
 config = json.load(sys.stdin)
 services = config.get("services", {})
-expected = {"api", "mcp", "neo4j", "postgres", "web"}
+expected = {"api", "mcp", "neo4j", "postgres", "web", "worker"}
 missing = expected - set(services)
 if missing:
     raise SystemExit(f"missing production services: {sorted(missing)}")
@@ -64,7 +64,7 @@ for database in ("postgres", "neo4j"):
     if not services[database].get("healthcheck"):
         raise SystemExit(f"{database} has no healthcheck")
 
-for application in ("api", "mcp", "web"):
+for application in ("api", "mcp", "web", "worker"):
     service = services[application]
     if not service.get("healthcheck"):
         raise SystemExit(f"{application} has no healthcheck")

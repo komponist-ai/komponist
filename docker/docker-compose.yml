@@ -110,6 +110,34 @@ services:
     networks:
       - komponist
 
+  # Executes durable Workroom agent jobs from the Postgres queue. Runs the API
+  # image so it shares the same retrieval and Compose code, but serves no HTTP.
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: komponist-worker
+    command: ["python", "worker.py"]
+    env_file:
+      - ../.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://komponist:${POSTGRES_PASSWORD:-komponist}@postgres:5432/komponist
+      - KOMPONIST_SECRET_KEY=${KOMPONIST_SECRET_KEY:-komponist-local-dev-secret-change-me}
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-komponist}
+      - KOMPONIST_LOCAL_DOCS_PATH=/data/docs
+    volumes:
+      - ${KOMPONIST_LOCAL_DOCS_HOST_PATH:-../docs}:/data/docs:ro
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - komponist
+
   mcp:
     build:
       context: ..

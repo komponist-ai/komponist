@@ -12,6 +12,17 @@ services:
       KOMPONIST_COOKIE_SECURE: "false"
       OPENAI_API_KEY: ""
 
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+      args:
+        INSTALL_TEST_DEPS: "true"
+    environment:
+      KOMPONIST_AI_MODE: mock
+      KOMPONIST_SECRET_KEY: ${KOMPONIST_SECRET_KEY}
+      OPENAI_API_KEY: ""
+
   mcp:
     environment:
       KOMPONIST_AI_MODE: mock

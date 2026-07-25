@@ -39,7 +39,17 @@ type WorkroomRun = {
   task_id?: string | null
   agent_name: string
   instruction: string
-  status: 'queued' | 'running' | 'awaiting_approval' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'redirected'
+  status:
+    | 'queued'
+    | 'running'
+    | 'pause_requested'
+    | 'paused'
+    | 'cancel_requested'
+    | 'cancelled'
+    | 'awaiting_approval'
+    | 'completed'
+    | 'failed'
+    | 'redirected'
   current_step: string
   context_snapshot: {
     findings?: Array<{ id: string; type: string; statement: string; source_ids: string[] }>
@@ -87,11 +97,15 @@ type Workroom = Omit<WorkroomSummary, 'task_count' | 'completed_task_count' | 'l
 const runLabels: Record<WorkroomRun['status'], string> = {
   queued: 'Queued',
   running: 'Working',
-  awaiting_approval: 'Needs approval',
+  // An external model call cannot be interrupted, so the agent stops at the
+  // next safe step rather than immediately.
+  pause_requested: 'Pausing',
   paused: 'Paused',
+  cancel_requested: 'Cancelling',
+  cancelled: 'Cancelled',
+  awaiting_approval: 'Needs approval',
   completed: 'Completed',
   failed: 'Failed',
-  cancelled: 'Rejected',
   redirected: 'Redirected',
 }
 
@@ -118,14 +132,18 @@ function RunStatus({ run }: { run: WorkroomRun }) {
     completed: 'border-teal/30 bg-success-soft text-teal',
     failed: 'border-danger/30 bg-danger-soft text-danger',
     cancelled: 'border-line bg-paper-2 text-muted',
+    cancel_requested: 'border-line bg-paper-2 text-ink-2',
     paused: 'border-line bg-paper-2 text-ink-2',
+    pause_requested: 'border-line bg-paper-2 text-ink-2',
     redirected: 'border-info/30 bg-info-soft text-info',
     queued: 'border-line bg-paper-2 text-muted',
     running: 'border-orange/40 bg-warning-soft text-orange-dark',
   }[run.status]
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider ${tone}`}>
-      {run.status === 'running' && <span className="size-1.5 animate-pulse rounded-full bg-orange" />}
+      {['running', 'pause_requested', 'cancel_requested'].includes(run.status) && (
+        <span className="size-1.5 animate-pulse rounded-full bg-orange" />
+      )}
       {runLabels[run.status]}
     </span>
   )
@@ -433,9 +451,13 @@ export default function WorkroomsPage() {
                         <Button onClick={() => void startAgent()} disabled={working}>
                           {working ? <Loader2 className="animate-spin" /> : <Play />} Start agent
                         </Button>
-                      ) : activeRun.status === 'paused' ? (
+                      ) : ['paused', 'pause_requested'].includes(activeRun.status) ? (
                         <Button onClick={() => void mutate(`/workroom-runs/${activeRun.id}/resume`, { method: 'POST' })} disabled={working}>
                           <Play /> Resume
+                        </Button>
+                      ) : activeRun.status === 'cancel_requested' ? (
+                        <Button variant="outline" disabled>
+                          <Loader2 className="animate-spin" /> Stopping after this step
                         </Button>
                       ) : activeRun.current_step === 'creating_compose_briefing' ? (
                         <Button variant="outline" disabled>

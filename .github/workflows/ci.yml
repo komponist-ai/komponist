@@ -185,7 +185,7 @@ jobs:
           docker compose \
             -f docker/docker-compose.yml \
             -f docker/docker-compose.ci.yml \
-            logs --no-color --tail=200 api mcp web postgres neo4j
+            logs --no-color --tail=200 api worker mcp web postgres neo4j
 
       - name: Stop the stack
         if: always()

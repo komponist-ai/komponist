@@ -68,6 +68,61 @@ fastmcp run server:mcp
 
 See [install.md](install.md) for connecting to Claude Code/Cursor.
 
+### Workroom Worker Setup
+
+Workroom agent runs execute in a separate worker process, not inside the API.
+The API only writes a job row to Postgres and returns, so queued and in-flight
+work survives an API restart or redeploy.
+
+```bash
+cd apps/api
+
+# Same dependencies and image as the API
+python worker.py
+```
+
+Run at least one worker whenever Workrooms are in use. Without it, agent runs
+stay `queued` indefinitely — the API stays healthy and keeps accepting work,
+and `GET /healthz` reports `services.workroom_worker.workers_online: 0`.
+
+Workers are stateless and safe to run several at once. Postgres hands each job
+to exactly one worker using `SELECT ... FOR UPDATE SKIP LOCKED`:
+
+```bash
+docker compose -f docker/docker-compose.production.yml up -d --scale worker=3
+```
+
+Tunable via environment variables (defaults shown):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `KOMPONIST_WORKROOM_LEASE_SECONDS` | `120` | How long a claimed job is owned before it is considered abandoned |
+| `KOMPONIST_WORKROOM_HEARTBEAT_SECONDS` | `20` | Lease renewal interval while a job runs |
+| `KOMPONIST_WORKROOM_MAX_ATTEMPTS` | `3` | Attempts before a job is failed permanently |
+| `KOMPONIST_WORKROOM_RETRY_SECONDS` | `5` | Base delay for exponential retry backoff |
+| `KOMPONIST_WORKROOM_MAX_RETRY_SECONDS` | `300` | Upper bound on retry backoff |
+| `KOMPONIST_WORKROOM_WORKER_STALE_SECONDS` | `90` | Silence after which a worker is reported offline |
+| `KOMPONIST_WORKER_POLL_SECONDS` | `1` | Idle polling interval |
+
+#### Worker recovery
+
+If a worker crashes or its container is killed mid-job, its lease expires and
+another worker requeues the job automatically — no manual step is required.
+Recovery runs on every poll cycle, so the delay is bounded by the lease window.
+
+To inspect the queue directly:
+
+```sql
+SELECT status, job_type, attempt_count, max_attempts, error_code, available_at
+FROM workroom_jobs
+ORDER BY updated_at DESC
+LIMIT 20;
+```
+
+A job in `failed` has exhausted `max_attempts`. Its run is marked `failed` too,
+and a person can retry it from the Workroom (`POST /workroom-runs/{id}/retry`)
+rather than an operator editing rows by hand.
+
 ## Production Deployment
 
 The recommended pilot architecture is one 8 GB Hetzner Cloud instance running
@@ -95,6 +150,11 @@ the databases from the application host.
 
 - API health: `GET /healthz`
 - Returns status for Neo4j and Postgres connectivity
+- Also reports `services.workroom_worker`: workers online, queue depth by
+  state, and the last worker heartbeat. The API is deliberately still
+  `healthy` when no worker is online, because it can accept and durably store
+  work regardless; alert on `workers_online == 0` together with a non-zero
+  `queued` count.
 - Use for monitoring/alerting
 
 ## Monitoring

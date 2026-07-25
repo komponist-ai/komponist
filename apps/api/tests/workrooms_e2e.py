@@ -25,11 +25,13 @@ from database import (
     User,
     Workroom,
     WorkroomEvent,
+    WorkroomJob,
     WorkroomRun,
     WorkroomTask,
     async_session,
     init_db,
 )
+from workroom_agent import run_worker_loop
 
 
 OWNER_EMAIL = "workrooms-owner-e2e@example.com"
@@ -53,6 +55,9 @@ async def cleanup() -> None:
                     "MATCH (node) WHERE node.org_id = $org_id DETACH DELETE node",
                     {"org_id": org_id},
                 )
+            await session.execute(
+                delete(WorkroomJob).where(WorkroomJob.org_id.in_(org_ids))
+            )
             await session.execute(
                 delete(WorkroomEvent).where(WorkroomEvent.org_id.in_(org_ids))
             )
@@ -132,6 +137,18 @@ async def run() -> None:
     await init_db()
     await cleanup()
     transport = httpx.ASGITransport(app=main.app)
+
+    # The API only enqueues durable jobs, so this flow needs a real worker.
+    # In CI the worker container may claim a job first; either way the run
+    # reaches the same state, which is exactly the property under test.
+    worker_stop = asyncio.Event()
+    worker_task = asyncio.create_task(
+        run_worker_loop(
+            worker_id="workrooms-e2e",
+            stop_event=worker_stop,
+            poll_seconds=0.05,
+        )
+    )
 
     try:
         async with httpx.AsyncClient(
@@ -330,7 +347,83 @@ async def run() -> None:
             artifact = artifact_response.json()
             assert artifact["artifact_type"] == "briefing"
             assert all("hidden" not in source["id"] for source in artifact["sources"])
+
+            # The approved run produced exactly one deliverable even though the
+            # approval was submitted twice and the job is delivered at-least-once.
+            async with async_session() as session:
+                artifact_count = len((
+                    await session.execute(
+                        select(GeneratedArtifact).where(
+                            GeneratedArtifact.org_id == owner["org_id"]
+                        )
+                    )
+                ).scalars().all())
+            assert artifact_count == 1, artifact_count
+
+            # One finalize job, and it is not retried after completion.
+            async with async_session() as session:
+                finalize_jobs = (
+                    await session.execute(
+                        select(WorkroomJob).where(
+                            WorkroomJob.run_id == second_run_id,
+                            WorkroomJob.job_type == "workroom.finalize",
+                        )
+                    )
+                ).scalars().all()
+            assert len(finalize_jobs) == 1, finalize_jobs
+            assert finalize_jobs[0].status == "completed", finalize_jobs[0].status
+
+            # Cancelling at a safe boundary stops the run and frees the task.
+            cancel_start = await owner_client.post(
+                f"/workrooms/{room_id}/runs",
+                params={"org_id": owner["org_id"]},
+                json={"task_id": task_id, "instruction": "Check the launch date."},
+            )
+            assert cancel_start.status_code == 202, cancel_start.text
+            cancel_run_id = cancel_start.json()["id"]
+            await wait_for_run(
+                owner_client,
+                owner["org_id"],
+                room_id,
+                cancel_run_id,
+                "awaiting_approval",
+            )
+            cancel_response = await owner_client.post(
+                f"/workroom-runs/{cancel_run_id}/cancel",
+                params={"org_id": owner["org_id"]},
+            )
+            assert cancel_response.status_code == 200, cancel_response.text
+            assert cancel_response.json()["status"] == "cancelled"
+
+            # A cancelled run can no longer be approved into a deliverable.
+            late_approval = await owner_client.post(
+                f"/workroom-runs/{cancel_run_id}/approval",
+                params={"org_id": owner["org_id"]},
+                json={"approved": True},
+            )
+            assert late_approval.status_code == 409, late_approval.text
+
+            async with async_session() as session:
+                still_one = len((
+                    await session.execute(
+                        select(GeneratedArtifact).where(
+                            GeneratedArtifact.org_id == owner["org_id"]
+                        )
+                    )
+                ).scalars().all())
+            assert still_one == 1, still_one
+
+            health = await owner_client.get("/healthz")
+            assert health.status_code == 200, health.text
+            worker_health = health.json()["services"]["workroom_worker"]
+            assert "queued" in worker_health, worker_health
+            assert worker_health["workers_online"] >= 1, worker_health
     finally:
+        worker_stop.set()
+        try:
+            await asyncio.wait_for(worker_task, timeout=10)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            worker_task.cancel()
         await cleanup()
         await GraphClient.close()
         if previous_mode is None:

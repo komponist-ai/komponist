@@ -76,6 +76,7 @@ api_tests=(
   review_lifecycle_e2e.py
   export_e2e.py
   generated_artifacts_e2e.py
+  workroom_queue_e2e.py
   workrooms_e2e.py
   platform_ai_and_api_keys_e2e.py
   chat_history_e2e.py
@@ -100,6 +101,13 @@ run_in_service api tests/persistence_e2e.py seed
 wait_for_url "API persistence restart" "http://localhost:8000/healthz"
 run_in_service api tests/persistence_e2e.py verify
 run_in_service api tests/persistence_e2e.py cleanup
+
+# Queued Workroom agent work lives in Postgres, so restarting both the API and
+# the worker must leave it claimable rather than silently dropping it.
+run_in_service api tests/workroom_queue_e2e.py seed-restart
+"${compose[@]}" restart api worker
+wait_for_url "API after worker restart" "http://localhost:8000/healthz"
+run_in_service api tests/workroom_queue_e2e.py verify-restart
 
 mcp_tests=(
   search_context_e2e.py

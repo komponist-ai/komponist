@@ -140,6 +140,46 @@ services:
     tmpfs:
       - /tmp:size=512m,mode=1777
 
+  # Durable Workroom agent execution. Scale with `--scale worker=N`: the
+  # Postgres queue hands each job to exactly one worker via SKIP LOCKED.
+  worker:
+    <<: *app-security
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    command: ["python", "worker.py"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://komponist:${POSTGRES_PASSWORD:?}@postgres:5432/komponist
+      KOMPONIST_SECRET_KEY: ${KOMPONIST_SECRET_KEY:?Set a stable 64-character secret}
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${KOMPONIST_NEO4J_PASSWORD:?}
+      KOMPONIST_AI_MODE: ${KOMPONIST_AI_MODE:-live}
+      KOMPONIST_LLM_PROVIDER: ${KOMPONIST_LLM_PROVIDER:-openai}
+      KOMPONIST_LLM_MODEL: ${KOMPONIST_LLM_MODEL:-gpt-5.6-terra}
+      KOMPONIST_OPENAI_STORE: ${KOMPONIST_OPENAI_STORE:-false}
+      KOMPONIST_EMBEDDING_PROVIDER: ${KOMPONIST_EMBEDDING_PROVIDER:-openai}
+      KOMPONIST_EMBEDDING_MODEL: ${KOMPONIST_EMBEDDING_MODEL:-text-embedding-3-small}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys; sys.exit(0)"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+
   mcp:
     <<: *app-security
     build:

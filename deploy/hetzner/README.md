@@ -161,8 +161,13 @@ Assign domains to services in Coolify using their internal ports:
 - `mcp`: `https://mcp.example.com:8080`
 
 The port in Coolify tells the proxy which container port to use; visitors still
-use ordinary HTTPS without a port suffix. Do not assign domains to `postgres`
-or `neo4j`.
+use ordinary HTTPS without a port suffix. Do not assign domains to `postgres`,
+`neo4j`, or `worker`.
+
+The `worker` service runs Workroom agent jobs and serves no HTTP traffic, so it
+needs no domain. It must still be running: without it, Workroom agent runs are
+stored durably but never execute. Confirm it after deploying with
+`GET /healthz`, which reports `services.workroom_worker.workers_online`.
 
 The corresponding environment variables contain public origins without port
 suffixes:
@@ -173,8 +178,9 @@ PUBLIC_API_URL=https://api.example.com
 PUBLIC_MCP_URL=https://mcp.example.com
 ```
 
-Deploy the resource. The first build takes longer because it builds three
-application images and downloads the database images.
+Deploy the resource. The first build takes longer because it builds the
+application images and downloads the database images. The `worker` service
+reuses the API image, so it adds no extra build time.
 
 ## 6. Configure sign-in and connectors
 

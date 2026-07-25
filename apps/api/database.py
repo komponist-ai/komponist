@@ -435,6 +435,60 @@ class WorkroomEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class WorkroomJob(Base):
+    """A durable unit of agent work owned by Postgres, not by a process.
+
+    Jobs outlive API and worker restarts. A worker claims one with
+    ``FOR UPDATE SKIP LOCKED``, holds a time-boxed lease it must renew, and
+    an expired lease returns the job to the queue for another attempt.
+    """
+    __tablename__ = "workroom_jobs"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_workroom_jobs_idempotency_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    job_type: Mapped[str] = mapped_column(String(40), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(200))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
+    lease_owner: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    last_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    error_code: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class WorkroomWorker(Base):
+    """Liveness record for one Workroom worker process."""
+    __tablename__ = "workroom_workers"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hostname: Mapped[str] = mapped_column(String(200), default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_heartbeat_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
+    claimed_total: Mapped[int] = mapped_column(Integer, default=0)
+
+
 async def get_db() -> AsyncSession:
     """Dependency for getting database session."""
     async with async_session() as session:

@@ -82,6 +82,12 @@ from artifacts import (
     sanitize_artifact_content,
     source_deep_link_path,
 )
+import workroom_queue
+from workroom_agent import (
+    TERMINAL_STATES as WORKROOM_TERMINAL_STATES,
+    enqueue_finalize,
+    enqueue_research,
+)
 from workrooms import (
     append_event as append_workroom_event,
     create_room as create_workroom,
@@ -306,11 +312,19 @@ async def health_check():
         postgres_health["status"] == "healthy"
     )
 
+    try:
+        worker_health = await workroom_queue.queue_health()
+    except Exception as error:  # noqa: BLE001 - never fail the health probe
+        worker_health = {"status": "unknown", "error": str(error)[:200]}
+
     return {
         "status": "healthy" if overall_healthy else "degraded",
         "services": {
             "neo4j": neo4j_health,
-            "postgres": postgres_health
+            "postgres": postgres_health,
+            # Reported separately: the API stays healthy and keeps accepting
+            # work even when no Workroom worker is currently online.
+            "workroom_worker": worker_health,
         }
     }
 
@@ -4114,279 +4128,6 @@ def _workroom_scoped_user(user: dict, room: Any) -> dict:
     }
 
 
-_workroom_background_tasks: set[asyncio.Task] = set()
-
-
-def _schedule_workroom_job(coroutine: Any) -> None:
-    task = asyncio.create_task(coroutine)
-    _workroom_background_tasks.add(task)
-    task.add_done_callback(_workroom_background_tasks.discard)
-
-
-async def _research_workroom_run(org_id: str, user: dict, run_id: str) -> None:
-    run = await load_workroom_run(org_id, run_id)
-    if run is None:
-        return
-    room = await get_room_record(org_id, run["workroom_id"])
-    if room is None:
-        return
-
-    try:
-        claimed = await transition_workroom_run(
-            org_id,
-            run_id,
-            from_statuses=["queued"],
-            status="running",
-            current_step="searching_company_brain",
-        )
-        if claimed is None:
-            return
-        run = claimed
-        await append_workroom_event(
-            org_id=org_id,
-            room_id=room.id,
-            run_id=run_id,
-            actor_type="agent",
-            actor_name=run["agent_name"],
-            event_type="agent_started",
-            message="Started researching confirmed company context.",
-        )
-
-        scoped_user = _workroom_scoped_user(user, room)
-        topic = " ".join(
-            value for value in [room.objective, run["instruction"]] if value
-        )
-        entities, sources = await _artifact_context(org_id, scoped_user, topic)
-        for source in sources:
-            source["komponist_path"] = source_deep_link_path(org_id, source["id"])
-
-        if not entities or not sources:
-            failed = await transition_workroom_run(
-                org_id,
-                run_id,
-                from_statuses=["running"],
-                status="failed",
-                current_step="insufficient_context",
-                result={
-                    "summary": (
-                        "No confirmed, cited knowledge was available in this "
-                        "Workroom's permission scope."
-                    ),
-                    "finding_count": 0,
-                    "source_count": 0,
-                },
-            )
-            if failed is None:
-                return
-            if run.get("task_id"):
-                await update_workroom_task(org_id, run["task_id"], status="todo")
-            await append_workroom_event(
-                org_id=org_id,
-                room_id=room.id,
-                run_id=run_id,
-                actor_type="agent",
-                actor_name=run["agent_name"],
-                event_type="run_failed",
-                message=(
-                    "Could not find confirmed, cited knowledge in the room scope. "
-                    "Review source facts or change the direction."
-                ),
-            )
-            return
-
-        findings = [
-            {
-                "id": entity["id"],
-                "type": entity.get("entity_type") or "Fact",
-                "statement": entity.get("statement") or entity.get("detail") or "",
-                "source_ids": [
-                    evidence["id"]
-                    for evidence in (entity.get("evidence") or [])
-                    if evidence.get("id")
-                ],
-            }
-            for entity in entities[:12]
-        ]
-        snapshot_sources = [
-            {
-                key: source.get(key)
-                for key in (
-                    "id", "title", "reference", "excerpt", "page",
-                    "line_start", "line_end", "komponist_path",
-                )
-            }
-            for source in sources[:12]
-        ]
-        lead_findings = [
-            finding["statement"] for finding in findings if finding["statement"]
-        ][:3]
-        summary = (
-            f"Found {len(entities)} confirmed facts across {len(sources)} cited "
-            "source passages."
-        )
-        if lead_findings:
-            summary += " Key evidence: " + " ".join(lead_findings)
-
-        snapshot = {"findings": findings, "sources": snapshot_sources}
-        result = {
-            "summary": summary,
-            "finding_count": len(entities),
-            "source_count": len(sources),
-            "suggested_output": "briefing",
-        }
-        ready = await transition_workroom_run(
-            org_id,
-            run_id,
-            from_statuses=["running"],
-            status="awaiting_approval",
-            current_step="approval_required",
-            context_snapshot=snapshot,
-            result=result,
-        )
-        if ready is None:
-            await transition_workroom_run(
-                org_id,
-                run_id,
-                from_statuses=["paused"],
-                status="paused",
-                current_step="paused_after_research",
-                context_snapshot=snapshot,
-                result=result,
-            )
-            return
-
-        await append_workroom_event(
-            org_id=org_id,
-            room_id=room.id,
-            run_id=run_id,
-            actor_type="agent",
-            actor_name=run["agent_name"],
-            event_type="research_completed",
-            message=(
-                f"Found {len(entities)} confirmed facts from {len(sources)} "
-                "source passages."
-            ),
-            payload={"sources": snapshot_sources[:6]},
-        )
-        await append_workroom_event(
-            org_id=org_id,
-            room_id=room.id,
-            run_id=run_id,
-            actor_type="agent",
-            actor_name=run["agent_name"],
-            event_type="approval_required",
-            message="Ready to create a cited briefing in Compose. Approval required.",
-        )
-    except Exception as error:
-        failed = await transition_workroom_run(
-            org_id,
-            run_id,
-            from_statuses=["queued", "running"],
-            status="failed",
-            current_step="failed",
-            result={"summary": "The agent run failed.", "error": str(error)[:500]},
-        )
-        if failed is None:
-            return
-        if run.get("task_id"):
-            await update_workroom_task(org_id, run["task_id"], status="todo")
-        await append_workroom_event(
-            org_id=org_id,
-            room_id=room.id,
-            run_id=run_id,
-            actor_type="system",
-            actor_name="Komponist",
-            event_type="run_failed",
-            message="The agent run failed. You can redirect it or try again.",
-        )
-
-
-async def _finalize_workroom_run(org_id: str, user: dict, run_id: str) -> None:
-    run = await load_workroom_run(org_id, run_id)
-    if run is None:
-        return
-    room = await get_room_record(org_id, run["workroom_id"])
-    if room is None:
-        return
-    try:
-        await append_workroom_event(
-            org_id=org_id,
-            room_id=room.id,
-            run_id=run_id,
-            actor_type="agent",
-            actor_name=run["agent_name"],
-            event_type="compose_started",
-            message="Approval received. Creating the grounded briefing in Compose.",
-        )
-        artifact = await _create_grounded_artifact(
-            org_id=org_id,
-            user=_workroom_scoped_user(user, room),
-            artifact_type="briefing",
-            topic=room.objective,
-            audience="Project team",
-            instructions=(
-                f"Workroom direction: {run['instruction']}. "
-                "Produce an action-oriented handoff brief with open questions, "
-                "constraints, decisions, and next steps only when supported."
-            ),
-            language="english",
-        )
-        result = {
-            **(run.get("result") or {}),
-            "artifact_id": artifact["id"],
-            "artifact_title": artifact["title"],
-            "compose_path": f"/create?artifact={artifact['id']}",
-        }
-        await update_workroom_run(
-            org_id,
-            run_id,
-            status="completed",
-            current_step="completed",
-            result=result,
-        )
-        if run.get("task_id"):
-            await update_workroom_task(
-                org_id,
-                run["task_id"],
-                status="completed",
-                artifact_id=artifact["id"],
-            )
-        await append_workroom_event(
-            org_id=org_id,
-            room_id=room.id,
-            run_id=run_id,
-            actor_type="agent",
-            actor_name=run["agent_name"],
-            event_type="artifact_created",
-            message=f"Created “{artifact['title']}” and handed it to Compose.",
-            payload={
-                "artifact_id": artifact["id"],
-                "artifact_title": artifact["title"],
-                "compose_path": f"/create?artifact={artifact['id']}",
-            },
-        )
-    except Exception as error:
-        await update_workroom_run(
-            org_id,
-            run_id,
-            status="failed",
-            current_step="compose_failed",
-            result={
-                **(run.get("result") or {}),
-                "error": str(error)[:500],
-            },
-        )
-        await append_workroom_event(
-            org_id=org_id,
-            room_id=room.id,
-            run_id=run_id,
-            actor_type="system",
-            actor_name="Komponist",
-            event_type="run_failed",
-            message="The Compose handoff failed. The researched context is preserved.",
-        )
-
-
 @app.get("/workrooms")
 async def get_workrooms(request: Request, org_id: str = Query(...)):
     user = await _authorized_org_user(request, org_id)
@@ -4508,7 +4249,13 @@ async def start_workroom_run(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    _schedule_workroom_job(_research_workroom_run(org_id, user, run["id"]))
+    await enqueue_research(
+        org_id=org_id,
+        room_id=room_id,
+        run_id=run["id"],
+        user_id=user["id"],
+        user_name=user["name"],
+    )
     return run
 
 
@@ -4516,6 +4263,12 @@ async def start_workroom_run(
 async def pause_workroom_run(
     run_id: str, request: Request, org_id: str = Query(...)
 ):
+    """Request a pause.
+
+    A run that has not started yet pauses immediately. A running agent cannot
+    be interrupted mid model call, so it enters ``pause_requested`` and the
+    worker settles it to ``paused`` at the next safe step.
+    """
     run = await load_workroom_run(org_id, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found")
@@ -4529,12 +4282,14 @@ async def pause_workroom_run(
         )
     if run["status"] not in {"queued", "running", "awaiting_approval"}:
         raise HTTPException(status_code=409, detail="This run cannot be paused")
+
+    deferred = run["status"] == "running"
     updated = await transition_workroom_run(
         org_id,
         run_id,
-        from_statuses=["queued", "running", "awaiting_approval"],
-        status="paused",
-        current_step="paused",
+        from_statuses=["running"] if deferred else ["queued", "awaiting_approval"],
+        status="pause_requested" if deferred else "paused",
+        current_step="pause_requested" if deferred else "paused",
     )
     if updated is None:
         raise HTTPException(status_code=409, detail="This run changed state")
@@ -4545,7 +4300,11 @@ async def pause_workroom_run(
         actor_type="human",
         actor_name=user["name"],
         event_type="run_paused",
-        message="Paused the agent run.",
+        message=(
+            "Requested a pause. The agent stops after the current step."
+            if deferred
+            else "Paused the agent run."
+        ),
     )
     return updated
 
@@ -4560,8 +4319,31 @@ async def resume_workroom_run(
     user, _ = await _authorized_workroom(
         request, org_id, run["workroom_id"], write=True
     )
-    if run["status"] != "paused":
+    if run["status"] not in {"paused", "pause_requested"}:
         raise HTTPException(status_code=409, detail="This run is not paused")
+
+    if run["status"] == "pause_requested":
+        # The worker never reached a safe step, so simply withdraw the request.
+        updated = await transition_workroom_run(
+            org_id,
+            run_id,
+            from_statuses=["pause_requested"],
+            status="running",
+            current_step="searching_company_brain",
+        )
+        if updated is None:
+            raise HTTPException(status_code=409, detail="This run changed state")
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=run["workroom_id"],
+            run_id=run_id,
+            actor_type="human",
+            actor_name=user["name"],
+            event_type="run_resumed",
+            message="Withdrew the pause request before the agent stopped.",
+        )
+        return updated
+
     has_context = bool((run.get("context_snapshot") or {}).get("findings"))
     updated = await transition_workroom_run(
         org_id,
@@ -4582,7 +4364,104 @@ async def resume_workroom_run(
         message="Resumed the agent run.",
     )
     if not has_context:
-        _schedule_workroom_job(_research_workroom_run(org_id, user, run_id))
+        await enqueue_research(
+            org_id=org_id,
+            room_id=run["workroom_id"],
+            run_id=run_id,
+            user_id=user["id"],
+            user_name=user["name"],
+        )
+    return updated
+
+
+@app.post("/workroom-runs/{run_id}/cancel")
+async def cancel_workroom_run(
+    run_id: str, request: Request, org_id: str = Query(...)
+):
+    """Cancel a run, stopping a running agent at its next safe step."""
+    run = await load_workroom_run(org_id, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    user, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], write=True
+    )
+    if run["status"] in WORKROOM_TERMINAL_STATES:
+        raise HTTPException(status_code=409, detail="This run already finished")
+
+    deferred = run["status"] == "running"
+    updated = await transition_workroom_run(
+        org_id,
+        run_id,
+        from_statuses=(
+            ["running"]
+            if deferred
+            else ["queued", "paused", "pause_requested", "awaiting_approval"]
+        ),
+        status="cancel_requested" if deferred else "cancelled",
+        current_step="cancel_requested" if deferred else "cancelled",
+    )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="This run changed state")
+    await workroom_queue.cancel_jobs_for_run(run_id)
+    if not deferred and run.get("task_id"):
+        await update_workroom_task(org_id, run["task_id"], status="todo")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=run_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="run_cancelled",
+        message=(
+            "Requested cancellation. The agent stops after the current step."
+            if deferred
+            else "Cancelled the agent run."
+        ),
+    )
+    return updated
+
+
+@app.post("/workroom-runs/{run_id}/retry", status_code=202)
+async def retry_workroom_run(
+    run_id: str, request: Request, org_id: str = Query(...)
+):
+    """Queue a fresh attempt for a failed run without losing its history."""
+    run = await load_workroom_run(org_id, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    user, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], write=True
+    )
+    if run["status"] != "failed":
+        raise HTTPException(status_code=409, detail="Only a failed run can be retried")
+    updated = await transition_workroom_run(
+        org_id,
+        run_id,
+        from_statuses=["failed"],
+        status="queued",
+        current_step="queued",
+        result={},
+    )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="This run changed state")
+    if run.get("task_id"):
+        await update_workroom_task(org_id, run["task_id"], status="in_progress")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=run_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="run_retried",
+        message="Queued another attempt for the failed agent run.",
+    )
+    await enqueue_research(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=run_id,
+        user_id=user["id"],
+        user_name=user["name"],
+    )
     return updated
 
 
@@ -4599,12 +4478,15 @@ async def redirect_workroom_run(
     user, _ = await _authorized_workroom(
         request, org_id, run["workroom_id"], write=True
     )
-    if run["status"] in {"completed", "cancelled", "redirected"}:
+    if run["status"] in WORKROOM_TERMINAL_STATES:
         raise HTTPException(status_code=409, detail="This run cannot be redirected")
     redirected = await transition_workroom_run(
         org_id,
         run_id,
-        from_statuses=["queued", "running", "awaiting_approval", "paused", "failed"],
+        from_statuses=[
+            "queued", "running", "awaiting_approval", "paused",
+            "pause_requested", "cancel_requested", "failed",
+        ],
         status="redirected",
         current_step="redirected",
     )
@@ -4628,8 +4510,14 @@ async def redirect_workroom_run(
         instruction=instruction,
         redirected_from_run_id=run_id,
     )
-    _schedule_workroom_job(
-        _research_workroom_run(org_id, user, replacement["id"])
+    # The superseded run's queued work must not race the replacement.
+    await workroom_queue.cancel_jobs_for_run(run_id, reason="redirected")
+    await enqueue_research(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=replacement["id"],
+        user_id=user["id"],
+        user_name=user["name"],
     )
     return replacement
 
@@ -4692,7 +4580,13 @@ async def approve_workroom_run(
         event_type="approval_granted",
         message="Approved the agent's Compose handoff.",
     )
-    _schedule_workroom_job(_finalize_workroom_run(org_id, user, run_id))
+    await enqueue_finalize(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=run_id,
+        user_id=user["id"],
+        user_name=user["name"],
+    )
     return updated
 
 
@@ -4705,15 +4599,29 @@ async def stream_workroom_events(
 ):
     await _authorized_workroom(request, org_id, room_id)
 
+    # Events are persisted, so a dropped connection resumes exactly where it
+    # left off. The browser replays its position via Last-Event-ID; the
+    # `after` parameter serves clients that track the cursor themselves.
+    resume_from = after
+    last_event_id = request.headers.get("last-event-id")
+    if last_event_id:
+        try:
+            resume_from = max(resume_from, int(last_event_id))
+        except ValueError:
+            pass
+
     async def event_stream():
-        cursor = after
+        cursor = resume_from
         idle_ticks = 0
         while idle_ticks < 55 and not await request.is_disconnected():
             events = await list_events_after(org_id, room_id, cursor)
             if events:
                 idle_ticks = 0
                 for event in events:
-                    cursor = max(cursor, int(event["id"]))
+                    # Monotonic ids make replay after a reconnect duplicate-free.
+                    if int(event["id"]) <= cursor:
+                        continue
+                    cursor = int(event["id"])
                     yield f"id: {event['id']}\ndata: {json.dumps(event)}\n\n"
             else:
                 idle_ticks += 1

@@ -86,7 +86,8 @@ The core local slice now has broad contract and restart coverage. External provi
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
 - `apps/api/tests/generated_artifacts_e2e.py` — private history, department isolation, citations, PDF/PPTX/Markdown exports, and deletion (passing)
 - `apps/api/tests/document_versions_e2e.py` — authenticated cross-source grouping, latest candidate, semantic conflicts, and demo visibility (passing)
-- `apps/api/tests/workrooms_e2e.py` — shared membership, room-scoped retrieval, pause/resume, redirect lineage, approval, and Compose handoff (passing)
+- `apps/api/tests/workrooms_e2e.py` — shared membership, room-scoped retrieval, pause/resume, redirect lineage, approval, cancellation, and Compose handoff (passing)
+- `apps/api/tests/workroom_queue_e2e.py` — single-claim safety, idempotency, lease recovery, bounded retries, and restart survival (passing)
 - `packages/core/tests/test_versioning.py` — content identity, family matching, chronology, and claim-diff contracts (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `apps/api/tests/platform_ai_and_api_keys_e2e.py` — API keys, cited programmatic context, project scope, graph stats, approvals, and revocation (passing)
@@ -212,14 +213,16 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Approval requests and decisions stored in Postgres
 - [x] Approval state survives MCP restarts
 - [x] Workrooms, tasks, run versions, and append-only activity events persist in Postgres
-- [ ] Running Workroom jobs do not yet resume automatically after an API restart
+- [x] Workroom agent jobs run in a separate worker and survive API and worker restarts
+- [x] Expired worker leases are recovered automatically and retries are bounded
 
 ### Multiplayer Workrooms
 - [x] Shared rooms visible to authorized organization members
 - [x] Explicit organization/department knowledge scope
 - [x] One Komponist Analyst with live activity events and cited graph research
 - [x] Pause/resume, versioned redirect, approval/rejection, and Compose handoff
-- [ ] Durable worker queue and automatic restart recovery
+- [x] Durable Postgres job queue, separate worker service, and restart recovery
+- [x] Explicit run state machine with deferred pause and cancellation
 - [ ] Live participant presence and room-specific invitations
 - [ ] Agent-to-agent handoffs and parallel task execution
 
