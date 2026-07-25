@@ -114,8 +114,11 @@ docker-compose --env-file .env -f docker/docker-compose.yml up -d --build
 
 1. Open http://localhost:3000/studio and create an account with email and a
    password of at least 12 characters.
-2. Open **Add Source → Upload Documents** and upload the files in
-   [`test-data/upload`](test-data/upload).
+2. Open **Add Source → Upload Documents** and upload the 14 numbered files in
+   [`test-data/upload/campuskollektiv`](test-data/upload/campuskollektiv). They
+   form one realistic fictional student-association workspace with board
+   decisions, departments, budgets, confidential access rules, dependencies,
+   and competing document versions.
 3. Confirm or reject the extracted facts in **Review Queue**.
 4. Inspect confirmed entities and relationships in **Graph**.
 5. Ask a question in **Chat** and inspect the attached evidence.

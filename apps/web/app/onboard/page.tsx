@@ -459,7 +459,7 @@ function OnboardContent() {
               </p>
               <label className="upload-zone mb-5">
                 <span className="text-small font-medium">Choose documents</span>
-                <span className="text-caption text-muted">Markdown, text, or YAML · up to 10 files · 1 MB each</span>
+                <span className="text-caption text-muted">Markdown, text, or YAML · up to 20 files · 1 MB each</span>
                 <input type="file" multiple accept=".md,.markdown,.txt,.yaml,.yml,text/plain,text/markdown"
                   onChange={event => setUploadFiles(Array.from(event.target.files || []))}
                   disabled={status === 'connecting'} />

@@ -5,11 +5,12 @@ Defines and applies the Komponist brain schema: nodes, relationships, constraint
 """
 
 from typing import List, Dict, Any
+from core.embeddings import EMBEDDING_DIMENSIONS
 from core.graph import GraphClient
 
 
 # Schema version for tracking
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 class GraphSchema:
@@ -113,26 +114,75 @@ class GraphSchema:
             else:
                 raise
 
-        # Vector index for embeddings (Neo4j 5.x native)
-        try:
-            await GraphClient.run_query("""
-                CREATE VECTOR INDEX entity_embedding IF NOT EXISTS
-                FOR (e:Entity) ON (e.embedding)
-                OPTIONS {
-                  indexConfig: {
-                    `vector.dimensions`: 1536,
-                    `vector.similarity_function`: 'cosine'
-                  }
-                }
-            """)
-            print("✓ Created vector index (1536 dims, cosine similarity)")
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                print("  Vector index already exists")
-            else:
-                raise
+        await GraphSchema.ensure_vector_index()
 
         print(f"Schema v{SCHEMA_VERSION} applied successfully")
+
+    @staticmethod
+    async def ensure_vector_index() -> None:
+        """Create or migrate the entity vector index to the active embedder size.
+
+        ``CREATE ... IF NOT EXISTS`` does not update an existing Neo4j index.
+        That previously left deployments with a 1024-dimensional index while
+        OpenAI returned 1536-dimensional vectors, silently degrading chat to
+        keyword-only search. A mismatched index is recreated and incompatible
+        legacy vectors are removed so they cannot poison the new index.
+        """
+        rows = await GraphClient.run_query(
+            """
+            SHOW INDEXES YIELD name, type, options
+            WHERE name = 'entity_embedding'
+            RETURN type, options
+            """
+        )
+        current_dimensions = None
+        if rows:
+            options = rows[0].get("options") or {}
+            config = options.get("indexConfig") or {}
+            current_dimensions = (
+                config.get("vector.dimensions")
+                or config.get("`vector.dimensions`")
+            )
+            try:
+                current_dimensions = int(current_dimensions)
+            except (TypeError, ValueError):
+                current_dimensions = None
+
+        if rows and current_dimensions != EMBEDDING_DIMENSIONS:
+            print(
+                "  Migrating vector index from "
+                f"{current_dimensions or 'unknown'} to {EMBEDDING_DIMENSIONS} dimensions"
+            )
+            await GraphClient.run_query("DROP INDEX entity_embedding IF EXISTS")
+            repaired = await GraphClient.run_query(
+                """
+                MATCH (entity:Entity)
+                WHERE entity.embedding IS NOT NULL
+                  AND size(entity.embedding) <> $dimensions
+                REMOVE entity.embedding
+                RETURN count(entity) AS removed
+                """,
+                {"dimensions": EMBEDDING_DIMENSIONS},
+            )
+            removed = repaired[0].get("removed", 0) if repaired else 0
+            if removed:
+                print(f"  Removed {removed} incompatible legacy embeddings")
+
+        await GraphClient.run_query(
+            f"""
+            CREATE VECTOR INDEX entity_embedding IF NOT EXISTS
+            FOR (e:Entity) ON (e.embedding)
+            OPTIONS {{
+              indexConfig: {{
+                `vector.dimensions`: {EMBEDDING_DIMENSIONS},
+                `vector.similarity_function`: 'cosine'
+              }}
+            }}
+            """
+        )
+        print(
+            f"✓ Vector index ready ({EMBEDDING_DIMENSIONS} dims, cosine similarity)"
+        )
 
     @staticmethod
     async def verify_schema() -> Dict[str, Any]:

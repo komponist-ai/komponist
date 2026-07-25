@@ -32,6 +32,17 @@ FACT_EXTRACTION_SCHEMA = {
                         "type": "string",
                         "enum": ["high", "medium", "low"],
                     },
+                    "modality": {
+                        "type": "string",
+                        "enum": [
+                            "fact",
+                            "decision",
+                            "goal",
+                            "required",
+                            "planned",
+                            "conditional",
+                        ],
+                    },
                     "relations_hint": {
                         "type": "array",
                         "items": {
@@ -61,6 +72,7 @@ FACT_EXTRACTION_SCHEMA = {
                     "detail",
                     "excerpt",
                     "confidence",
+                    "modality",
                     "relations_hint",
                 ],
                 "additionalProperties": False,

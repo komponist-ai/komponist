@@ -1,12 +1,12 @@
-# Komponist Demo Company Context
+# CampusKollektiv Demo Context
 
 > This document contains fictional example data for testing and demonstration.
-> It does not describe a real company, person, project, or decision.
+> It does not describe a real association, person, project, or decision.
 
-Decision: Use Neo4j as the single company-brain database.
+Decision: CampusKollektiv offers one main sponsorship package for €1,500.
 
-Goal: Complete a reliable local-documents-to-review-queue MVP loop.
+Goal: CampusKollektiv recruits 40 active student members by 31 December 2026.
 
-Constraint: Every extracted entity requires human review before confirmation.
+Constraint: Board minutes marked highly confidential are visible only to board members.
 
-Project: Build the first Komponist vertical slice for student founders.
+Project: The Campus Forum project runs for six weeks and ends with the event on 14 November 2026.

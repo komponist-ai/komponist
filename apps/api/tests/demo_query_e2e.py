@@ -10,24 +10,24 @@ async def run() -> None:
         base_url="http://localhost:8000",
         timeout=httpx.Timeout(20.0),
     ) as client:
-        pilot = await client.post(
+        forum = await client.post(
             "/demo/query",
-            json={"question": "How long does the pilot run?"},
+            json={"question": "How long does the Campus Forum run?"},
         )
-        assert pilot.status_code == 200, pilot.text
-        pilot_payload = pilot.json()
-        assert pilot_payload["mode"] == "demo", pilot_payload
-        assert "4 weeks" in pilot_payload["answer"], pilot_payload
-        assert pilot_payload["sources"][0]["title"] == "01-product-strategy.md"
+        assert forum.status_code == 200, forum.text
+        forum_payload = forum.json()
+        assert forum_payload["mode"] == "demo", forum_payload
+        assert "6 weeks" in forum_payload["answer"], forum_payload
+        assert forum_payload["sources"][0]["title"] == "08-campus-forum-plan-v2.md"
 
         access = await client.post(
             "/demo/query",
-            json={"question": "How can agents access our context?"},
+            json={"question": "Who can read highly confidential board minutes?"},
         )
         assert access.status_code == 200, access.text
         access_payload = access.json()
-        assert "REST API or MCP" in access_payload["answer"], access_payload
-        assert access_payload["sources"][0]["type"] == "Decision"
+        assert "only to board members" in access_payload["answer"], access_payload
+        assert access_payload["sources"][0]["type"] == "Constraint"
 
         invalid = await client.post("/demo/query", json={"question": "no"})
         assert invalid.status_code == 422, invalid.text

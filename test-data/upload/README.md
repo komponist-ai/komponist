@@ -1,21 +1,17 @@
-# Document upload test pack
+# CampusKollektiv upload test pack
+
+This folder contains a coherent, entirely fictional workspace for a German
+student association. It is designed to test Komponist with a realistic mix of
+board decisions, department responsibilities, budgets, access rules, event
+planning, dependencies, document versions, and ordinary noise.
+
+Open **Add Source → Upload Documents**, select every document in
+[`campuskollektiv`](campuskollektiv), and upload them as one batch. Do not upload
+the README files.
+
+The detailed walkthrough and expected questions are in
+[`campuskollektiv/README.md`](campuskollektiv/README.md).
 
 > [!IMPORTANT]
-> This directory contains fictional test data only. Company names (including
-> Northstar Labs), people, timelines, metrics, URLs, and events do not describe
-> real organizations or individuals. Do not add confidential or production
-> data to this directory.
-
-Upload `01-product-strategy.md`, `02-security-policy.md`, and
-`03-customer-interview.txt` together from **Add Source → Upload Documents**.
-
-Expected behavior:
-
-- all three files are processed;
-- extracted Decisions, Goals, Constraints, and Projects appear in Review Queue;
-- each proposed entity has a citation beginning with `upload:`;
-- confirming entities makes them visible in Graph and available to cited chat;
-- uploading the same files again does not create duplicate facts.
-
-The documents deliberately overlap on trust, citations, and organization
-isolation so semantic search can be tested after confirmation.
+> CampusKollektiv e.V., all people, dates, amounts, partners, and events in this
+> pack are fictional. Never add confidential or production data to test fixtures.

@@ -111,34 +111,34 @@ type DemoResult = {
 }
 
 const demoQuestions = [
-  'How long does the pilot run?',
-  'What happens before knowledge is trusted?',
-  'How can agents access company context?',
+  'How long does the Campus Forum run?',
+  'Who can read highly confidential board minutes?',
+  'How much does the main sponsorship package cost?',
 ] as const
 
 const fallbackDemoResults: DemoResult[] = [
   {
     mode: 'demo',
-    workspace: 'Komponist browser demo',
+    workspace: 'CampusKollektiv browser demo',
     question: demoQuestions[0],
-    answer: 'The pilot goal is to onboard 10 design partners in 4 weeks. [1]',
-    sources: [{ id: 'fallback-pilot', number: 1, title: '01-product-strategy.md', excerpt: 'Goal: Onboard 10 design partners during a four-week pilot.', type: 'Goal' }],
+    answer: 'The Campus Forum project runs for 6 weeks and ends with the event on 14 November 2026. [1]',
+    sources: [{ id: 'fallback-forum', number: 1, title: '08-campus-forum-plan-v2.md', excerpt: 'Project: The Campus Forum project runs for six weeks and ends with the event on 14 November 2026.', type: 'Project' }],
     trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
   },
   {
     mode: 'demo',
-    workspace: 'Komponist browser demo',
+    workspace: 'CampusKollektiv browser demo',
     question: demoQuestions[1],
-    answer: 'Every extracted fact requires human review before it becomes trusted company context. [1]',
-    sources: [{ id: 'fallback-review', number: 1, title: '02-review-policy.md', excerpt: 'Constraint: Extracted knowledge must be reviewed before it can be trusted.', type: 'Constraint' }],
+    answer: 'Board minutes marked highly confidential are visible only to board members. [1]',
+    sources: [{ id: 'fallback-confidentiality', number: 1, title: '04-data-and-access-policy.md', excerpt: 'Constraint: Board minutes marked highly confidential are visible only to board members.', type: 'Constraint' }],
     trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
   },
   {
     mode: 'demo',
-    workspace: 'Komponist browser demo',
+    workspace: 'CampusKollektiv browser demo',
     question: demoQuestions[2],
-    answer: "Agents access confirmed company context through Komponist's REST API or MCP server. [1]",
-    sources: [{ id: 'fallback-access', number: 1, title: '03-agent-integration.md', excerpt: 'Decision: Serve the same confirmed context through Studio, REST API, and MCP.', type: 'Decision' }],
+    answer: 'CampusKollektiv offers one main sponsorship package for €1,500. [1]',
+    sources: [{ id: 'fallback-sponsor', number: 1, title: '06-sponsorship-policy.md', excerpt: 'Decision: CampusKollektiv offers one main sponsorship package for €1,500.', type: 'Decision' }],
     trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
   },
 ]
@@ -311,7 +311,7 @@ export default function LandingPage() {
                   <span className="size-2.5 rounded-full bg-orange" />
                   <span className="size-2.5 rounded-full bg-teal" />
                   <span className="size-2.5 rounded-full bg-white/25" />
-                  <span className="ml-1 hidden truncate font-mono text-xs text-white/60 min-[360px]:inline sm:ml-2">komponist / demo-api</span>
+                  <span className="ml-1 hidden truncate font-mono text-xs text-white/60 min-[360px]:inline sm:ml-2">campuskollektiv / company-brain</span>
                 </div>
                 <Badge variant="dark" className="border-white/20 px-2 py-0.5 text-[9px]">
                   {demoStatus === 'live' ? 'API live' : demoStatus === 'fallback' ? 'Browser demo' : 'Checking API'}
@@ -323,9 +323,9 @@ export default function LandingPage() {
                   <p className="mb-4 font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Sources</p>
                   <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 md:mx-0 md:block md:overflow-visible md:px-0 md:pb-0">
                     {[
-                      ['UP', 'Product strategy', '6 facts'],
-                      ['UP', 'Security policy', '6 facts'],
-                      ['NO', 'Notion workspace', 'connected'],
+                      ['UP', 'Board minutes', 'highly confidential'],
+                      ['UP', 'Campus Forum v2', 'approved'],
+                      ['UP', '12 more documents', 'connected'],
                     ].map(([abbr, name, meta], index) => (
                       <div key={name} className="flex min-w-[150px] items-center gap-2 rounded-md border border-line bg-white p-2.5 shadow-sm md:mb-2 md:min-w-0">
                         <span className={`grid size-8 shrink-0 place-items-center rounded border border-line font-mono text-[9px] font-bold ${index === 2 ? 'bg-ink text-white' : 'bg-warning-soft text-orange-dark'}`}>{abbr}</span>
@@ -343,7 +343,7 @@ export default function LandingPage() {
                   <div className="mb-6 flex items-center justify-between">
                     <div>
                       <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Context graph</p>
-                      <h3 className="mt-1 text-xl font-bold">MVP launch</h3>
+                      <h3 className="mt-1 text-xl font-bold">Campus Forum</h3>
                     </div>
                     <Badge variant="teal"><span className="size-1.5 rounded-full bg-teal" /> confirmed</Badge>
                   </div>
@@ -356,10 +356,10 @@ export default function LandingPage() {
                       <Network className="mb-1 size-5" />
                       <span className="text-xs font-bold">Project</span>
                     </div>
-                    <GraphNode className="left-0 top-2" icon={Sparkles} label="Goal" detail="10 partners" color="bg-success-soft" />
-                    <GraphNode className="right-0 top-1" icon={GitBranch} label="Decision" detail="4 entity types" color="bg-info-soft" />
-                    <GraphNode className="bottom-0 left-0" icon={ShieldCheck} label="Constraint" detail="Review first" color="bg-warning-soft" />
-                    <GraphNode className="bottom-0 right-0" icon={FileText} label="Evidence" detail="strategy.md" color="bg-paper-2" />
+                    <GraphNode className="left-0 top-2" icon={Sparkles} label="Goal" detail="220 attendees" color="bg-success-soft" />
+                    <GraphNode className="right-0 top-1" icon={GitBranch} label="Decision" detail="Free entry" color="bg-info-soft" />
+                    <GraphNode className="bottom-0 left-0" icon={ShieldCheck} label="Constraint" detail="€4,800 cap" color="bg-warning-soft" />
+                    <GraphNode className="bottom-0 right-0" icon={FileText} label="Evidence" detail="board-minutes.md" color="bg-paper-2" />
                   </div>
 
                   <div className="mt-5 rounded-lg border-2 border-ink bg-paper p-4 shadow-[4px_4px_0_#0e8a7d]">

@@ -257,36 +257,36 @@ class DemoQueryRequest(BaseModel):
 
 _DEMO_FACTS = [
     {
-        "id": "demo-pilot-goal",
-        "type": "Goal",
-        "statement": "The pilot goal is to onboard 10 design partners in 4 weeks.",
-        "detail": "The team reviews progress with design partners every week.",
-        "source": "01-product-strategy.md",
-        "excerpt": "Goal: Onboard 10 design partners during a four-week pilot.",
-    },
-    {
-        "id": "demo-review-constraint",
-        "type": "Constraint",
-        "statement": "Every extracted fact requires human review before it becomes trusted company context.",
-        "detail": "Only confirmed facts are available to chat, API, and MCP consumers.",
-        "source": "02-review-policy.md",
-        "excerpt": "Constraint: Extracted knowledge must be reviewed before it can be trusted.",
-    },
-    {
-        "id": "demo-agent-access",
-        "type": "Decision",
-        "statement": "Agents access confirmed company context through Komponist's REST API or MCP server.",
-        "detail": "People use Studio while products and agents use organization-scoped credentials.",
-        "source": "03-agent-integration.md",
-        "excerpt": "Decision: Serve the same confirmed context through Studio, REST API, and MCP.",
-    },
-    {
-        "id": "demo-launch-project",
+        "id": "demo-campus-forum",
         "type": "Project",
-        "statement": "The MVP launch flow is upload, extraction, human review, then cited search.",
-        "detail": "The first vertical slice keeps evidence attached throughout the workflow.",
-        "source": "04-mvp-scope.md",
-        "excerpt": "Project: Ship upload → extraction → review → cited search as one reliable loop.",
+        "statement": "The Campus Forum project runs for 6 weeks and ends with the event on 14 November 2026.",
+        "detail": "The Events, Partnerships, and Communications departments deliver the forum together.",
+        "source": "08-campus-forum-plan-v2.md",
+        "excerpt": "Project: The Campus Forum project runs for six weeks and ends with the event on 14 November 2026.",
+    },
+    {
+        "id": "demo-board-confidentiality",
+        "type": "Constraint",
+        "statement": "Board minutes marked highly confidential are visible only to board members.",
+        "detail": "Department members cannot access highly confidential board material.",
+        "source": "04-data-and-access-policy.md",
+        "excerpt": "Constraint: Board minutes marked highly confidential are visible only to board members.",
+    },
+    {
+        "id": "demo-sponsor-package",
+        "type": "Decision",
+        "statement": "CampusKollektiv offers one main sponsorship package for €1,500.",
+        "detail": "Partnerships owns sponsor outreach and Finance approves invoices.",
+        "source": "06-sponsorship-policy.md",
+        "excerpt": "Decision: CampusKollektiv offers one main sponsorship package for €1,500.",
+    },
+    {
+        "id": "demo-membership-goal",
+        "type": "Goal",
+        "statement": "CampusKollektiv aims to recruit 40 active student members by 31 December 2026.",
+        "detail": "The People department owns onboarding and retention.",
+        "source": "02-semester-strategy.md",
+        "excerpt": "Goal: CampusKollektiv recruits 40 active student members by 31 December 2026.",
     },
 ]
 
@@ -341,7 +341,7 @@ async def query_demo(payload: DemoQueryRequest):
     citations = " ".join(f"[{source['number']}]" for source in sources)
     return {
         "mode": "demo",
-        "workspace": "Komponist demo workspace",
+        "workspace": "CampusKollektiv demo workspace",
         "question": payload.question,
         "answer": f"{matches[0]['statement']} {citations}",
         "sources": sources,
@@ -777,6 +777,23 @@ async def confirm_entity(
 
     if not result:
         raise HTTPException(status_code=409, detail="Entity lifecycle changed")
+
+    # A relationship becomes trusted only after both endpoint facts have passed
+    # human review. This prevents proposed graph edges from influencing chat.
+    await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {id: $entity_id, org_id: $org_id})-[relation]-
+              (other:Entity {org_id: $org_id, status: 'confirmed'})
+        WHERE entity.status = 'confirmed'
+          AND type(relation) IN [
+              'ADVANCES', 'AFFECTS', 'DEPENDS_ON', 'SUPERSEDES',
+              'CONSTRAINS', 'RELATES_TO'
+          ]
+        SET relation.status = 'confirmed',
+            relation.confirmed_at = datetime()
+        """,
+        {"entity_id": entity_id, "org_id": org_id},
+    )
 
     return result[0]
 
@@ -2555,8 +2572,24 @@ async def run_extraction(source_item, auto_confirm: bool = False) -> dict:
 
 
 UPLOAD_EXTENSIONS = {".md", ".markdown", ".txt", ".yaml", ".yml"}
-MAX_UPLOAD_FILES = 10
+MAX_UPLOAD_FILES = 20
 MAX_UPLOAD_BYTES = 1024 * 1024
+
+
+def _uploaded_document_date(content: str) -> datetime:
+    """Use an ISO date from Markdown front matter when one is available."""
+    if not content.startswith("---"):
+        return datetime.utcnow()
+    match = re.search(
+        r"(?m)^date:\s*[\"']?(\d{4}-\d{2}-\d{2})(?:[T ][^\"'\\n]+)?[\"']?\s*$",
+        content[:3000],
+    )
+    if not match:
+        return datetime.utcnow()
+    try:
+        return datetime.fromisoformat(match.group(1))
+    except ValueError:
+        return datetime.utcnow()
 
 
 @app.post("/sources/upload")
@@ -2633,7 +2666,7 @@ async def upload_documents(
             author=user.get("name") or user.get("email"),
             url=f"upload://{filename}",
             reference=f"upload:{filename}:{digest[:12]}",
-            source_date=datetime.utcnow(),
+            source_date=_uploaded_document_date(content),
         )
         try:
             extraction = await run_extraction(source_item, auto_confirm=auto_confirm)
@@ -3463,7 +3496,8 @@ async def _expand_chat_graph_context(
         MATCH (seed)-[relationship]-(neighbor:Entity {{
             org_id: $org_id, status: 'confirmed'
         }})
-        WHERE NOT neighbor.id IN $seed_ids AND {_knowledge_scope('neighbor')}
+        WHERE coalesce(relationship.status, 'confirmed') = 'confirmed'
+          AND NOT neighbor.id IN $seed_ids AND {_knowledge_scope('neighbor')}
         RETURN DISTINCT neighbor.id AS id,
                neighbor.entity_type AS entity_type,
                neighbor.statement AS statement,
@@ -3529,8 +3563,6 @@ def _format_duration(value: int, unit: str, german: bool) -> str:
 
 
 def _duration_subject(statement: str, german: bool) -> str:
-    if "northstar" in statement.casefold() and "pilot" in statement.casefold():
-        return "Northstar-Labs-Pilot" if german else "Northstar Labs pilot"
     return "Projekt" if german else "project"
 
 
@@ -3573,6 +3605,53 @@ async def _attach_chat_evidence(
         entity["evidence"] = evidence_by_entity.get(entity["id"], [])
 
 
+_RETRIEVAL_STOPWORDS = {
+    "a", "an", "and", "are", "be", "for", "from", "how", "in", "is", "of",
+    "on", "or", "the", "to", "what", "when", "where", "which", "who", "why",
+    "wie", "was", "wer", "wo", "wann", "warum", "der", "die", "das", "den",
+    "dem", "des", "ein", "eine", "einer", "einem", "einen", "und", "oder",
+}
+
+
+def _rerank_chat_results(
+    query: str, results: List[dict], limit: int
+) -> List[dict]:
+    """Combine semantic rank with grounded lexical evidence coverage."""
+    query_terms = {
+        token for token in re.findall(r"[a-z0-9äöüß]+", query.casefold())
+        if len(token) > 1 and token not in _RETRIEVAL_STOPWORDS
+    }
+    reranked = []
+    for index, result in enumerate(results):
+        evidence_text = " ".join(
+            str(item.get("excerpt") or "") for item in result.get("evidence", [])
+        )
+        haystack = " ".join(filter(None, [
+            str(result.get("statement") or ""),
+            str(result.get("detail") or ""),
+            evidence_text,
+        ])).casefold()
+        haystack_terms = set(re.findall(r"[a-z0-9äöüß]+", haystack))
+        lexical_coverage = (
+            len(query_terms & haystack_terms) / len(query_terms)
+            if query_terms else 0.0
+        )
+        vector_score = float(result.get("vector_score") or 0.0)
+        text_score = float(result.get("text_score") or 0.0)
+        fused_score = float(result.get("score") or 0.0)
+        # Vector similarity carries paraphrases; evidence overlap rewards precise
+        # answers. The tiny position term makes ties deterministic.
+        result["retrieval_score"] = (
+            lexical_coverage * 0.55
+            + max(0.0, vector_score) * 0.35
+            + min(max(text_score, fused_score), 1.0) * 0.10
+            - index * 0.000001
+        )
+        reranked.append(result)
+    reranked.sort(key=lambda item: item["retrieval_score"], reverse=True)
+    return reranked[:limit]
+
+
 def _chat_context_and_sources(search_results: List[dict]) -> tuple[str, List[dict]]:
     """Build grounded model context and flattened UI citations."""
     if not search_results:
@@ -3608,7 +3687,9 @@ def _chat_context_and_sources(search_results: List[dict]) -> tuple[str, List[dic
             citation_numbers.append(str(len(sources)))
             evidence_lines.append(
                 f"Source [{len(sources)}]: {sources[-1]['source']} — "
-                f"{sources[-1]['reference']}"
+                f"{sources[-1]['reference']}\n"
+                f"Verbatim evidence [{len(sources)}]: "
+                f"{sources[-1]['excerpt'] or 'No excerpt available'}"
             )
 
         citations = " ".join(f"[{number}]" for number in citation_numbers)
@@ -3835,8 +3916,6 @@ def _human_source_label(reference: str) -> str:
 
 
 def _duration_question_subject(statement: str) -> str:
-    if "northstar" in statement.casefold() and "pilot" in statement.casefold():
-        return "the Northstar Labs pilot"
     cleaned = _DURATION_PATTERN.sub("", statement, count=1)
     cleaned = re.sub(r"^(run|launch|conduct|start|ship)\s+(a|an|the)?\s*", "", cleaned, flags=re.I)
     cleaned = re.split(r"\s+(?:with|including|that|which)\s+", cleaned, maxsplit=1)[0]
@@ -5711,9 +5790,15 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
                         if result["id"] not in seen_literal_ids:
                             literal_results.append(result)
                             seen_literal_ids.add(result["id"])
-                merged = {result["id"]: result for result in literal_results}
-                for result in search_results:
-                    merged.setdefault(result["id"], result)
+                merged = {result["id"]: dict(result) for result in search_results}
+                for result in literal_results:
+                    if result["id"] in merged:
+                        merged[result["id"]].update({
+                            key: value for key, value in result.items()
+                            if key not in {"vector_score", "text_score"}
+                        })
+                    else:
+                        merged[result["id"]] = result
                 search_results = list(merged.values())[:min(plan["limit"], 20)]
                 if entity_types:
                     search_results.sort(
@@ -5736,6 +5821,12 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
                     print(f"Graph context expansion failed: {expansion_error}")
 
         await _attach_chat_evidence(payload.org_id, user, search_results)
+        if operation == "search":
+            search_results = _rerank_chat_results(
+                retrieval_query,
+                search_results,
+                limit=min(plan["limit"], 8),
+            )
 
         # 3. Build context from results
         context, sources = _chat_context_and_sources(search_results)

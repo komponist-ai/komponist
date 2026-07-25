@@ -7,6 +7,7 @@ Pipeline: classify -> extract -> embed -> dedup -> link -> persist
 """
 
 import hashlib
+import re
 import sys
 sys.path.append("../../packages")
 
@@ -130,6 +131,74 @@ def source_excerpt_location(body: str, excerpt: str) -> tuple[Optional[int], Opt
     line_start = body.count("\n", 0, start) + 1
     line_end = line_start + excerpt.count("\n")
     return line_start, line_end
+
+
+def verbatim_excerpt(body: str, excerpt: str) -> Optional[str]:
+    """Return the exact source slice represented by a model-provided excerpt."""
+    if not body or not excerpt or not excerpt.strip():
+        return None
+    excerpt = excerpt.strip()
+    if excerpt in body:
+        return excerpt
+
+    # Models occasionally normalize line breaks or capitalization despite being
+    # asked for a quote. Accept that only when it maps unambiguously back to one
+    # exact source span, and persist the original bytes from the document.
+    tokens = re.findall(r"\S+", excerpt)
+    if not tokens:
+        return None
+    pattern = r"\s+".join(re.escape(token) for token in tokens)
+    matches = list(re.finditer(pattern, body, flags=re.IGNORECASE))
+    if len(matches) != 1:
+        return None
+    return body[matches[0].start():matches[0].end()]
+
+
+def preserves_source_modality(excerpt: str, statement: str) -> bool:
+    """Reject the common failure mode that turns a condition into a fact."""
+    source = excerpt.casefold()
+    claim = statement.casefold()
+    conditional = re.search(
+        r"\b(depends? on|dependent on|provided that|subject to|must|needs? to|"
+        r"required|requires?|before|after|if|unless)\b",
+        source,
+    )
+    completed_claim = re.search(
+        r"\b(is|are|has been|have been|was|were)\s+"
+        r"(completed|finished|approved|delivered|launched|migrated)\b",
+        claim,
+    )
+    completed_source = re.search(
+        r"\b(is|are|has been|have been|was|were)\s+"
+        r"(completed|finished|approved|delivered|launched|migrated)\b",
+        source,
+    )
+    return not (conditional and completed_claim and not completed_source)
+
+
+def document_chunks(body: str, max_chars: int = 6000) -> List[str]:
+    """Split long sources on paragraph boundaries without silent truncation."""
+    if len(body) <= max_chars:
+        return [body]
+    paragraphs = re.split(r"(\n\s*\n)", body)
+    chunks: List[str] = []
+    current = ""
+    for paragraph in paragraphs:
+        if len(paragraph) > max_chars:
+            if current.strip():
+                chunks.append(current.strip())
+                current = ""
+            for start in range(0, len(paragraph), max_chars):
+                chunks.append(paragraph[start:start + max_chars].strip())
+            continue
+        if current and len(current) + len(paragraph) > max_chars:
+            chunks.append(current.strip())
+            current = paragraph
+        else:
+            current += paragraph
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks
 
 
 async def reuse_identical_document(source_item: SourceItem) -> Optional[Dict[str, Any]]:
@@ -308,8 +377,10 @@ Be generous - if there's ANY useful content, mark it as relevant. Only mark as n
     prompt = f"""Source: {source_item.source} | {source_item.kind}
 Title: {source_item.title}
 
-Body:
+Body sample:
 {source_item.body[:1500]}
+...
+{source_item.body[-1500:] if len(source_item.body) > 1500 else ''}
 
 Does this contain extractable information?"""
 
@@ -368,14 +439,17 @@ Rules:
 2. Detail: 1-3 sentences explaining more context
 3. Excerpt: verbatim quote from the source
 4. Confidence: high (explicit), medium (implicit), low (inferred)
-5. Relations hint: relationships explicitly supported by the source. Use the
+5. Modality: preserve whether the source describes a fact, decision, goal,
+   requirement, plan, or condition. Never turn a dependency, plan, deadline,
+   prerequisite, or requirement into a claim that it is already completed.
+6. Relations hint: relationships explicitly supported by the source. Use the
    exact statement of another extracted fact as target_hint when possible.
    Valid examples: a Project ADVANCES a Goal, a Decision AFFECTS a Project,
    or a Constraint CONSTRAINS a Project. Use [] when none exist.
 
 IMPORTANT: Always return a JSON object with a "facts" key containing an array:
 {"facts": [
-  {"type": "...", "statement": "...", "detail": "...", "excerpt": "...", "confidence": "...", "relations_hint": []},
+  {"type": "...", "statement": "...", "detail": "...", "excerpt": "...", "confidence": "...", "modality": "...", "relations_hint": []},
   ...
 ]}
 
@@ -383,48 +457,81 @@ If nothing to extract, return: {"facts": []}
 Extract multiple facts if the source contains multiple pieces of information.
 """
 
-    prompt = f"""Source: {source_item.source} | {source_item.reference}
+    chunks = document_chunks(source_item.body)
+    all_facts: List[Dict[str, Any]] = []
+    for chunk_number, chunk in enumerate(chunks, 1):
+        prompt = f"""Source: {source_item.source} | {source_item.reference}
 Title: {source_item.title}
 Author: {source_item.author or 'unknown'}
+Part: {chunk_number} of {len(chunks)}
 
 Body:
-{source_item.body[:4000]}
+{chunk}
 
 Extract all relevant items:"""
 
-    try:
-        llm = get_extraction_llm()
-        result = await llm.call_json(
-            prompt=prompt,
-            system=system_prompt,
-            max_tokens=3000,
-            schema=FACT_EXTRACTION_SCHEMA,
-        )
+        try:
+            llm = get_extraction_llm()
+            result = await llm.call_json(
+                prompt=prompt,
+                system=system_prompt,
+                max_tokens=3000,
+                schema=FACT_EXTRACTION_SCHEMA,
+            )
 
-        # Result should be array or dict with "facts" key
-        if isinstance(result, list):
-            facts = result
-        elif isinstance(result, dict) and "facts" in result:
-            facts = result["facts"]
-        elif isinstance(result, dict) and "type" in result and "statement" in result:
-            # Single fact returned as object instead of array
-            facts = [result]
-        else:
-            # Try to extract from common wrapper keys
-            for key in ["items", "results", "data", "extracted"]:
-                if isinstance(result, dict) and key in result:
-                    facts = result[key] if isinstance(result[key], list) else [result[key]]
-                    break
+            if isinstance(result, list):
+                facts = result
+            elif isinstance(result, dict) and "facts" in result:
+                facts = result["facts"]
+            elif isinstance(result, dict) and "type" in result and "statement" in result:
+                facts = [result]
             else:
-                facts = []
-                print(f"[Extract] Unexpected result format: {type(result)} - {str(result)[:200]}")
+                for key in ["items", "results", "data", "extracted"]:
+                    if isinstance(result, dict) and key in result:
+                        facts = result[key] if isinstance(result[key], list) else [result[key]]
+                        break
+                else:
+                    facts = []
+                    print(f"[Extract] Unexpected result format: {type(result)} - {str(result)[:200]}")
 
-        state["extracted_facts"] = facts
-        print(f"[Extract] Extracted {len(facts)} facts from {source_item.reference}")
+            for fact in facts:
+                exact_excerpt = verbatim_excerpt(
+                    source_item.body, str(fact.get("excerpt", ""))
+                )
+                if not exact_excerpt:
+                    print(
+                        "[Extract] Dropped fact without verifiable source quote: "
+                        f"{str(fact.get('statement', ''))[:70]}"
+                    )
+                    continue
+                fact["excerpt"] = exact_excerpt
+                if not preserves_source_modality(
+                    exact_excerpt, str(fact.get("statement", ""))
+                ):
+                    print(
+                        "[Extract] Dropped fact that changed source modality: "
+                        f"{str(fact.get('statement', ''))[:70]}"
+                    )
+                    continue
+                all_facts.append(fact)
+        except Exception as e:
+            state["error"] = f"Extraction failed for part {chunk_number}: {e}"
+            continue
 
-    except Exception as e:
-        state["error"] = f"Extraction failed: {e}"
-        state["extracted_facts"] = []
+    unique_facts: Dict[tuple[str, str, str], Dict[str, Any]] = {}
+    for fact in all_facts:
+        key = (
+            str(fact.get("type", "")).casefold(),
+            " ".join(str(fact.get("statement", "")).casefold().split()),
+            " ".join(str(fact.get("excerpt", "")).casefold().split()),
+        )
+        unique_facts.setdefault(key, fact)
+
+    state["extracted_facts"] = list(unique_facts.values())
+    print(
+        f"[Extract] Extracted {len(state['extracted_facts'])} verified facts "
+        f"from {source_item.reference} in {len(chunks)} part(s)"
+    )
 
     return state
 
@@ -612,6 +719,21 @@ async def link_node(state: ExtractionState) -> ExtractionState:
     For each fact with relations_hint, search for target entities.
     Add edge only if similarity > 0.85.
     """
+    # Give every result a stable target ID before any entity is persisted. This
+    # lets explicit relation hints resolve to facts extracted in the same batch.
+    for result in state["dedupe_results"]:
+        if result.get("action") == "create":
+            result.setdefault("entity_id", str(uuid4()))
+        elif result.get("duplicate_of"):
+            result.setdefault("entity_id", result["duplicate_of"])
+
+    def normalized(value: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
+
+    batch_targets = [
+        result for result in state["dedupe_results"] if result.get("entity_id")
+    ]
+
     for result in state["dedupe_results"]:
         fact = result["fact"]
         relations_hint = fact.get("relations_hint", [])
@@ -623,6 +745,28 @@ async def link_node(state: ExtractionState) -> ExtractionState:
             target_hint = hint.get("target_hint", "")
 
             if not target_hint:
+                continue
+
+            source_id = result.get("entity_id")
+            normalized_hint = normalized(target_hint)
+            local_matches = [
+                candidate
+                for candidate in batch_targets
+                if candidate.get("entity_id") != source_id
+                and normalized(candidate["fact"].get("statement", ""))
+                == normalized_hint
+            ]
+            if len(local_matches) == 1:
+                resolved_relations.append({
+                    "relation": relation_type,
+                    "target_id": local_matches[0]["entity_id"],
+                    "score": 1.0,
+                    "resolution": "same_batch_exact",
+                })
+                print(
+                    f"[Link] Resolved same-batch {relation_type} -> "
+                    f"{local_matches[0]['fact']['statement'][:40]}"
+                )
                 continue
 
             try:
@@ -645,7 +789,8 @@ async def link_node(state: ExtractionState) -> ExtractionState:
                     resolved_relations.append({
                         "relation": relation_type,
                         "target_id": candidates[0]["id"],
-                        "score": candidates[0]["score"]
+                        "score": candidates[0]["score"],
+                        "resolution": "graph_semantic",
                     })
                     print(f"[Link] Resolved {relation_type} -> {candidates[0]['statement'][:40]}")
                 else:
@@ -672,6 +817,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
     document = document_metadata(source_item)
     created_ids = []
     relationships_created = 0
+    pending_relationships: List[Dict[str, Any]] = []
 
     for result in state["dedupe_results"]:
         fact = result["fact"]
@@ -767,7 +913,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
 
             else:
                 # Create new entity
-                entity_id = str(uuid4())
+                entity_id = result.get("entity_id") or str(uuid4())
                 entity_query = """
                 CREATE (e:Entity {
                     id: $id,
@@ -808,38 +954,25 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
                     "evidence_id": evidence_id
                 })
 
-                # Create RELATES_TO edges
                 for relates in result.get("relates_to", []):
-                    relates_query = """
-                    MATCH (e:Entity {id: $entity_id, org_id: $org_id})
-                    MATCH (t:Entity {id: $target_id, org_id: $org_id})
-                    MERGE (e)-[:RELATES_TO {score: $score}]->(t)
-                    RETURN true AS linked
-                    """
-                    linked = await GraphClient.run_query(relates_query, {
-                        "entity_id": entity_id,
+                    pending_relationships.append({
+                        "source_id": entity_id,
                         "target_id": relates["entity_id"],
+                        "relation": "RELATES_TO",
                         "score": relates["score"],
-                        "org_id": source_item.org_id,
+                        "resolution": "dedup_similarity",
                     })
-                    relationships_created += 1 if linked else 0
 
-                # Create resolved relation edges
                 for rel in result.get("resolved_relations", []):
                     if rel["relation"] not in ALLOWED_RELATION_TYPES:
                         continue
-                    rel_query = f"""
-                    MATCH (e:Entity {{id: $entity_id, org_id: $org_id}})
-                    MATCH (t:Entity {{id: $target_id, org_id: $org_id}})
-                    MERGE (e)-[:{rel["relation"]}]->(t)
-                    RETURN true AS linked
-                    """
-                    linked = await GraphClient.run_query(rel_query, {
-                        "entity_id": entity_id,
+                    pending_relationships.append({
+                        "source_id": entity_id,
                         "target_id": rel["target_id"],
-                        "org_id": source_item.org_id,
+                        "relation": rel["relation"],
+                        "score": rel.get("score"),
+                        "resolution": rel.get("resolution", "explicit_hint"),
                     })
-                    relationships_created += 1 if linked else 0
 
                 result["entity_id"] = entity_id
                 created_ids.append(entity_id)
@@ -847,6 +980,36 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
 
         except Exception as e:
             print(f"[Persist] Error: {e}")
+            if not state.get("error"):
+                state["error"] = str(e)
+
+    # Persist explicit and semantic relationships only after every same-batch
+    # entity exists. They remain proposed until both endpoint facts are reviewed.
+    for rel in pending_relationships:
+        if rel["relation"] not in ALLOWED_RELATION_TYPES:
+            continue
+        relation_query = f"""
+        MATCH (source:Entity {{id: $source_id, org_id: $org_id}})
+        MATCH (target:Entity {{id: $target_id, org_id: $org_id}})
+        MERGE (source)-[r:{rel["relation"]}]->(target)
+        ON CREATE SET
+            r.status = 'proposed',
+            r.resolution = $resolution,
+            r.score = $score,
+            r.created_at = datetime()
+        RETURN true AS linked
+        """
+        try:
+            linked = await GraphClient.run_query(relation_query, {
+                "source_id": rel["source_id"],
+                "target_id": rel["target_id"],
+                "org_id": source_item.org_id,
+                "resolution": rel["resolution"],
+                "score": rel.get("score"),
+            })
+            relationships_created += 1 if linked else 0
+        except Exception as e:
+            print(f"[Persist] Relationship error: {e}")
             if not state.get("error"):
                 state["error"] = str(e)
 
@@ -864,6 +1027,7 @@ async def persist_node(state: ExtractionState) -> ExtractionState:
         ON CREATE SET
             r.inferred = true,
             r.inference_basis = 'same_document',
+            r.status = 'proposed',
             r.created_at = datetime()
         RETURN true AS linked
         """

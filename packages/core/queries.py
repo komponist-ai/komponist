@@ -45,12 +45,13 @@ class BrainQueries:
         entities: Dict[str, Dict[str, Any]] = {}
         rank_scores: Dict[str, float] = {}
 
-        def add_ranked(items: List[Dict[str, Any]]) -> None:
+        def add_ranked(items: List[Dict[str, Any]], method: str) -> None:
             # Raw vector and Lucene scores are not comparable. Reciprocal rank
             # fusion combines their ordering without pretending the scales match.
             for rank, item in enumerate(items, 1):
                 entity_id = item["id"]
-                entities.setdefault(entity_id, item)
+                entity = entities.setdefault(entity_id, dict(item))
+                entity[f"{method}_score"] = item.get("score", 0.0)
                 rank_scores[entity_id] = (
                     rank_scores.get(entity_id, 0.0) + 1.0 / (60 + rank)
                 )
@@ -94,7 +95,7 @@ class BrainQueries:
                     "include_global": include_global,
                 }
             )
-            add_ranked(vector_results)
+            add_ranked(vector_results, "vector")
 
         # Fulltext search (if text provided)
         if query_text:
@@ -135,7 +136,7 @@ class BrainQueries:
                     "include_global": include_global,
                 }
             )
-            add_ranked(fulltext_results)
+            add_ranked(fulltext_results, "text")
 
         # Dedupe and sort by fused rank score.
         dedupe_results = [

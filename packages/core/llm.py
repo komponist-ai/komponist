@@ -484,6 +484,12 @@ def _mock_marked_facts(prompt: str) -> List[Dict[str, Any]]:
             "detail": f"Extracted from an explicit {entity_type.lower()} marker.",
             "excerpt": match.group(0).strip(),
             "confidence": "high",
+            "modality": {
+                "Decision": "decision",
+                "Goal": "goal",
+                "Constraint": "required",
+                "Project": "planned",
+            }[entity_type],
             "relations_hint": [],
         })
 

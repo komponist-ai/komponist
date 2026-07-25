@@ -40,6 +40,7 @@ class ExtractionContractTests(unittest.IsolatedAsyncioTestCase):
                             "detail": "",
                             "excerpt": "A note",
                             "confidence": "high",
+                            "modality": "fact",
                             "relations_hint": [],
                         }
                     ]
