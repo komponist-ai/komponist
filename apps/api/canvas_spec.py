@@ -56,7 +56,7 @@ QUERY_TYPES = (
     "entity_list",
     "entity_fact",
     "aggregate_by_type",
-    "aggregate_by_status",
+    "aggregate_by_confidence",
     "relationship_list",
     "timeline_events",
     "evidence_list",
@@ -66,10 +66,10 @@ QUERY_TYPES = (
 # A component may only pull data in ways that make sense for how it renders.
 # This is what stops a "metric" from quietly returning 100 rows of evidence.
 COMPATIBLE_QUERIES: dict[str, set[str]] = {
-    "metric": {"entity_count", "entity_fact", "aggregate_by_type", "aggregate_by_status"},
+    "metric": {"entity_count", "entity_fact", "aggregate_by_type", "aggregate_by_confidence"},
     "entity_list": {"entity_list"},
     "relationship_table": {"relationship_list"},
-    "status_board": {"aggregate_by_status", "entity_list"},
+    "status_board": {"aggregate_by_confidence", "entity_list"},
     "timeline": {"timeline_events"},
     "evidence_list": {"evidence_list", "source_passages"},
     "markdown_narrative": {"entity_list"},
@@ -80,7 +80,6 @@ COMPATIBLE_QUERIES: dict[str, set[str]] = {
 # a hand-written Cypher fragment. Anything else has no safe translation.
 FILTER_FIELDS = (
     "entity_type",
-    "status",
     "confidence",
     "department_id",
     "title",
@@ -89,7 +88,10 @@ FILTER_FIELDS = (
 )
 FILTER_OPS = ("eq", "neq", "contains", "gt", "lt")
 
-SORT_FIELDS = ("created_at", "updated_at", "confirmed_at", "title", "entity_type", "status")
+SORT_FIELDS = (
+    "created_at", "updated_at", "confirmed_at", "title", "entity_type",
+    "confidence",
+)
 
 # Matches an absolute URL, a protocol-relative URL, or a data/javascript URI.
 _URL_PATTERN = re.compile(
@@ -169,8 +171,8 @@ CANVAS_SCHEMA: dict[str, Any] = {
                         "type": "object",
                         "additionalProperties": False,
                         "required": [
-                            "query", "entity_type", "status", "entity_name",
-                            "field", "project", "filters", "sort_field",
+                            "query", "entity_type", "entity_name", "field",
+                            "project", "filters", "sort_field",
                             "sort_direction", "limit", "entity_ids",
                         ],
                         "properties": {
@@ -179,14 +181,16 @@ CANVAS_SCHEMA: dict[str, Any] = {
                                 "type": "string",
                                 "description": "Decision, Goal, Constraint, Project, or empty.",
                             },
-                            "status": {"type": "string"},
                             "entity_name": {
                                 "type": "string",
                                 "description": "Subject entity for entity_fact. Empty otherwise.",
                             },
                             "field": {
                                 "type": "string",
-                                "description": "Field name for entity_fact. Empty otherwise.",
+                                "description": (
+                                    "Extra search term for entity_fact, such as "
+                                    "\"duration\". Empty otherwise."
+                                ),
                             },
                             "project": {"type": "string"},
                             "filters": {
@@ -260,7 +264,6 @@ class CanvasFilter(BaseModel):
 class CanvasBinding(BaseModel):
     query: Literal[QUERY_TYPES] = "none"  # type: ignore[valid-type]
     entity_type: str = Field(default="", max_length=60)
-    status: str = Field(default="", max_length=40)
     entity_name: str = Field(default="", max_length=200)
     field: str = Field(default="", max_length=60)
     project: str = Field(default="", max_length=200)
@@ -353,10 +356,8 @@ class CanvasComponent(BaseModel):
         elif self.narrative.strip():
             raise ValueError(f"{self.type} must not carry narrative text")
 
-        if self.binding.query == "entity_fact" and not (
-            self.binding.entity_name and self.binding.field
-        ):
-            raise ValueError("entity_fact needs entity_name and field")
+        if self.binding.query == "entity_fact" and not self.binding.entity_name:
+            raise ValueError("entity_fact needs an entity_name to look up")
         return self
 
 

@@ -224,6 +224,12 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 
+# Registered after the app and its middleware exist. canvas_routes imports
+# main lazily inside its handlers, so there is no import cycle.
+from canvas_routes import router as canvas_router  # noqa: E402
+
+app.include_router(canvas_router)
+
 async def get_org_settings(org_id: str) -> dict:
     """Get settings for an org with defaults."""
     defaults = {

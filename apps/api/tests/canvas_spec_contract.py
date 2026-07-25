@@ -31,7 +31,6 @@ def component(**overrides) -> dict:
         "binding": {
             "query": "entity_list",
             "entity_type": "Goal",
-            "status": "confirmed",
             "entity_name": "",
             "field": "",
             "project": "",
@@ -103,7 +102,7 @@ def check_closed_vocabulary() -> None:
     )
     rejects(
         spec([component(binding={"filters": [
-            {"field": "status", "op": "regex", "value": "x"}
+            {"field": "confidence", "op": "regex", "value": "x"}
         ]})]),
         "an unknown filter operator",
     )
@@ -133,7 +132,6 @@ def check_type_query_compatibility() -> None:
                 payload["binding"]["entity_ids"] = ["entity-1"]
             if query == "entity_fact":
                 payload["binding"]["entity_name"] = "Northstar Pilot"
-                payload["binding"]["field"] = "duration"
             validate_spec(spec([payload]))
     print("✓ component and query pairings are enforced both ways")
 
@@ -214,7 +212,7 @@ def check_entity_fact_needs_subject() -> None:
         spec([component(type="metric", binding={"query": "entity_fact"})]),
         "entity_fact without a subject",
     )
-    print("✓ entity_fact requires an explicit subject and field")
+    print("✓ entity_fact requires an explicit subject")
 
 
 def check_revalidation_of_stored_spec() -> None:
