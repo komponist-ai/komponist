@@ -418,9 +418,60 @@ class WorkroomTask(Base):
     status: Mapped[str] = mapped_column(String(24), default="todo", index=True)
     assignee_type: Mapped[str] = mapped_column(String(20), default="agent")
     assignee_name: Mapped[str] = mapped_column(String(120), default="Komponist Analyst")
+    # Set when a specific person owns the task; agent tasks leave it null.
+    assignee_user_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True, index=True
+    )
     position: Mapped[int] = mapped_column(Integer, default=0)
+    # Stable key from the generated plan. Hand-made tasks have none, which is
+    # what keeps a plan approval from archiving them.
+    client_key: Mapped[Optional[str]] = mapped_column(
+        String(60), nullable=True, index=True
+    )
+    plan_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    depends_on: Mapped[list] = mapped_column(JSON, default=list)
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=False)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     created_by_user_id: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class WorkroomPlanVersion(Base):
+    """One generated-or-edited plan draft and its approval state.
+
+    Plans are versioned rather than overwritten so an approved plan and the
+    tasks it produced remain explainable after later revisions.
+    """
+    __tablename__ = "workroom_plan_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "workroom_id", "version", name="uq_workroom_plan_room_version"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    # "draft" | "approved" | "superseded" | "rejected"
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    spec: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Operational metadata only. No model reasoning is requested or stored.
+    provider: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    usage: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by_user_id: Mapped[str] = mapped_column(String(36))
+    approved_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True
+    )
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -554,6 +605,18 @@ async def init_db():
             "ALTER TABLE workrooms ADD COLUMN IF NOT EXISTS visibility "
             "VARCHAR(20) NOT NULL DEFAULT 'organization'"
         ))
+        for column, definition in (
+            ("assignee_user_id", "VARCHAR(36)"),
+            ("client_key", "VARCHAR(60)"),
+            ("plan_version_id", "VARCHAR(36)"),
+            ("depends_on", "JSON NOT NULL DEFAULT '[]'"),
+            ("requires_approval", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("archived_at", "TIMESTAMP"),
+        ):
+            await conn.execute(text(
+                f"ALTER TABLE workroom_tasks ADD COLUMN IF NOT EXISTS "
+                f"{column} {definition}"
+            ))
         # Rooms created before room roles existed keep working: their creator
         # is backfilled as owner. Migration 012 is the source of truth for
         # managed deployments; this keeps create_all installs consistent.

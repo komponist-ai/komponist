@@ -112,7 +112,15 @@ def task_dict(task: WorkroomTask) -> dict[str, Any]:
         "status": task.status,
         "assignee_type": task.assignee_type,
         "assignee_name": task.assignee_name,
+        "assignee_user_id": task.assignee_user_id,
         "position": task.position,
+        "client_key": task.client_key,
+        "plan_version_id": task.plan_version_id,
+        "depends_on": task.depends_on or [],
+        "requires_approval": bool(task.requires_approval),
+        "archived_at": (
+            f"{task.archived_at.isoformat()}Z" if task.archived_at else None
+        ),
         "artifact_id": task.artifact_id,
         "created_by_user_id": task.created_by_user_id,
         "created_at": f"{task.created_at.isoformat()}Z",
@@ -462,7 +470,10 @@ async def list_rooms(
         for room, role in visible:
             tasks = (
                 await session.execute(
-                    select(WorkroomTask).where(WorkroomTask.workroom_id == room.id)
+                    select(WorkroomTask).where(
+                        WorkroomTask.workroom_id == room.id,
+                        WorkroomTask.archived_at.is_(None),
+                    )
                 )
             ).scalars().all()
             runs = (
@@ -532,7 +543,10 @@ async def get_room(
         tasks = (
             await session.execute(
                 select(WorkroomTask)
-                .where(WorkroomTask.workroom_id == room_id)
+                .where(
+                    WorkroomTask.workroom_id == room_id,
+                    WorkroomTask.archived_at.is_(None),
+                )
                 .order_by(WorkroomTask.position, WorkroomTask.created_at)
             )
         ).scalars().all()
@@ -606,7 +620,10 @@ async def create_task(
             raise ValueError("Workroom not found")
         existing = (
             await session.execute(
-                select(WorkroomTask).where(WorkroomTask.workroom_id == room_id)
+                select(WorkroomTask).where(
+                    WorkroomTask.workroom_id == room_id,
+                    WorkroomTask.archived_at.is_(None),
+                )
             )
         ).scalars().all()
         task = WorkroomTask(
@@ -778,6 +795,121 @@ async def update_task(
         task.updated_at = datetime.utcnow()
         await session.commit()
         return task_dict(task)
+
+
+async def edit_task(
+    org_id: str,
+    room_id: str,
+    task_id: str,
+    *,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    status: Optional[str] = None,
+    assignee_type: Optional[str] = None,
+    assignee_user_id: Optional[str] = None,
+    assignee_name: Optional[str] = None,
+    requires_approval: Optional[bool] = None,
+    depends_on: Optional[list[str]] = None,
+) -> Optional[dict[str, Any]]:
+    """Apply a human edit to one task, keeping dependencies inside the room."""
+    async with async_session() as session:
+        task = await session.get(WorkroomTask, task_id)
+        if task is None or task.org_id != org_id or task.workroom_id != room_id:
+            return None
+        if title is not None:
+            task.title = title[:180]
+        if description is not None:
+            task.description = description
+        if status is not None:
+            task.status = status
+        if assignee_type is not None:
+            task.assignee_type = assignee_type
+            if assignee_type == "agent":
+                task.assignee_user_id = None
+                task.assignee_name = "Komponist Analyst"
+        if assignee_user_id is not None:
+            task.assignee_user_id = assignee_user_id or None
+        if assignee_name is not None:
+            task.assignee_name = assignee_name[:120]
+        if requires_approval is not None:
+            task.requires_approval = requires_approval
+        if depends_on is not None:
+            # A dependency may only reference another live task in this room,
+            # and never the task itself.
+            siblings = {
+                row.id
+                for row in (
+                    await session.execute(
+                        select(WorkroomTask).where(
+                            WorkroomTask.workroom_id == room_id,
+                            WorkroomTask.archived_at.is_(None),
+                        )
+                    )
+                ).scalars().all()
+            }
+            task.depends_on = [
+                dependency
+                for dependency in dict.fromkeys(depends_on)
+                if dependency in siblings and dependency != task_id
+            ]
+        task.updated_at = datetime.utcnow()
+        await session.commit()
+        return task_dict(task)
+
+
+async def archive_task(
+    org_id: str, room_id: str, task_id: str
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        task = await session.get(WorkroomTask, task_id)
+        if task is None or task.org_id != org_id or task.workroom_id != room_id:
+            return None
+        task.archived_at = datetime.utcnow()
+        task.updated_at = task.archived_at
+        await session.commit()
+        return task_dict(task)
+
+
+async def reorder_tasks(
+    org_id: str, room_id: str, task_ids: list[str]
+) -> Optional[list[dict[str, Any]]]:
+    """Apply an explicit order. Tasks left out keep their relative order after."""
+    async with async_session() as session:
+        tasks = (
+            await session.execute(
+                select(WorkroomTask)
+                .where(
+                    WorkroomTask.org_id == org_id,
+                    WorkroomTask.workroom_id == room_id,
+                    WorkroomTask.archived_at.is_(None),
+                )
+                .order_by(WorkroomTask.position, WorkroomTask.created_at)
+            )
+        ).scalars().all()
+        if not tasks:
+            return None
+        by_id = {task.id: task for task in tasks}
+        ordered = [by_id[task_id] for task_id in task_ids if task_id in by_id]
+        ordered += [task for task in tasks if task.id not in set(task_ids)]
+        now = datetime.utcnow()
+        for position, task in enumerate(ordered):
+            task.position = position
+            task.updated_at = now
+        await session.commit()
+        return [task_dict(task) for task in ordered]
+
+
+async def list_runs_for_task(org_id: str, task_id: str) -> list[dict[str, Any]]:
+    """Every attempt made for one task, newest first, including redirects."""
+    async with async_session() as session:
+        runs = (
+            await session.execute(
+                select(WorkroomRun)
+                .where(WorkroomRun.org_id == org_id, WorkroomRun.task_id == task_id)
+                .order_by(WorkroomRun.created_at.desc())
+            )
+        ).scalars().all()
+        return [run_dict(run) for run in runs]
 
 
 async def append_event(

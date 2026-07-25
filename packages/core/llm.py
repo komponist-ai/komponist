@@ -490,6 +490,60 @@ def _mock_marked_facts(prompt: str) -> List[Dict[str, Any]]:
     return facts
 
 
+def _mock_workroom_plan(prompt: str) -> Dict[str, Any]:
+    """Build a deterministic Workroom plan without contacting a provider.
+
+    The shape matches the strict schema the live provider is held to, so CI
+    exercises the same validation path as production.
+    """
+    objective = ""
+    for line in prompt.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Objective:"):
+            objective = stripped.split("Objective:", 1)[1].strip()
+            break
+    objective = objective or "the stated objective"
+
+    return {
+        "summary": (
+            f"Gather confirmed context for {objective}, draft a cited "
+            "deliverable, then have a person review it."
+        ),
+        "tasks": [
+            {
+                "client_key": "gather-context",
+                "title": "Gather confirmed context",
+                "description": (
+                    f"Collect the confirmed facts and their evidence that bear on {objective}."
+                ),
+                "assignee_type": "agent",
+                "depends_on": [],
+                "requires_approval": False,
+            },
+            {
+                "client_key": "draft-deliverable",
+                "title": "Draft the cited deliverable",
+                "description": (
+                    "Turn the gathered evidence into a grounded briefing, citing every claim."
+                ),
+                "assignee_type": "agent",
+                "depends_on": ["gather-context"],
+                "requires_approval": True,
+            },
+            {
+                "client_key": "review-outcome",
+                "title": "Review the outcome with the team",
+                "description": (
+                    "Check the deliverable against the objective and decide what happens next."
+                ),
+                "assignee_type": "human",
+                "depends_on": ["draft-deliverable"],
+                "requires_approval": False,
+            },
+        ],
+    }
+
+
 class MockLLMClient(BaseLLMClient):
     """No-network LLM test double for development before API access exists."""
 
@@ -524,6 +578,8 @@ class MockLLMClient(BaseLLMClient):
             }
         elif schema and schema.get("title") == "komponist_fact_extraction":
             value = {"facts": _mock_marked_facts(prompt)}
+        elif schema and schema.get("title") == "komponist_workroom_plan":
+            value = _mock_workroom_plan(prompt)
         elif schema:
             value = _schema_example(schema)
         elif json_mode:

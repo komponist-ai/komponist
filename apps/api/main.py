@@ -22,7 +22,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, RedirectResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import delete, select
 
 import sys
@@ -83,6 +83,16 @@ from artifacts import (
     source_deep_link_path,
 )
 import workroom_queue
+from workroom_plans import (
+    PlanGenerationError,
+    PlanSpec,
+    approve_draft as approve_plan_draft,
+    create_plan_version,
+    generate_plan_spec,
+    list_plan_versions,
+    reject_draft,
+    replace_draft_spec,
+)
 from workroom_agent import (
     TERMINAL_STATES as WORKROOM_TERMINAL_STATES,
     enqueue_finalize,
@@ -90,6 +100,10 @@ from workroom_agent import (
 )
 from workrooms import (
     add_member as add_workroom_member,
+    archive_task as archive_workroom_task_record,
+    edit_task as edit_workroom_task_details,
+    list_runs_for_task,
+    reorder_tasks as reorder_workroom_task_records,
     count_active_owners,
     effective_room_role,
     get_membership as get_workroom_membership,
@@ -2948,6 +2962,38 @@ class WorkroomMemberRoleRequest(BaseModel):
     room_role: Literal["owner", "editor", "approver", "viewer"]
 
 
+class WorkroomPlanGenerateRequest(BaseModel):
+    guidance: str = Field(default="", max_length=1200)
+
+
+class WorkroomPlanTaskInput(BaseModel):
+    client_key: str = Field(min_length=1, max_length=60)
+    title: str = Field(min_length=3, max_length=180)
+    description: str = Field(min_length=3, max_length=1200)
+    assignee_type: Literal["agent", "human"] = "agent"
+    depends_on: List[str] = Field(default_factory=list, max_length=12)
+    requires_approval: bool = False
+
+
+class WorkroomPlanEditRequest(BaseModel):
+    summary: str = Field(min_length=3, max_length=1200)
+    tasks: List[WorkroomPlanTaskInput] = Field(min_length=1, max_length=12)
+
+
+class WorkroomTaskUpdateRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=2, max_length=180)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    status: Optional[Literal["todo", "in_progress", "completed", "blocked"]] = None
+    assignee_type: Optional[Literal["agent", "human"]] = None
+    assignee_user_id: Optional[str] = Field(default=None, max_length=36)
+    requires_approval: Optional[bool] = None
+    depends_on: Optional[List[str]] = Field(default=None, max_length=12)
+
+
+class WorkroomTaskReorderRequest(BaseModel):
+    task_ids: List[str] = Field(min_length=1, max_length=60)
+
+
 class WorkroomTaskCreateRequest(BaseModel):
     title: str = Field(min_length=2, max_length=180)
     description: str = Field(default="", max_length=2000)
@@ -4503,6 +4549,280 @@ async def add_workroom_task(
         assignee_type=payload.assignee_type,
         assignee_name=payload.assignee_name,
     )
+
+
+def _first_plan_error(error: ValidationError) -> str:
+    """Turn a Pydantic failure into one sentence a person can act on."""
+    problems = error.errors()
+    if not problems:
+        return "The plan is not valid."
+    first = problems[0]
+    location = ".".join(str(part) for part in first.get("loc", ()) if part != "tasks")
+    message = first.get("msg", "is not valid")
+    message = message.removeprefix("Value error, ")
+    return f"{location or 'plan'}: {message}"
+
+
+async def _room_context_lines(org_id: str, user: dict, room: Any) -> list[str]:
+    """Confirmed statements inside the room's scope, for grounding a plan."""
+    scoped_user = _workroom_scoped_user(user, room)
+    try:
+        entities, _ = await _artifact_context(org_id, scoped_user, room.objective)
+    except Exception:  # noqa: BLE001 - planning still works without context
+        return []
+    lines: list[str] = []
+    for entity in entities[:24]:
+        statement = entity.get("statement") or entity.get("detail")
+        if statement:
+            lines.append(f"{entity.get('entity_type') or 'Fact'}: {statement}")
+    return lines
+
+
+@app.post("/workrooms/{room_id}/plans", status_code=201)
+async def generate_workroom_plan(
+    room_id: str,
+    payload: WorkroomPlanGenerateRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Ask the configured provider for a draft plan. A person must approve it."""
+    user, room, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="edit"
+    )
+    context_lines = await _room_context_lines(org_id, user, room)
+    try:
+        spec, metadata = await generate_plan_spec(
+            objective=room.objective,
+            title=room.title,
+            context_lines=context_lines,
+            guidance=" ".join(payload.guidance.split()),
+        )
+    except PlanGenerationError as error:
+        # 502 for provider trouble, 422 when the model's output was rejected.
+        status = 422 if error.code in {"schema_rejected", "unreadable"} else 502
+        raise HTTPException(status_code=status, detail=str(error)) from error
+
+    version = await create_plan_version(
+        org_id=org_id,
+        room_id=room_id,
+        spec=spec,
+        provider=metadata.get("provider"),
+        model=metadata.get("model"),
+        usage={},
+        created_by_user_id=user["id"],
+    )
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="agent",
+        actor_name="Komponist Analyst",
+        event_type="plan_generated",
+        message=(
+            f"Proposed plan v{version['version']} with "
+            f"{len(spec.tasks)} tasks. Approval required."
+        ),
+        payload={"plan_id": version["id"], "version": version["version"]},
+    )
+    return version
+
+
+@app.get("/workrooms/{room_id}/plans")
+async def get_workroom_plans(
+    room_id: str, request: Request, org_id: str = Query(...)
+):
+    await _authorized_workroom(request, org_id, room_id)
+    versions = await list_plan_versions(org_id, room_id)
+    current = next(
+        (item for item in versions if item["status"] == "approved"), None
+    )
+    draft = next((item for item in versions if item["status"] == "draft"), None)
+    return {"plans": versions, "current": current, "draft": draft}
+
+
+@app.patch("/workrooms/{room_id}/plans/{plan_id}")
+async def edit_workroom_plan(
+    room_id: str,
+    plan_id: str,
+    payload: WorkroomPlanEditRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Save human edits to a draft, held to the same rules as generated output."""
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="edit"
+    )
+    try:
+        spec = PlanSpec.model_validate(payload.model_dump())
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=_first_plan_error(error),
+        ) from error
+    updated = await replace_draft_spec(org_id, room_id, plan_id, spec)
+    if updated is None:
+        raise HTTPException(
+            status_code=404, detail="No editable plan draft was found"
+        )
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="plan_edited",
+        message=f"Edited plan draft v{updated['version']}.",
+        payload={"plan_id": plan_id},
+    )
+    return updated
+
+
+@app.post("/workrooms/{room_id}/plans/{plan_id}/approval")
+async def approve_workroom_plan(
+    room_id: str,
+    plan_id: str,
+    payload: WorkroomApprovalRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Approve a draft into the active plan, or reject it."""
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="approve"
+    )
+    if not payload.approved:
+        rejected = await reject_draft(org_id, room_id, plan_id)
+        if rejected is None:
+            raise HTTPException(
+                status_code=409, detail="No editable plan draft was found"
+            )
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room_id,
+            actor_type="human",
+            actor_name=user["name"],
+            event_type="plan_rejected",
+            message=f"Rejected plan draft v{rejected['version']}.",
+            payload={"plan_id": plan_id},
+        )
+        return rejected
+
+    result = await approve_plan_draft(
+        org_id=org_id, room_id=room_id, plan_id=plan_id, user_id=user["id"]
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=409, detail="No editable plan draft was found"
+        )
+    approved, task_ids = result
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="plan_approved",
+        message=(
+            f"Approved plan v{approved['version']}. "
+            f"{len(task_ids)} tasks are now active."
+        ),
+        payload={"plan_id": plan_id, "task_ids": task_ids},
+    )
+    return approved
+
+
+@app.patch("/workrooms/{room_id}/tasks/{task_id}")
+async def update_workroom_task_details(
+    room_id: str,
+    task_id: str,
+    payload: WorkroomTaskUpdateRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="edit"
+    )
+    assignee_name: Optional[str] = None
+    if payload.assignee_user_id:
+        assignee = await get_org_member(org_id, payload.assignee_user_id)
+        if assignee is None:
+            raise HTTPException(
+                status_code=400,
+                detail="That person is not an active member of this organization",
+            )
+        assignee_name = assignee["name"]
+
+    task = await edit_workroom_task_details(
+        org_id,
+        room_id,
+        task_id,
+        title=" ".join(payload.title.split()) if payload.title else None,
+        description=(
+            " ".join(payload.description.split())
+            if payload.description is not None
+            else None
+        ),
+        status=payload.status,
+        assignee_type=payload.assignee_type,
+        assignee_user_id=payload.assignee_user_id,
+        assignee_name=assignee_name,
+        requires_approval=payload.requires_approval,
+        depends_on=payload.depends_on,
+    )
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="task_updated",
+        message=f"Updated the task “{task['title']}”.",
+        payload={"task_id": task_id},
+    )
+    return task
+
+
+@app.delete("/workrooms/{room_id}/tasks/{task_id}")
+async def archive_workroom_task(
+    room_id: str, task_id: str, request: Request, org_id: str = Query(...)
+):
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="edit"
+    )
+    task = await archive_workroom_task_record(org_id, room_id, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="task_archived",
+        message=f"Archived the task “{task['title']}”.",
+        payload={"task_id": task_id},
+    )
+    return task
+
+
+@app.post("/workrooms/{room_id}/tasks/reorder")
+async def reorder_workroom_tasks(
+    room_id: str,
+    payload: WorkroomTaskReorderRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    await _authorized_workroom(request, org_id, room_id, permission="edit")
+    tasks = await reorder_workroom_task_records(org_id, room_id, payload.task_ids)
+    if tasks is None:
+        raise HTTPException(status_code=404, detail="Workroom has no tasks")
+    return {"tasks": tasks, "total": len(tasks)}
+
+
+@app.get("/workrooms/{room_id}/tasks/{task_id}/runs")
+async def get_workroom_task_runs(
+    room_id: str, task_id: str, request: Request, org_id: str = Query(...)
+):
+    """Every attempt for one task, so redirect lineage stays inspectable."""
+    await _authorized_workroom(request, org_id, room_id)
+    runs = await list_runs_for_task(org_id, task_id)
+    return {"runs": runs, "total": len(runs)}
 
 
 @app.post("/workrooms/{room_id}/runs", status_code=202)

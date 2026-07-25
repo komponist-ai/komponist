@@ -89,6 +89,8 @@ The core local slice now has broad contract and restart coverage. External provi
 - `apps/api/tests/workrooms_e2e.py` — shared membership, room-scoped retrieval, pause/resume, redirect lineage, approval, cancellation, and Compose handoff (passing)
 - `apps/api/tests/workroom_queue_e2e.py` — single-claim safety, idempotency, lease recovery, bounded retries, and restart survival (passing)
 - `apps/api/tests/workroom_roles_e2e.py` — room roles, visibility modes, participant management, archive, and cross-organization isolation (passing)
+- `apps/api/tests/workroom_plans_e2e.py` — strict plan schema, rejected invalid plans, draft/approve/supersede lifecycle, and task management (passing)
+- `apps/api/tests/workroom_plans_live_ai.py` — optional live OpenAI plan generation, skipped unless `OPENAI_API_KEY` and `RUN_LIVE_AI_TESTS=1` are set (not run in CI)
 - `packages/core/tests/test_versioning.py` — content identity, family matching, chronology, and claim-diff contracts (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `apps/api/tests/platform_ai_and_api_keys_e2e.py` — API keys, cited programmatic context, project scope, graph stats, approvals, and revocation (passing)
@@ -227,6 +229,8 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Explicit room membership with owner, editor, approver, and viewer roles
 - [x] Organization, department, and private room visibility modes
 - [x] Participant management, room settings, archive, and reopen with audit events
+- [x] Versioned, human-approved plans generated through the central LLM provider
+- [x] Editable tasks with assignment, dependencies, reorder, archive, and run lineage
 - [ ] Live participant presence and email room invitations
 - [ ] Agent-to-agent handoffs and parallel task execution
 
