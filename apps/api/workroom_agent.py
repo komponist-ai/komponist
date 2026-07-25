@@ -26,6 +26,7 @@ from workroom_context import (
     build_context_snapshot,
     list_context_items,
 )
+from workroom_artifacts import share_artifact
 from workroom_messages import create_message
 from workrooms import (
     append_event,
@@ -419,19 +420,28 @@ async def handle_finalize(job: dict[str, Any], keep_lease: Callable[[], bool]) -
         ),
         language="english",
     )
+    # Link before recording the result: the deliverable is the room's, not
+    # the approving user's private copy. share_artifact is idempotent, so an
+    # at-least-once retry cannot create a second link.
+    await share_artifact(
+        org_id=org_id,
+        room_id=room.id,
+        artifact_id=artifact["id"],
+        task_id=run.get("task_id"),
+        run_id=run_id,
+        created_by_user_id=run["created_by_user_id"],
+        approved_by_user_id=run.get("approved_by_user_id"),
+    )
     result = {
         **(run.get("result") or {}),
         "artifact_id": artifact["id"],
         "artifact_title": artifact["title"],
         "compose_path": f"/create?artifact={artifact['id']}",
+        "shared_with_workroom": True,
     }
-    await update_run(
-        org_id,
-        run_id,
-        status="completed",
-        current_step="completed",
-        result=result,
-    )
+    # Record the task outcome *before* the run reports completed. "Completed"
+    # is what watchers poll on, so it must not become visible while the task
+    # it finished still looks in progress.
     if run.get("task_id"):
         await update_task(
             org_id,
@@ -439,6 +449,13 @@ async def handle_finalize(job: dict[str, Any], keep_lease: Callable[[], bool]) -
             status="completed",
             artifact_id=artifact["id"],
         )
+    await update_run(
+        org_id,
+        run_id,
+        status="completed",
+        current_step="completed",
+        result=result,
+    )
     await append_event(
         org_id=org_id,
         room_id=room.id,

@@ -442,6 +442,38 @@ class WorkroomTask(Base):
     )
 
 
+class WorkroomArtifact(Base):
+    """Links a generated deliverable to the Workroom that produced it.
+
+    The link is what makes a deliverable shared. Artifacts with no link stay
+    private to their creator exactly as before, so existing deliverables are
+    not retroactively exposed.
+    """
+    __tablename__ = "workroom_artifacts"
+    __table_args__ = (
+        UniqueConstraint(
+            "workroom_id", "artifact_id", name="uq_workroom_artifact"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    artifact_id: Mapped[str] = mapped_column(String(36), index=True)
+    task_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # "shared" while visible to the room, "archived" once withdrawn.
+    status: Mapped[str] = mapped_column(String(20), default="shared", index=True)
+    created_by_user_id: Mapped[str] = mapped_column(String(36))
+    approved_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class WorkroomMessage(Base):
     """One intentional message in a Workroom's shared conversation.
 

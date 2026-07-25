@@ -92,6 +92,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - `apps/api/tests/workroom_plans_e2e.py` — strict plan schema, rejected invalid plans, draft/approve/supersede lifecycle, and task management (passing)
 - `apps/api/tests/workroom_context_e2e.py` — context pins, exclusions, run snapshots, and confidential-source non-disclosure (passing)
 - `apps/api/tests/workroom_messages_e2e.py` — conversation threading, references, mention scoping, and separation from the audit trail (passing)
+- `apps/api/tests/workroom_deliverables_e2e.py` — shared artifact access for participants, refusal for non-participants and other organizations, and private-artifact preservation (passing)
 - `apps/api/tests/workroom_plans_live_ai.py` — optional live OpenAI plan generation, skipped unless `OPENAI_API_KEY` and `RUN_LIVE_AI_TESTS=1` are set (not run in CI)
 - `packages/core/tests/test_versioning.py` — content identity, family matching, chronology, and claim-diff contracts (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
@@ -236,6 +237,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Governed context packs with pins, exclusions, and a permission-safe preview
 - [x] Immutable per-run context snapshots recording entities, evidence, and scope
 - [x] Shared room conversation with replies, references, and scoped mentions
+- [x] Deliverables shared with room participants through room authorization
 - [ ] Live participant presence and email room invitations
 - [ ] Agent-to-agent handoffs and parallel task execution
 

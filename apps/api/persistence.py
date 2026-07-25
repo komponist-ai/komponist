@@ -24,6 +24,11 @@ from database import (
 )
 
 
+def artifact_record_dict(row: GeneratedArtifact) -> dict[str, Any]:
+    """Public serialiser for callers that authorized an artifact themselves."""
+    return _artifact_dict(row)
+
+
 def _artifact_dict(row: GeneratedArtifact) -> dict[str, Any]:
     return {
         "id": row.id,

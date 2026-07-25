@@ -56,6 +56,7 @@ from persistence import (
     delete_generated_artifact,
     get_chat_conversation,
     get_connected_source,
+    artifact_record_dict,
     get_generated_artifact,
     list_chat_conversations,
     list_approval_requests,
@@ -83,6 +84,14 @@ from artifacts import (
     source_deep_link_path,
 )
 import workroom_queue
+from workroom_artifacts import (
+    artifact_sharing,
+    get_org_artifact,
+    list_room_artifacts,
+    resolve_room_access as resolve_artifact_room_access,
+    share_artifact,
+    unshare_artifact,
+)
 from workroom_messages import (
     create_message as create_workroom_message,
     delete_message as delete_workroom_message,
@@ -4132,18 +4141,48 @@ async def get_artifacts(request: Request, org_id: str = Query(...)):
     return {"artifacts": artifacts, "total": len(artifacts)}
 
 
+async def _readable_artifact(
+    request: Request,
+    org_id: str,
+    artifact_id: str,
+    *,
+    permission: str = "view",
+) -> tuple[dict, dict, Optional[dict]]:
+    """Resolve a deliverable the caller may read, privately or via a room.
+
+    Ownership is checked first so private deliverables keep working exactly
+    as before. Only if that fails does Workroom sharing apply.
+    """
+    user = await _authorized_org_user(request, org_id)
+    department_ids, access_all = _artifact_scope(user)
+    owned = await get_generated_artifact(
+        org_id, user["id"], artifact_id, department_ids, access_all
+    )
+    if owned is not None:
+        return user, owned, None
+
+    grant = await resolve_artifact_room_access(
+        org_id=org_id, artifact_id=artifact_id, user=user, permission=permission
+    )
+    if grant is None:
+        raise HTTPException(status_code=404, detail="Deliverable not found")
+
+    record = await get_org_artifact(org_id, artifact_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Deliverable not found")
+    return user, artifact_record_dict(record), grant
+
+
 @app.get("/artifacts/{artifact_id}")
 async def get_artifact(
     artifact_id: str, request: Request, org_id: str = Query(...)
 ):
-    user = await _authorized_org_user(request, org_id)
-    department_ids, access_all = _artifact_scope(user)
-    artifact = await get_generated_artifact(
-        org_id, user["id"], artifact_id, department_ids, access_all
-    )
-    if artifact is None:
-        raise HTTPException(status_code=404, detail="Deliverable not found")
-    return artifact
+    user, artifact, grant = await _readable_artifact(request, org_id, artifact_id)
+    return {
+        **artifact,
+        "shared_with_workrooms": await artifact_sharing(org_id, artifact_id),
+        "access_via_workroom": grant,
+    }
 
 
 @app.get("/artifacts/{artifact_id}/download")
@@ -4155,13 +4194,8 @@ async def download_artifact(
         None, alias="format"
     ),
 ):
-    user = await _authorized_org_user(request, org_id)
-    department_ids, access_all = _artifact_scope(user)
-    artifact = await get_generated_artifact(
-        org_id, user["id"], artifact_id, department_ids, access_all
-    )
-    if artifact is None:
-        raise HTTPException(status_code=404, detail="Deliverable not found")
+    # A room viewer may download what they are allowed to read.
+    _, artifact, _ = await _readable_artifact(request, org_id, artifact_id)
 
     selected_format = export_format or (
         "pptx" if artifact["artifact_type"] == "presentation" else "markdown"
@@ -4616,6 +4650,39 @@ async def _room_context_lines(org_id: str, user: dict, room: Any) -> list[str]:
         if statement:
             lines.append(f"{entity.get('entity_type') or 'Fact'}: {statement}")
     return lines
+
+
+@app.get("/workrooms/{room_id}/deliverables")
+async def get_workroom_deliverables(
+    room_id: str, request: Request, org_id: str = Query(...)
+):
+    """Deliverables shared with this room, readable by every participant."""
+    await _authorized_workroom(request, org_id, room_id)
+    deliverables = await list_room_artifacts(org_id, room_id)
+    return {"deliverables": deliverables, "total": len(deliverables)}
+
+
+@app.delete("/workrooms/{room_id}/deliverables/{artifact_id}")
+async def withdraw_workroom_deliverable(
+    room_id: str, artifact_id: str, request: Request, org_id: str = Query(...)
+):
+    """Withdraw a deliverable from the room. The artifact itself survives."""
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="manage"
+    )
+    link = await unshare_artifact(org_id, room_id, artifact_id)
+    if link is None:
+        raise HTTPException(status_code=404, detail="Shared deliverable not found")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="deliverable_withdrawn",
+        message="Withdrew a shared deliverable from the Workroom.",
+        payload={"artifact_id": artifact_id},
+    )
+    return link
 
 
 @app.get("/workrooms/{room_id}/messages")
