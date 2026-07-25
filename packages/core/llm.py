@@ -544,6 +544,110 @@ def _mock_workroom_plan(prompt: str) -> Dict[str, Any]:
     }
 
 
+def _mock_canvas_spec(prompt: str) -> Dict[str, Any]:
+    """Build a deterministic Canvas without contacting a provider.
+
+    The shape matches the strict schema the live provider is held to, so CI
+    exercises the same validation and rendering path as production. A refine
+    request is answered by adding one component, which is enough to prove
+    that refinement produces a genuinely new version.
+    """
+    refining = "current canvas specification" in prompt
+
+    def binding(query: str, **overrides: Any) -> Dict[str, Any]:
+        base = {
+            "query": query,
+            "entity_type": "",
+            "entity_name": "",
+            "field": "",
+            "project": "",
+            "filters": [],
+            "sort_field": "updated_at",
+            "sort_direction": "desc",
+            "limit": 20,
+            "entity_ids": [],
+        }
+        base.update(overrides)
+        return base
+
+    def options(**overrides: Any) -> Dict[str, Any]:
+        base = {"show_sources": True, "empty_text": "", "accent": "neutral"}
+        base.update(overrides)
+        return base
+
+    components = [
+        {
+            "id": "confirmed-facts",
+            "type": "metric",
+            "title": "Confirmed facts",
+            "description": "Everything you may read in this workspace.",
+            "narrative": "",
+            "position": {"row": 0, "column": 0, "width": 4},
+            "binding": binding("entity_count"),
+            "options": options(accent="info"),
+        },
+        {
+            "id": "knowledge-mix",
+            "type": "metric",
+            "title": "By type",
+            "description": "",
+            "narrative": "",
+            "position": {"row": 0, "column": 4, "width": 8},
+            "binding": binding("aggregate_by_type", limit=6),
+            "options": options(),
+        },
+        {
+            "id": "recent-decisions",
+            "type": "entity_list",
+            "title": "Recent decisions",
+            "description": "",
+            "narrative": "",
+            "position": {"row": 1, "column": 0, "width": 6},
+            "binding": binding("entity_list", entity_type="Decision", limit=10),
+            "options": options(empty_text="No confirmed decisions in your view."),
+        },
+        {
+            "id": "milestones",
+            "type": "timeline",
+            "title": "Milestones",
+            "description": "",
+            "narrative": "",
+            "position": {"row": 1, "column": 6, "width": 6},
+            "binding": binding("timeline_events", limit=10),
+            "options": options(),
+        },
+        {
+            "id": "supporting-evidence",
+            "type": "evidence_list",
+            "title": "Supporting passages",
+            "description": "",
+            "narrative": "",
+            "position": {"row": 2, "column": 0, "width": 12},
+            "binding": binding("source_passages", limit=10),
+            "options": options(),
+        },
+    ]
+
+    if refining:
+        components.append({
+            "id": "constraints",
+            "type": "entity_list",
+            "title": "Constraints",
+            "description": "Added by the requested change.",
+            "narrative": "",
+            "position": {"row": 3, "column": 0, "width": 6},
+            "binding": binding("entity_list", entity_type="Constraint", limit=10),
+            "options": options(accent="warning"),
+        })
+
+    return {
+        "schema_version": "1",
+        "title": "Company overview" if not refining else "Company overview (updated)",
+        "description": "Confirmed knowledge available to you, with its sources.",
+        "components": components,
+    }
+
+
 class MockLLMClient(BaseLLMClient):
     """No-network LLM test double for development before API access exists."""
 
@@ -580,6 +684,8 @@ class MockLLMClient(BaseLLMClient):
             value = {"facts": _mock_marked_facts(prompt)}
         elif schema and schema.get("title") == "komponist_workroom_plan":
             value = _mock_workroom_plan(prompt)
+        elif schema and schema.get("title") == "komponist_canvas_spec":
+            value = _mock_canvas_spec(prompt)
         elif schema:
             value = _schema_example(schema)
         elif json_mode:

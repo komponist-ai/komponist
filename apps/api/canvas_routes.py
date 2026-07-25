@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field
 
 from canvas_data import resolve_spec
 from canvas_examples import EXAMPLE_SUMMARIES, EXAMPLES
+from canvas_generate import (
+    CanvasGenerationError,
+    generate_canvas,
+    refine_canvas,
+)
 from canvas_spec import CanvasValidationError, validate_spec
 from canvas_store import (
     CANVAS_VISIBILITIES,
@@ -179,6 +184,127 @@ async def create_canvas_from_example(
         context_summary={"source": "built-in example"},
     )
     return created
+
+
+async def _scope_summary(org_id: str, user: dict) -> tuple[list[str], list[str]]:
+    """A short, permission-scoped picture of what this user can actually see.
+
+    Only what the caller may already read reaches the prompt, so the model
+    cannot be steered toward knowledge outside their scope.
+    """
+    import main
+
+    try:
+        entities, _ = await main._artifact_context(org_id, user, "company overview")
+    except Exception:  # noqa: BLE001 - a bare canvas beats a broken request
+        return [], []
+
+    lines: list[str] = []
+    types: list[str] = []
+    for entity in entities[:20]:
+        statement = entity.get("statement") or entity.get("detail")
+        entity_type = entity.get("entity_type") or "Fact"
+        if entity_type not in types:
+            types.append(entity_type)
+        if statement:
+            lines.append(f"{entity_type}: {statement}")
+    return lines, types
+
+
+@router.post("", status_code=201)
+async def generate_canvas_view(
+    payload: CanvasCreateRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Describe a view in words; the model returns a spec the server validates."""
+    user = await _viewer(request, org_id, write=True)
+    await _check_budget(org_id, user)
+
+    departments = await _validated_departments(org_id, user, payload.department_ids)
+    if payload.visibility == "departments" and not departments:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose at least one department for a department-scoped Canvas",
+        )
+
+    context_lines, entity_types = await _scope_summary(org_id, user)
+    try:
+        spec, metadata = await generate_canvas(
+            request=payload.prompt,
+            context_lines=context_lines,
+            entity_types=entity_types,
+        )
+    except CanvasGenerationError as error:
+        status = 422 if error.code in {"schema_rejected", "unreadable"} else 502
+        raise HTTPException(status_code=status, detail=str(error)) from error
+
+    created = await create_canvas(
+        org_id=org_id,
+        user_id=user["id"],
+        title=" ".join(payload.title.split()) or spec.title,
+        description=spec.description,
+        spec=spec.model_dump(),
+        prompt=" ".join(payload.prompt.split()),
+        origin="generated",
+        visibility=payload.visibility,
+        department_ids=departments,
+        provider=metadata.get("provider"),
+        model=metadata.get("model"),
+        context_summary={
+            "entity_types": entity_types,
+            "fact_count": len(context_lines),
+        },
+    )
+    return created
+
+
+@router.post("/{canvas_id}/refine", status_code=201)
+async def refine_canvas_view(
+    canvas_id: str,
+    payload: CanvasRefineRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Change a view by describing the change. The result is a new version."""
+    user, _ = await _owned_canvas(request, org_id, canvas_id)
+    await _check_budget(org_id, user)
+
+    current = await get_current_version(org_id, canvas_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="Canvas version not found")
+
+    context_lines, entity_types = await _scope_summary(org_id, user)
+    try:
+        spec, metadata = await refine_canvas(
+            instruction=payload.instruction,
+            current=current.spec or {},
+            context_lines=context_lines,
+            entity_types=entity_types,
+        )
+    except CanvasGenerationError as error:
+        status = 422 if error.code in {"schema_rejected", "unreadable"} else 502
+        raise HTTPException(status_code=status, detail=str(error)) from error
+
+    appended = await append_version(
+        org_id=org_id,
+        canvas_id=canvas_id,
+        user_id=user["id"],
+        spec=spec.model_dump(),
+        prompt=" ".join(payload.instruction.split()),
+        origin="refined",
+        provider=metadata.get("provider"),
+        model=metadata.get("model"),
+        context_summary={
+            "entity_types": entity_types,
+            "fact_count": len(context_lines),
+        },
+        title=spec.title,
+        description=spec.description,
+    )
+    if appended is None:
+        raise HTTPException(status_code=404, detail="Canvas not found")
+    return appended
 
 
 @router.get("/{canvas_id}")
