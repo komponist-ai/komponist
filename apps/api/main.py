@@ -83,6 +83,14 @@ from artifacts import (
     source_deep_link_path,
 )
 import workroom_queue
+from workroom_messages import (
+    create_message as create_workroom_message,
+    delete_message as delete_workroom_message,
+    edit_message as edit_workroom_message_body,
+    list_messages as list_workroom_messages,
+    normalize_references as normalize_message_references,
+    resolve_mentions as resolve_message_mentions,
+)
 from workroom_context import (
     build_context_preview,
     list_context_items as list_workroom_context_items,
@@ -3000,6 +3008,25 @@ class WorkroomTaskReorderRequest(BaseModel):
     task_ids: List[str] = Field(min_length=1, max_length=60)
 
 
+class WorkroomMessageReference(BaseModel):
+    kind: Literal["task", "run", "source", "artifact"]
+    id: str = Field(min_length=1, max_length=120)
+    label: str = Field(default="", max_length=200)
+
+
+class WorkroomMessageCreateRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+    reply_to_message_id: Optional[str] = Field(default=None, max_length=36)
+    references: List[WorkroomMessageReference] = Field(
+        default_factory=list, max_length=8
+    )
+    mentions: List[str] = Field(default_factory=list, max_length=12)
+
+
+class WorkroomMessageEditRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
 class WorkroomContextItemRequest(BaseModel):
     item_kind: Literal["source", "entity"]
     reference_id: str = Field(min_length=1, max_length=120)
@@ -4591,6 +4618,101 @@ async def _room_context_lines(org_id: str, user: dict, room: Any) -> list[str]:
     return lines
 
 
+@app.get("/workrooms/{room_id}/messages")
+async def get_workroom_messages(
+    room_id: str,
+    request: Request,
+    org_id: str = Query(...),
+    after: Optional[str] = Query(None),
+):
+    await _authorized_workroom(request, org_id, room_id)
+    messages = await list_workroom_messages(org_id, room_id, after_id=after)
+    return {"messages": messages, "total": len(messages)}
+
+
+@app.post("/workrooms/{room_id}/messages", status_code=201)
+async def post_workroom_message(
+    room_id: str,
+    payload: WorkroomMessageCreateRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Post to the shared conversation.
+
+    Posting never instructs the agent. Changing what a run is doing is a
+    separate, explicit redirect action.
+    """
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="comment"
+    )
+    message = await create_workroom_message(
+        org_id=org_id,
+        room_id=room_id,
+        author_type="human",
+        author_user_id=user["id"],
+        author_name=user["name"],
+        body=payload.body.strip(),
+        reply_to_message_id=payload.reply_to_message_id,
+        references=normalize_message_references(
+            [reference.model_dump() for reference in payload.references]
+        ),
+        mentions=await resolve_message_mentions(org_id, room_id, payload.mentions),
+    )
+    if message is None:
+        raise HTTPException(status_code=404, detail="Workroom not found")
+    # Emitted so open room streams see the message without polling.
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="message_posted",
+        message=f"{user['name']} posted in the conversation.",
+        payload={"message_id": message["id"]},
+    )
+    return message
+
+
+@app.patch("/workrooms/{room_id}/messages/{message_id}")
+async def edit_workroom_message(
+    room_id: str,
+    message_id: str,
+    payload: WorkroomMessageEditRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="comment"
+    )
+    message = await edit_workroom_message_body(
+        org_id, room_id, message_id, user_id=user["id"], body=payload.body.strip()
+    )
+    if message is None:
+        raise HTTPException(
+            status_code=404, detail="No message of yours was found to edit"
+        )
+    return message
+
+
+@app.delete("/workrooms/{room_id}/messages/{message_id}")
+async def remove_workroom_message(
+    room_id: str, message_id: str, request: Request, org_id: str = Query(...)
+):
+    user, _, role = await _authorized_workroom(
+        request, org_id, room_id, permission="comment"
+    )
+    message = await delete_workroom_message(
+        org_id,
+        room_id,
+        message_id,
+        user_id=user["id"],
+        can_manage=room_can(role, "manage"),
+    )
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return message
+
+
 @app.get("/workrooms/{room_id}/context")
 async def get_workroom_context(
     room_id: str, request: Request, org_id: str = Query(...)
@@ -5234,6 +5356,19 @@ async def redirect_workroom_run(
         actor_name=user["name"],
         event_type="run_redirected",
         message=f"Changed direction: {instruction}",
+    )
+    # A redirect is an explicit instruction, so it belongs in the conversation
+    # as well as the audit trail. Ordinary messages never do this.
+    await create_workroom_message(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        author_type="human",
+        author_user_id=user["id"],
+        author_name=user["name"],
+        body=f"Redirected the agent: {instruction}",
+        reply_to_message_id=None,
+        references=[{"kind": "run", "id": run_id, "label": "Superseded attempt"}],
+        mentions=[],
     )
     replacement = await create_workroom_run(
         org_id=org_id,

@@ -442,6 +442,38 @@ class WorkroomTask(Base):
     )
 
 
+class WorkroomMessage(Base):
+    """One intentional message in a Workroom's shared conversation.
+
+    Deliberately distinct from WorkroomEvent: messages are what people and
+    agents choose to say, events are the immutable audit trail of what
+    happened. A message never commands the agent on its own — redirecting a
+    run is a separate, explicit action.
+    """
+    __tablename__ = "workroom_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    author_type: Mapped[str] = mapped_column(String(20), default="human")
+    author_user_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    author_name: Mapped[str] = mapped_column(String(120), default="Team member")
+    body: Mapped[str] = mapped_column(Text)
+    reply_to_message_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    # Durable pointers to a task, run, source, or artifact this message is about.
+    references: Mapped[list] = mapped_column(JSON, default=list)
+    mentions: Mapped[list] = mapped_column(JSON, default=list)
+    edited_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
+
+
 class WorkroomContextItem(Base):
     """One explicit inclusion or exclusion in a Workroom's context pack.
 

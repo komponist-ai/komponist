@@ -26,6 +26,7 @@ from workroom_context import (
     build_context_snapshot,
     list_context_items,
 )
+from workroom_messages import create_message
 from workrooms import (
     append_event,
     get_room_record,
@@ -87,6 +88,26 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 
 def can_transition(from_status: str, to_status: str) -> bool:
     return to_status in ALLOWED_TRANSITIONS.get(from_status, set())
+
+
+async def _say(
+    org_id: str,
+    room_id: str,
+    body: str,
+    references: Optional[list[dict[str, str]]] = None,
+) -> None:
+    """Let the agent speak in the shared conversation, not only in the log."""
+    await create_message(
+        org_id=org_id,
+        room_id=room_id,
+        author_type="agent",
+        author_user_id=None,
+        author_name=AGENT_NAME,
+        body=body,
+        reply_to_message_id=None,
+        references=references or [],
+        mentions=[],
+    )
 
 
 async def _control_signal(org_id: str, run_id: str) -> Optional[str]:
@@ -334,6 +355,16 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
         event_type="approval_required",
         message="Ready to create a cited briefing in Compose. Approval required.",
     )
+    await _say(
+        org_id,
+        room.id,
+        (
+            f"I found {len(entities)} confirmed facts across {len(sources)} cited "
+            "passages for this objective. I need approval before turning them "
+            "into a shared briefing."
+        ),
+        references=[{"kind": "run", "id": run_id, "label": "Research attempt"}],
+    )
 
 
 async def handle_finalize(job: dict[str, Any], keep_lease: Callable[[], bool]) -> None:
@@ -421,6 +452,18 @@ async def handle_finalize(job: dict[str, Any], keep_lease: Callable[[], bool]) -
             "artifact_title": artifact["title"],
             "compose_path": f"/create?artifact={artifact['id']}",
         },
+    )
+    await _say(
+        org_id,
+        room.id,
+        f"“{artifact['title']}” is ready and shared with this Workroom.",
+        references=[
+            {
+                "kind": "artifact",
+                "id": artifact["id"],
+                "label": artifact["title"][:200],
+            }
+        ],
     )
 
 
