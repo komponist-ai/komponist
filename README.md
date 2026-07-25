@@ -145,7 +145,7 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 | Authentication | Email/password registration and login, revocable HttpOnly sessions, invitations, organization switching, and provider-free Google login contracts |
 | Authorization | Organization isolation, owner/admin/member/viewer roles, department assignments, read/write checks, and encrypted connector configuration |
 | Chat | Confirmed-context retrieval, streaming answers, evidence cards, graph expansion, dynamic suggestions, and persistent multi-chat history |
-| Workrooms | Shared, department-scoped rooms with plans, live agent activity, pause/redirect controls, human approval, cited research, and Compose handoff |
+| Workrooms | Shared rooms with room roles and visibility modes, model-generated approved plans, governed context packs, a shared conversation, durable agent execution in a separate worker, and deliverables shared with room participants |
 | Compose | Permission-aware presentations, briefings, and summaries with private history, inline citations, designed PDF, editable PowerPoint, and Markdown export |
 | Versions | Cross-source document families, provenance timelines, latest-candidate ranking, semantic claim diffs, conflict preservation, and a built-in three-platform example |
 | API and SDK | Organization API keys plus `/v1/context`, `/v1/brain`, `/v1/decisions`, and the typed `@komponist/sdk` workspace package |
@@ -166,9 +166,13 @@ docker compose --env-file .env -f docker/docker-compose.yml down
   monitoring, and alerting for the public pilot
 - Password reset, personal account settings, organization create/rename UI,
   billing, quotas, error tracking, and operational dashboards
-- Durable external Workroom workers, live presence, room invitations, and
-  multiple specialized agents; the first slice currently runs one Analyst
-  inside the API process
+- Live participant presence, email room invitations, agent-to-agent handoffs,
+  parallel task execution, and multiple specialized agents; Workrooms currently
+  run one Analyst, though it now executes in a durable worker rather than in
+  the API process
+- Live OpenAI plan generation with production credentials; plan generation is
+  verified through the provider abstraction offline, and an opt-in live check
+  exists but is not part of CI
 - Department-scoped programmatic keys; API and MCP keys currently authorize the
   complete organization brain
 
@@ -208,21 +212,36 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 
 ### Multiplayer Workrooms
 
-- Creates shared organization rooms around one objective and a deliberately
-  selected department scope.
-- Gives every visible team member the same task plan, run history, cited context,
-  and append-only activity stream.
-- Runs one **Komponist Analyst** against confirmed graph knowledge only; a room
-  with no selected department can use organization-wide evidence but cannot
-  inherit an owner's unrestricted department access.
-- Supports pause/resume, versioned redirects, and an explicit human checkpoint
-  before the agent creates a cited briefing in Compose.
-- Keeps superseded attempts and human interventions visible instead of silently
-  rewriting the run history.
+- Creates shared rooms around one objective, with explicit participants holding
+  an **owner**, **editor**, **approver**, or **viewer** role, and a visibility
+  mode of organization, departments, or private.
+- Proposes a structured plan through the configured model using strict
+  structured outputs, then re-validates it locally — unique keys, resolvable
+  dependencies, no cycles — and requires human approval before it becomes the
+  active plan. Plans are versioned rather than overwritten.
+- Runs one **Komponist Analyst** against confirmed graph knowledge only. Room
+  membership never widens knowledge access: the agent reads the room's scope,
+  never the unrestricted access of whoever started it.
+- Lets a room pin or exclude specific sources, and shows a permission-safe
+  preview of exactly what the agent may read. Sources the room cannot reach are
+  reported as a count, never named.
+- Records an immutable per-run snapshot of the entities, evidence, excerpts,
+  source links, and permission scope behind every result.
+- Executes agent work in a **separate worker process** backed by a Postgres
+  queue, so queued and in-flight runs survive an API restart or redeploy.
+- Supports pause, resume, cancel, retry, and versioned redirects. Pause and
+  cancel take effect at the next safe step, because a model request already in
+  flight cannot be interrupted — the UI says so rather than implying otherwise.
+- Keeps a shared conversation for humans and the agent, separate from the
+  immutable activity trail. A message never commands the agent; redirecting is
+  an explicit action.
+- Shares approved deliverables with room participants through room
+  authorization, while deliverables with no room link stay private to their
+  creator.
 
-The initial slice schedules work inside the API process. It is suitable for the
-pilot, but production-scale execution still needs a restart-safe worker queue,
-presence, and multi-agent handoffs.
+Run at least one worker (`python worker.py`, or the `worker` Compose service)
+whenever Workrooms are in use. Without it, runs are stored durably but never
+execute, and `/healthz` reports `workroom_worker.workers_online: 0`.
 
 ### Git for files
 

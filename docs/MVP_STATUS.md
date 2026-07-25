@@ -16,7 +16,7 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | Integrations | 🚧 Provider-free contracts verified | 55% |
 | Web UI | ✅ Production build and core flows verified | 88% |
 | Chat Feature | ✅ Grounded live OpenAI flow verified | 88% |
-| Agent Collaboration | 🚧 First Workrooms slice verified | 65% |
+| Agent Collaboration | ✅ Durable multiplayer Workrooms verified | 85% |
 | Auth & Security | ✅ Session/API-key org isolation verified | 88% |
 | User Management | 🚧 Multi-org membership UI | 80% |
 | Deployment | 🚧 Hetzner/Coolify stack prepared | 40% |
@@ -73,6 +73,11 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Cross-source document families, provenance ordering, semantic claim diffs, and the built-in three-platform example are verified provider-free
 - [x] Shared Workrooms persist plans, versioned agent runs, activity events, pause/resume, redirects, and human approvals
 - [x] Workroom agents retrieve only confirmed knowledge inside the room's explicit department scope and create a cited Compose briefing after approval
+- [x] Workroom jobs are claimed exactly once, recover from an expired worker lease, retry with bounded backoff, and survive an API and worker restart
+- [x] Room roles and visibility modes are enforced; a private room is not disclosed to non-participants
+- [x] Model-generated plans are schema-strict, locally re-validated, versioned, and require human approval
+- [x] Context pins and exclusions govern agent retrieval without ever widening access
+- [x] Deliverables are shared through room authorization while older private deliverables stay private
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -223,6 +228,11 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Expired worker leases are recovered automatically and retries are bounded
 
 ### Multiplayer Workrooms
+
+**Verified in Docker with the provider-free mock:** durable queue mechanics,
+room roles and visibility, plan generation and approval, governed context,
+shared conversation, shared deliverables, and restart recovery. The browser
+flow was checked at 1280px and 375px in both themes.
 - [x] Shared rooms visible to authorized organization members
 - [x] Explicit organization/department knowledge scope
 - [x] One Komponist Analyst with live activity events and cited graph research
@@ -267,6 +277,23 @@ The core local slice now has broad contract and restart coverage. External provi
 ---
 
 ## Critical Issues
+
+### 0. Workroom Limitations That Remain
+
+- Live OpenAI plan generation has not been exercised with production
+  credentials. It is verified offline through the provider abstraction, and an
+  opt-in live check exists (`workroom_plans_live_ai.py`) that CI never runs.
+- One agent persona (Komponist Analyst) exists. There are no agent-to-agent
+  handoffs and no parallel task execution.
+- Pause and cancel take effect at the next safe step. A model request already
+  in flight is not aborted, and it is not billed back or retracted.
+- Deliverable versioning is not implemented: approving new work creates a new
+  artifact rather than a new version of an existing one.
+- Room membership has no email invitation flow and no live presence.
+- Withdrawing a shared deliverable revokes room access but leaves the artifact
+  with its creator; there is no hard delete for shared deliverables.
+- Multi-worker operation is implemented and unit-verified through concurrent
+  claims, but has not been run at scale on the pilot server.
 
 ### 1. External Integrations Remain Partially Untested
 The local vertical slice is verified, but important boundaries are still open:

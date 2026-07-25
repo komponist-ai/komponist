@@ -43,6 +43,9 @@ from workroom_agent import run_worker_loop
 
 
 OWNER_EMAIL = "workroom-context-owner-e2e@example.com"
+# Unique per run so an interrupted earlier run can never contaminate results.
+RUN_TAG = uuid4().hex[:10]
+SECRET_AMOUNT = f"9000{RUN_TAG[:2]}"
 PASSWORD = "correct horse battery staple"
 
 
@@ -120,7 +123,7 @@ async def seed_graph(org_id: str) -> None:
         })
         CREATE (secret:Entity {
             id: 'ctx-secret', org_id: $org_id, entity_type: 'Constraint',
-            statement: 'The confidential board budget is 900000 euros.',
+            statement: 'The confidential board budget is ' + $secret + ' euros.',
             status: 'confirmed', confidence: 'high', department_ids: ['board'],
             created_at: datetime(), confirmed_at: datetime()
         })
@@ -153,7 +156,7 @@ async def seed_graph(org_id: str) -> None:
         CREATE (stale)-[:CITED_BY]->(e3)
         CREATE (secret)-[:CITED_BY]->(e4)
         """,
-        {"org_id": org_id},
+        {"org_id": org_id, "secret": SECRET_AMOUNT},
     )
 
 
@@ -229,8 +232,12 @@ async def run() -> None:
             assert body["confirmed_fact_count"] >= 3, body
             assert body["accessible_source_count"] >= 3, body
             serialized = str(body)
-            assert "900000" not in serialized, "a confidential fact leaked"
-            assert "board-budget" not in serialized, "a confidential source leaked"
+            assert SECRET_AMOUNT not in serialized, (
+                f"preview leaked a confidential fact: {serialized[:500]}"
+            )
+            assert "board-budget" not in serialized, (
+                f"preview leaked a confidential source: {serialized[:500]}"
+            )
             assert "Confidential board budget" not in serialized, serialized
             assert body["pinned"] == [] and body["excluded"] == [], body
             assert body["last_context_update_at"] is None, body
@@ -306,7 +313,9 @@ async def run() -> None:
             assert "ctx-evidence-stale" in pack["excluded_source_ids"], pack
             assert "ctx-evidence-launch" in pack["pinned_source_ids"], pack
             assert snapshot["captured_at"], snapshot
-            assert "900000" not in str(snapshot), "a confidential fact leaked"
+            assert SECRET_AMOUNT not in str(snapshot), (
+                f"run snapshot leaked a confidential fact: {str(snapshot)[:500]}"
+            )
             print("✓ each run stores an immutable, permission-scoped snapshot")
 
             # --- Removing a rule restores the source ----------------------
