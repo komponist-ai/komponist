@@ -141,10 +141,11 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 | Area | Current state |
 | --- | --- |
 | Local core loop | Verified end-to-end in Docker: upload or scan documents, extract facts, review them, browse the graph, and receive cited answers |
-| Web application | Landing page, authentication, Studio chat, Compose, file version intelligence, chat history, review queue, entities, graph, sources, team/departments, AI status, API keys, and export UI |
+| Web application | Landing page, authentication, Studio chat, shared Workrooms, Compose, file version intelligence, chat history, review queue, entities, graph, sources, team/departments, AI status, API keys, and export UI |
 | Authentication | Email/password registration and login, revocable HttpOnly sessions, invitations, organization switching, and provider-free Google login contracts |
 | Authorization | Organization isolation, owner/admin/member/viewer roles, department assignments, read/write checks, and encrypted connector configuration |
 | Chat | Confirmed-context retrieval, streaming answers, evidence cards, graph expansion, dynamic suggestions, and persistent multi-chat history |
+| Workrooms | Shared, department-scoped rooms with plans, live agent activity, pause/redirect controls, human approval, cited research, and Compose handoff |
 | Compose | Permission-aware presentations, briefings, and summaries with private history, inline citations, designed PDF, editable PowerPoint, and Markdown export |
 | Versions | Cross-source document families, provenance timelines, latest-candidate ranking, semantic claim diffs, conflict preservation, and a built-in three-platform example |
 | API and SDK | Organization API keys plus `/v1/context`, `/v1/brain`, `/v1/decisions`, and the typed `@komponist/sdk` workspace package |
@@ -165,6 +166,9 @@ docker compose --env-file .env -f docker/docker-compose.yml down
   monitoring, and alerting for the public pilot
 - Password reset, personal account settings, organization create/rename UI,
   billing, quotas, error tracking, and operational dashboards
+- Durable external Workroom workers, live presence, room invitations, and
+  multiple specialized agents; the first slice currently runs one Analyst
+  inside the API process
 - Department-scoped programmatic keys; API and MCP keys currently authorize the
   complete organization brain
 
@@ -201,6 +205,24 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 - Uses the configured AI model in live mode and a deterministic grounded
   template in provider-free mock mode.
 - Persists multiple conversations with rename and delete support.
+
+### Multiplayer Workrooms
+
+- Creates shared organization rooms around one objective and a deliberately
+  selected department scope.
+- Gives every visible team member the same task plan, run history, cited context,
+  and append-only activity stream.
+- Runs one **Komponist Analyst** against confirmed graph knowledge only; a room
+  with no selected department can use organization-wide evidence but cannot
+  inherit an owner's unrestricted department access.
+- Supports pause/resume, versioned redirects, and an explicit human checkpoint
+  before the agent creates a cited briefing in Compose.
+- Keeps superseded attempts and human interventions visible instead of silently
+  rewriting the run history.
+
+The initial slice schedules work inside the API process. It is suitable for the
+pilot, but production-scale execution still needs a restart-safe worker queue,
+presence, and multi-agent handoffs.
 
 ### Git for files
 
@@ -266,6 +288,8 @@ flowchart LR
     review["Human review queue"]
     brain["Neo4j company brain"]
     studio["Studio chat and graph"]
+    workrooms["Shared Workrooms and agent runs"]
+    compose["Compose deliverables"]
     api["REST API and JS SDK"]
     mcp["MCP tools for agents"]
 
@@ -273,13 +297,16 @@ flowchart LR
     review -->|confirm| brain
     review -->|reject or merge| review
     brain --> studio
+    brain --> workrooms
+    workrooms -->|human approval| compose
     brain --> api
     brain --> mcp
 ```
 
 Postgres stores users, sessions, organization memberships, departments,
-invitations, connected-source configuration, chat history, API keys, approvals,
-and MCP tool-call records. Neo4j stores entities, evidence, and relationships.
+invitations, connected-source configuration, chat history, Workrooms, tasks,
+agent runs and events, API keys, approvals, and MCP tool-call records. Neo4j
+stores entities, evidence, and relationships.
 
 ## API, SDK, and MCP
 

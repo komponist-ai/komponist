@@ -16,6 +16,7 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | Integrations | 🚧 Provider-free contracts verified | 55% |
 | Web UI | ✅ Production build and core flows verified | 88% |
 | Chat Feature | ✅ Grounded live OpenAI flow verified | 88% |
+| Agent Collaboration | 🚧 First Workrooms slice verified | 65% |
 | Auth & Security | ✅ Session/API-key org isolation verified | 88% |
 | User Management | 🚧 Multi-org membership UI | 80% |
 | Deployment | 🚧 Hetzner/Coolify stack prepared | 40% |
@@ -70,6 +71,8 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Compose creates private, cited presentations, briefings, and summaries from permission-scoped confirmed knowledge
 - [x] Designed PDF, editable PowerPoint, and Markdown artifact downloads are verified provider-free
 - [x] Cross-source document families, provenance ordering, semantic claim diffs, and the built-in three-platform example are verified provider-free
+- [x] Shared Workrooms persist plans, versioned agent runs, activity events, pause/resume, redirects, and human approvals
+- [x] Workroom agents retrieve only confirmed knowledge inside the room's explicit department scope and create a cited Compose briefing after approval
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -83,6 +86,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - `apps/api/tests/persistence_e2e.py` — encrypted source/settings persistence across restart (passing)
 - `apps/api/tests/generated_artifacts_e2e.py` — private history, department isolation, citations, PDF/PPTX/Markdown exports, and deletion (passing)
 - `apps/api/tests/document_versions_e2e.py` — authenticated cross-source grouping, latest candidate, semantic conflicts, and demo visibility (passing)
+- `apps/api/tests/workrooms_e2e.py` — shared membership, room-scoped retrieval, pause/resume, redirect lineage, approval, and Compose handoff (passing)
 - `packages/core/tests/test_versioning.py` — content identity, family matching, chronology, and claim-diff contracts (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `apps/api/tests/platform_ai_and_api_keys_e2e.py` — API keys, cited programmatic context, project scope, graph stats, approvals, and revocation (passing)
@@ -207,6 +211,17 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Org settings stored in Postgres
 - [x] Approval requests and decisions stored in Postgres
 - [x] Approval state survives MCP restarts
+- [x] Workrooms, tasks, run versions, and append-only activity events persist in Postgres
+- [ ] Running Workroom jobs do not yet resume automatically after an API restart
+
+### Multiplayer Workrooms
+- [x] Shared rooms visible to authorized organization members
+- [x] Explicit organization/department knowledge scope
+- [x] One Komponist Analyst with live activity events and cited graph research
+- [x] Pause/resume, versioned redirect, approval/rejection, and Compose handoff
+- [ ] Durable worker queue and automatic restart recovery
+- [ ] Live participant presence and room-specific invitations
+- [ ] Agent-to-agent handoffs and parallel task execution
 
 ### Komponist Cloud (Hosted Version)
 - [x] Landing page / marketing website

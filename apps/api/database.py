@@ -354,6 +354,87 @@ class GeneratedArtifact(Base):
     )
 
 
+class Workroom(Base):
+    """A shared, permission-scoped workspace for people and agents."""
+    __tablename__ = "workrooms"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    objective: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    department_ids: Mapped[list] = mapped_column(JSON, default=list)
+    created_by_user_id: Mapped[str] = mapped_column(String(36), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+
+
+class WorkroomTask(Base):
+    """One shared unit of work inside a Workroom."""
+    __tablename__ = "workroom_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(180))
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(24), default="todo", index=True)
+    assignee_type: Mapped[str] = mapped_column(String(20), default="agent")
+    assignee_name: Mapped[str] = mapped_column(String(120), default="Komponist Analyst")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_by_user_id: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class WorkroomRun(Base):
+    """A versioned agent attempt that can be paused, redirected, or approved."""
+    __tablename__ = "workroom_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    task_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    agent_name: Mapped[str] = mapped_column(String(120), default="Komponist Analyst")
+    instruction: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    current_step: Mapped[str] = mapped_column(String(80), default="queued")
+    context_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    redirected_from_run_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True
+    )
+    created_by_user_id: Mapped[str] = mapped_column(String(36))
+    approved_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+
+
+class WorkroomEvent(Base):
+    """Append-only, human-readable activity emitted by a Workroom."""
+    __tablename__ = "workroom_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    actor_type: Mapped[str] = mapped_column(String(20))
+    actor_name: Mapped[str] = mapped_column(String(120))
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 async def get_db() -> AsyncSession:
     """Dependency for getting database session."""
     async with async_session() as session:

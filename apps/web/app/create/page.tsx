@@ -179,7 +179,14 @@ export default function CreatePage() {
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'Could not load deliverables')
       setArtifacts(payload.artifacts)
-      setSelectedId((current) => current ?? payload.artifacts[0]?.id ?? null)
+      const requestedId = typeof window === 'undefined'
+        ? null
+        : new URLSearchParams(window.location.search).get('artifact')
+      setSelectedId((current) => (
+        requestedId && payload.artifacts.some((artifact: Artifact) => artifact.id === requestedId)
+          ? requestedId
+          : current ?? payload.artifacts[0]?.id ?? null
+      ))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load deliverables')
     } finally {

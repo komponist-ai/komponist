@@ -5,6 +5,7 @@ FastAPI application for webhooks, REST endpoints, and health checks.
 The programmable company brain.
 """
 
+import asyncio
 import os
 import hashlib
 import ipaddress
@@ -20,7 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
@@ -80,6 +81,21 @@ from artifacts import (
     mock_artifact_content,
     sanitize_artifact_content,
     source_deep_link_path,
+)
+from workrooms import (
+    append_event as append_workroom_event,
+    create_room as create_workroom,
+    create_run as create_workroom_run,
+    create_task as create_workroom_task,
+    get_room as load_workroom,
+    get_room_record,
+    get_run as load_workroom_run,
+    list_events_after,
+    list_rooms as load_workrooms,
+    room_visible,
+    transition_run as transition_workroom_run,
+    update_run as update_workroom_run,
+    update_task as update_workroom_task,
 )
 
 
@@ -2886,6 +2902,32 @@ class ArtifactGenerateRequest(BaseModel):
     language: Literal["english", "german"] = "english"
 
 
+class WorkroomCreateRequest(BaseModel):
+    title: str = Field(min_length=2, max_length=160)
+    objective: str = Field(min_length=5, max_length=2000)
+    department_ids: List[str] = Field(default_factory=list, max_length=12)
+
+
+class WorkroomTaskCreateRequest(BaseModel):
+    title: str = Field(min_length=2, max_length=180)
+    description: str = Field(default="", max_length=2000)
+    assignee_type: Literal["agent", "human"] = "agent"
+    assignee_name: str = Field(default="Komponist Analyst", min_length=1, max_length=120)
+
+
+class WorkroomRunStartRequest(BaseModel):
+    task_id: Optional[str] = None
+    instruction: str = Field(default="", max_length=2400)
+
+
+class WorkroomRedirectRequest(BaseModel):
+    instruction: str = Field(min_length=3, max_length=2400)
+
+
+class WorkroomApprovalRequest(BaseModel):
+    approved: bool
+
+
 _CHAT_STOP_WORDS = {
     "about", "all", "and", "are", "been", "der", "die", "das", "do",
     "does", "for", "from", "geht", "haben", "has", "ist", "it", "me", "our",
@@ -3856,15 +3898,18 @@ async def _artifact_context(
     return selected, sources
 
 
-@app.post("/artifacts/generate", status_code=201)
-async def generate_artifact(
-    payload: ArtifactGenerateRequest,
-    request: Request,
-    org_id: str = Query(...),
-):
-    """Generate a private, cited deliverable from the caller's visible graph."""
-    user = await _authorized_org_user(request, org_id)
-    entities, sources = await _artifact_context(org_id, user, payload.topic)
+async def _create_grounded_artifact(
+    *,
+    org_id: str,
+    user: dict,
+    artifact_type: Literal["presentation", "briefing", "summary"],
+    topic: str,
+    audience: str,
+    instructions: str,
+    language: Literal["english", "german"],
+) -> dict:
+    """Create one cited deliverable for browser and Workroom callers alike."""
+    entities, sources = await _artifact_context(org_id, user, topic)
     if not entities or not sources:
         raise HTTPException(
             status_code=400,
@@ -3875,20 +3920,20 @@ async def generate_artifact(
         )
 
     fallback = mock_artifact_content(
-        payload.artifact_type,
-        payload.topic,
-        payload.audience,
-        payload.language,
+        artifact_type,
+        topic,
+        audience,
+        language,
         entities,
     )
     content = fallback
     if os.getenv("KOMPONIST_AI_MODE", "live").lower() != "mock":
         prompt, system = generation_prompt(
-            payload.artifact_type,
-            payload.topic,
-            payload.audience,
-            payload.instructions,
-            payload.language,
+            artifact_type,
+            topic,
+            audience,
+            instructions,
+            language,
             entities,
         )
         try:
@@ -3920,15 +3965,34 @@ async def generate_artifact(
     return await create_generated_artifact(
         org_id=org_id,
         user_id=user["id"],
-        artifact_type=payload.artifact_type,
+        artifact_type=artifact_type,
         title=content["title"],
-        topic=payload.topic,
-        audience=payload.audience,
-        language=payload.language,
+        topic=topic,
+        audience=audience,
+        language=language,
         content=content,
         sources=sources,
         source_entity_ids=source_entity_ids,
         department_ids=department_ids,
+    )
+
+
+@app.post("/artifacts/generate", status_code=201)
+async def generate_artifact(
+    payload: ArtifactGenerateRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Generate a private, cited deliverable from the caller's visible graph."""
+    user = await _authorized_org_user(request, org_id)
+    return await _create_grounded_artifact(
+        org_id=org_id,
+        artifact_type=payload.artifact_type,
+        user=user,
+        topic=payload.topic,
+        audience=payload.audience,
+        instructions=payload.instructions,
+        language=payload.language,
     )
 
 
@@ -4021,6 +4085,651 @@ async def remove_artifact(
     if not await delete_generated_artifact(org_id, user["id"], artifact_id):
         raise HTTPException(status_code=404, detail="Deliverable not found")
     return Response(status_code=204)
+
+
+async def _authorized_workroom(
+    request: Request,
+    org_id: str,
+    room_id: str,
+    *,
+    write: bool = False,
+) -> tuple[dict, Any]:
+    user = await _authorized_org_user(request, org_id, write=write)
+    room = await get_room_record(org_id, room_id)
+    if room is None or not room_visible(
+        room,
+        user.get("department_ids") or [],
+        bool(user.get("access_all_departments")),
+    ):
+        raise HTTPException(status_code=404, detail="Workroom not found")
+    return user, room
+
+
+def _workroom_scoped_user(user: dict, room: Any) -> dict:
+    """Compile room context, never the owner's unrestricted context."""
+    return {
+        **user,
+        "access_all_departments": False,
+        "department_ids": room.department_ids or [],
+    }
+
+
+_workroom_background_tasks: set[asyncio.Task] = set()
+
+
+def _schedule_workroom_job(coroutine: Any) -> None:
+    task = asyncio.create_task(coroutine)
+    _workroom_background_tasks.add(task)
+    task.add_done_callback(_workroom_background_tasks.discard)
+
+
+async def _research_workroom_run(org_id: str, user: dict, run_id: str) -> None:
+    run = await load_workroom_run(org_id, run_id)
+    if run is None:
+        return
+    room = await get_room_record(org_id, run["workroom_id"])
+    if room is None:
+        return
+
+    try:
+        claimed = await transition_workroom_run(
+            org_id,
+            run_id,
+            from_statuses=["queued"],
+            status="running",
+            current_step="searching_company_brain",
+        )
+        if claimed is None:
+            return
+        run = claimed
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room.id,
+            run_id=run_id,
+            actor_type="agent",
+            actor_name=run["agent_name"],
+            event_type="agent_started",
+            message="Started researching confirmed company context.",
+        )
+
+        scoped_user = _workroom_scoped_user(user, room)
+        topic = " ".join(
+            value for value in [room.objective, run["instruction"]] if value
+        )
+        entities, sources = await _artifact_context(org_id, scoped_user, topic)
+        for source in sources:
+            source["komponist_path"] = source_deep_link_path(org_id, source["id"])
+
+        if not entities or not sources:
+            failed = await transition_workroom_run(
+                org_id,
+                run_id,
+                from_statuses=["running"],
+                status="failed",
+                current_step="insufficient_context",
+                result={
+                    "summary": (
+                        "No confirmed, cited knowledge was available in this "
+                        "Workroom's permission scope."
+                    ),
+                    "finding_count": 0,
+                    "source_count": 0,
+                },
+            )
+            if failed is None:
+                return
+            if run.get("task_id"):
+                await update_workroom_task(org_id, run["task_id"], status="todo")
+            await append_workroom_event(
+                org_id=org_id,
+                room_id=room.id,
+                run_id=run_id,
+                actor_type="agent",
+                actor_name=run["agent_name"],
+                event_type="run_failed",
+                message=(
+                    "Could not find confirmed, cited knowledge in the room scope. "
+                    "Review source facts or change the direction."
+                ),
+            )
+            return
+
+        findings = [
+            {
+                "id": entity["id"],
+                "type": entity.get("entity_type") or "Fact",
+                "statement": entity.get("statement") or entity.get("detail") or "",
+                "source_ids": [
+                    evidence["id"]
+                    for evidence in (entity.get("evidence") or [])
+                    if evidence.get("id")
+                ],
+            }
+            for entity in entities[:12]
+        ]
+        snapshot_sources = [
+            {
+                key: source.get(key)
+                for key in (
+                    "id", "title", "reference", "excerpt", "page",
+                    "line_start", "line_end", "komponist_path",
+                )
+            }
+            for source in sources[:12]
+        ]
+        lead_findings = [
+            finding["statement"] for finding in findings if finding["statement"]
+        ][:3]
+        summary = (
+            f"Found {len(entities)} confirmed facts across {len(sources)} cited "
+            "source passages."
+        )
+        if lead_findings:
+            summary += " Key evidence: " + " ".join(lead_findings)
+
+        snapshot = {"findings": findings, "sources": snapshot_sources}
+        result = {
+            "summary": summary,
+            "finding_count": len(entities),
+            "source_count": len(sources),
+            "suggested_output": "briefing",
+        }
+        ready = await transition_workroom_run(
+            org_id,
+            run_id,
+            from_statuses=["running"],
+            status="awaiting_approval",
+            current_step="approval_required",
+            context_snapshot=snapshot,
+            result=result,
+        )
+        if ready is None:
+            await transition_workroom_run(
+                org_id,
+                run_id,
+                from_statuses=["paused"],
+                status="paused",
+                current_step="paused_after_research",
+                context_snapshot=snapshot,
+                result=result,
+            )
+            return
+
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room.id,
+            run_id=run_id,
+            actor_type="agent",
+            actor_name=run["agent_name"],
+            event_type="research_completed",
+            message=(
+                f"Found {len(entities)} confirmed facts from {len(sources)} "
+                "source passages."
+            ),
+            payload={"sources": snapshot_sources[:6]},
+        )
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room.id,
+            run_id=run_id,
+            actor_type="agent",
+            actor_name=run["agent_name"],
+            event_type="approval_required",
+            message="Ready to create a cited briefing in Compose. Approval required.",
+        )
+    except Exception as error:
+        failed = await transition_workroom_run(
+            org_id,
+            run_id,
+            from_statuses=["queued", "running"],
+            status="failed",
+            current_step="failed",
+            result={"summary": "The agent run failed.", "error": str(error)[:500]},
+        )
+        if failed is None:
+            return
+        if run.get("task_id"):
+            await update_workroom_task(org_id, run["task_id"], status="todo")
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room.id,
+            run_id=run_id,
+            actor_type="system",
+            actor_name="Komponist",
+            event_type="run_failed",
+            message="The agent run failed. You can redirect it or try again.",
+        )
+
+
+async def _finalize_workroom_run(org_id: str, user: dict, run_id: str) -> None:
+    run = await load_workroom_run(org_id, run_id)
+    if run is None:
+        return
+    room = await get_room_record(org_id, run["workroom_id"])
+    if room is None:
+        return
+    try:
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room.id,
+            run_id=run_id,
+            actor_type="agent",
+            actor_name=run["agent_name"],
+            event_type="compose_started",
+            message="Approval received. Creating the grounded briefing in Compose.",
+        )
+        artifact = await _create_grounded_artifact(
+            org_id=org_id,
+            user=_workroom_scoped_user(user, room),
+            artifact_type="briefing",
+            topic=room.objective,
+            audience="Project team",
+            instructions=(
+                f"Workroom direction: {run['instruction']}. "
+                "Produce an action-oriented handoff brief with open questions, "
+                "constraints, decisions, and next steps only when supported."
+            ),
+            language="english",
+        )
+        result = {
+            **(run.get("result") or {}),
+            "artifact_id": artifact["id"],
+            "artifact_title": artifact["title"],
+            "compose_path": f"/create?artifact={artifact['id']}",
+        }
+        await update_workroom_run(
+            org_id,
+            run_id,
+            status="completed",
+            current_step="completed",
+            result=result,
+        )
+        if run.get("task_id"):
+            await update_workroom_task(
+                org_id,
+                run["task_id"],
+                status="completed",
+                artifact_id=artifact["id"],
+            )
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room.id,
+            run_id=run_id,
+            actor_type="agent",
+            actor_name=run["agent_name"],
+            event_type="artifact_created",
+            message=f"Created “{artifact['title']}” and handed it to Compose.",
+            payload={
+                "artifact_id": artifact["id"],
+                "artifact_title": artifact["title"],
+                "compose_path": f"/create?artifact={artifact['id']}",
+            },
+        )
+    except Exception as error:
+        await update_workroom_run(
+            org_id,
+            run_id,
+            status="failed",
+            current_step="compose_failed",
+            result={
+                **(run.get("result") or {}),
+                "error": str(error)[:500],
+            },
+        )
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room.id,
+            run_id=run_id,
+            actor_type="system",
+            actor_name="Komponist",
+            event_type="run_failed",
+            message="The Compose handoff failed. The researched context is preserved.",
+        )
+
+
+@app.get("/workrooms")
+async def get_workrooms(request: Request, org_id: str = Query(...)):
+    user = await _authorized_org_user(request, org_id)
+    rooms = await load_workrooms(
+        org_id,
+        user.get("department_ids") or [],
+        bool(user.get("access_all_departments")),
+    )
+    return {"workrooms": rooms, "total": len(rooms)}
+
+
+@app.post("/workrooms", status_code=201)
+async def add_workroom(
+    payload: WorkroomCreateRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user = await _authorized_org_user(request, org_id, write=True)
+    department_ids: list[str] = []
+    for department_id in dict.fromkeys(payload.department_ids):
+        validated = await _validate_department_scope(org_id, user, department_id)
+        if validated:
+            department_ids.append(validated)
+    return await create_workroom(
+        org_id=org_id,
+        user_id=user["id"],
+        user_name=user["name"],
+        title=" ".join(payload.title.split()),
+        objective=" ".join(payload.objective.split()),
+        department_ids=department_ids,
+    )
+
+
+@app.get("/workrooms/{room_id}")
+async def get_workroom(
+    room_id: str, request: Request, org_id: str = Query(...)
+):
+    user, _ = await _authorized_workroom(request, org_id, room_id)
+    room = await load_workroom(
+        org_id,
+        room_id,
+        user.get("department_ids") or [],
+        bool(user.get("access_all_departments")),
+    )
+    if room is None:
+        raise HTTPException(status_code=404, detail="Workroom not found")
+    return room
+
+
+@app.post("/workrooms/{room_id}/tasks", status_code=201)
+async def add_workroom_task(
+    room_id: str,
+    payload: WorkroomTaskCreateRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user, _ = await _authorized_workroom(
+        request, org_id, room_id, write=True
+    )
+    return await create_workroom_task(
+        org_id=org_id,
+        room_id=room_id,
+        user_id=user["id"],
+        user_name=user["name"],
+        title=" ".join(payload.title.split()),
+        description=" ".join(payload.description.split()),
+        assignee_type=payload.assignee_type,
+        assignee_name=payload.assignee_name,
+    )
+
+
+@app.post("/workrooms/{room_id}/runs", status_code=202)
+async def start_workroom_run(
+    room_id: str,
+    payload: WorkroomRunStartRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user, room = await _authorized_workroom(
+        request, org_id, room_id, write=True
+    )
+    room_bundle = await load_workroom(
+        org_id,
+        room_id,
+        user.get("department_ids") or [],
+        bool(user.get("access_all_departments")),
+    )
+    if room_bundle is None:
+        raise HTTPException(status_code=404, detail="Workroom not found")
+    task_id = payload.task_id
+    if task_id is None:
+        task_id = next(
+            (
+                task["id"]
+                for task in room_bundle["tasks"]
+                if task["status"] != "completed"
+                and task["assignee_type"] == "agent"
+            ),
+            None,
+        )
+    instruction = " ".join(payload.instruction.split()).strip()
+    if not instruction:
+        selected_task = next(
+            (task for task in room_bundle["tasks"] if task["id"] == task_id),
+            None,
+        )
+        instruction = (
+            selected_task["description"]
+            if selected_task and selected_task["description"]
+            else room.objective
+        )
+    try:
+        run = await create_workroom_run(
+            org_id=org_id,
+            room_id=room_id,
+            task_id=task_id,
+            user_id=user["id"],
+            instruction=instruction,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    _schedule_workroom_job(_research_workroom_run(org_id, user, run["id"]))
+    return run
+
+
+@app.post("/workroom-runs/{run_id}/pause")
+async def pause_workroom_run(
+    run_id: str, request: Request, org_id: str = Query(...)
+):
+    run = await load_workroom_run(org_id, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    user, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], write=True
+    )
+    if run["current_step"] == "creating_compose_briefing":
+        raise HTTPException(
+            status_code=409,
+            detail="The approved Compose handoff is already being created",
+        )
+    if run["status"] not in {"queued", "running", "awaiting_approval"}:
+        raise HTTPException(status_code=409, detail="This run cannot be paused")
+    updated = await transition_workroom_run(
+        org_id,
+        run_id,
+        from_statuses=["queued", "running", "awaiting_approval"],
+        status="paused",
+        current_step="paused",
+    )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="This run changed state")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=run_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="run_paused",
+        message="Paused the agent run.",
+    )
+    return updated
+
+
+@app.post("/workroom-runs/{run_id}/resume")
+async def resume_workroom_run(
+    run_id: str, request: Request, org_id: str = Query(...)
+):
+    run = await load_workroom_run(org_id, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    user, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], write=True
+    )
+    if run["status"] != "paused":
+        raise HTTPException(status_code=409, detail="This run is not paused")
+    has_context = bool((run.get("context_snapshot") or {}).get("findings"))
+    updated = await transition_workroom_run(
+        org_id,
+        run_id,
+        from_statuses=["paused"],
+        status="awaiting_approval" if has_context else "queued",
+        current_step="approval_required" if has_context else "queued",
+    )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="This run changed state")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=run_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="run_resumed",
+        message="Resumed the agent run.",
+    )
+    if not has_context:
+        _schedule_workroom_job(_research_workroom_run(org_id, user, run_id))
+    return updated
+
+
+@app.post("/workroom-runs/{run_id}/redirect", status_code=202)
+async def redirect_workroom_run(
+    run_id: str,
+    payload: WorkroomRedirectRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    run = await load_workroom_run(org_id, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    user, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], write=True
+    )
+    if run["status"] in {"completed", "cancelled", "redirected"}:
+        raise HTTPException(status_code=409, detail="This run cannot be redirected")
+    redirected = await transition_workroom_run(
+        org_id,
+        run_id,
+        from_statuses=["queued", "running", "awaiting_approval", "paused", "failed"],
+        status="redirected",
+        current_step="redirected",
+    )
+    if redirected is None:
+        raise HTTPException(status_code=409, detail="This run changed state")
+    instruction = " ".join(payload.instruction.split())
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=run_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="run_redirected",
+        message=f"Changed direction: {instruction}",
+    )
+    replacement = await create_workroom_run(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        task_id=run.get("task_id"),
+        user_id=user["id"],
+        instruction=instruction,
+        redirected_from_run_id=run_id,
+    )
+    _schedule_workroom_job(
+        _research_workroom_run(org_id, user, replacement["id"])
+    )
+    return replacement
+
+
+@app.post("/workroom-runs/{run_id}/approval")
+async def approve_workroom_run(
+    run_id: str,
+    payload: WorkroomApprovalRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    run = await load_workroom_run(org_id, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    user, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], write=True
+    )
+    if run["status"] != "awaiting_approval":
+        raise HTTPException(status_code=409, detail="This run is not awaiting approval")
+    if not payload.approved:
+        updated = await transition_workroom_run(
+            org_id,
+            run_id,
+            from_statuses=["awaiting_approval"],
+            status="cancelled",
+            current_step="approval_denied",
+            approved_by_user_id=user["id"],
+        )
+        if updated is None:
+            raise HTTPException(status_code=409, detail="This run changed state")
+        if run.get("task_id"):
+            await update_workroom_task(org_id, run["task_id"], status="todo")
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=run["workroom_id"],
+            run_id=run_id,
+            actor_type="human",
+            actor_name=user["name"],
+            event_type="approval_denied",
+            message="Rejected the proposed Compose handoff.",
+        )
+        return updated
+
+    updated = await transition_workroom_run(
+        org_id,
+        run_id,
+        from_statuses=["awaiting_approval"],
+        status="running",
+        current_step="creating_compose_briefing",
+        approved_by_user_id=user["id"],
+    )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="This run changed state")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=run["workroom_id"],
+        run_id=run_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="approval_granted",
+        message="Approved the agent's Compose handoff.",
+    )
+    _schedule_workroom_job(_finalize_workroom_run(org_id, user, run_id))
+    return updated
+
+
+@app.get("/workrooms/{room_id}/events")
+async def stream_workroom_events(
+    room_id: str,
+    request: Request,
+    org_id: str = Query(...),
+    after: int = Query(0, ge=0),
+):
+    await _authorized_workroom(request, org_id, room_id)
+
+    async def event_stream():
+        cursor = after
+        idle_ticks = 0
+        while idle_ticks < 55 and not await request.is_disconnected():
+            events = await list_events_after(org_id, room_id, cursor)
+            if events:
+                idle_ticks = 0
+                for event in events:
+                    cursor = max(cursor, int(event["id"]))
+                    yield f"id: {event['id']}\ndata: {json.dumps(event)}\n\n"
+            else:
+                idle_ticks += 1
+                if idle_ticks % 15 == 0:
+                    yield ": keep-alive\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/chat")
