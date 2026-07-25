@@ -77,12 +77,25 @@ NORTHSTAR_COMMAND_CENTER: dict[str, Any] = {
             "options": _options(),
         },
         {
+            "id": "narrow-this-view",
+            "type": "filter_bar",
+            "title": "Narrow this view",
+            "description": (
+                "Filters the lists, timeline and passages below. They only hide "
+                "what is already shown to you."
+            ),
+            "narrative": "",
+            "position": {"row": 1, "column": 0, "width": 12},
+            "binding": _binding("none"),
+            "options": _options(),
+        },
+        {
             "id": "milestones",
             "type": "timeline",
             "title": "Milestones",
             "description": "Confirmed events, most recent first.",
             "narrative": "",
-            "position": {"row": 1, "column": 0, "width": 7},
+            "position": {"row": 2, "column": 0, "width": 7},
             "binding": _binding("timeline_events", limit=12),
             "options": _options(
                 empty_text="No confirmed dated facts are visible to you yet."
@@ -90,11 +103,11 @@ NORTHSTAR_COMMAND_CENTER: dict[str, Any] = {
         },
         {
             "id": "open-constraints",
-            "type": "entity_list",
-            "title": "Constraints and risks",
+            "type": "status_board",
+            "title": "Constraints and risks by confidence",
             "description": "",
             "narrative": "",
-            "position": {"row": 1, "column": 7, "width": 5},
+            "position": {"row": 2, "column": 7, "width": 5},
             "binding": _binding("entity_list", entity_type="Constraint", limit=10),
             "options": _options(
                 accent="warning", empty_text="No confirmed constraints in your view."
@@ -106,7 +119,7 @@ NORTHSTAR_COMMAND_CENTER: dict[str, Any] = {
             "title": "Decision log",
             "description": "",
             "narrative": "",
-            "position": {"row": 2, "column": 0, "width": 6},
+            "position": {"row": 3, "column": 0, "width": 6},
             "binding": _binding("entity_list", entity_type="Decision", limit=10),
             "options": _options(empty_text="No confirmed decisions in your view."),
         },
@@ -116,7 +129,7 @@ NORTHSTAR_COMMAND_CENTER: dict[str, Any] = {
             "title": "How decisions support goals",
             "description": "",
             "narrative": "",
-            "position": {"row": 2, "column": 6, "width": 6},
+            "position": {"row": 3, "column": 6, "width": 6},
             "binding": _binding("relationship_list", limit=12),
             "options": _options(
                 empty_text="No confirmed relationships are visible to you."
@@ -128,7 +141,7 @@ NORTHSTAR_COMMAND_CENTER: dict[str, Any] = {
             "title": "Supporting passages",
             "description": "Every claim above traces back to one of these.",
             "narrative": "",
-            "position": {"row": 3, "column": 0, "width": 12},
+            "position": {"row": 4, "column": 0, "width": 12},
             "binding": _binding("source_passages", limit=12),
             "options": _options(
                 empty_text="No source passages are visible to you yet."

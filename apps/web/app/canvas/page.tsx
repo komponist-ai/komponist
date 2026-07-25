@@ -67,6 +67,7 @@ type CanvasSummary = {
   title: string
   description: string
   visibility: Visibility
+  department_ids?: string[]
   current_version: number
   status: string
   creator_name?: string | null
@@ -96,6 +97,40 @@ type ExampleSummary = {
 }
 
 type MobileTab = 'view' | 'sources' | 'configure' | 'history'
+type Department = { id: string; name: string }
+type ActiveFilters = { types: string[]; confidences: string[]; search: string }
+
+const emptyFilters: ActiveFilters = { types: [], confidences: [], search: '' }
+
+// Filters narrow what is already on screen. They never re-query, so they can
+// only ever hide rows the viewer was already permitted to see.
+const FILTERABLE_KINDS = [
+  'entity_list', 'timeline_events', 'relationship_list', 'evidence_list',
+  'source_passages',
+]
+
+function rowText(row: Record<string, unknown>) {
+  return [row.statement, row.from_statement, row.to_statement, row.excerpt, row.title]
+    .filter(Boolean).join(' ').toLowerCase()
+}
+
+function rowMatches(row: Record<string, unknown>, filters: ActiveFilters) {
+  const type = String(row.entity_type ?? row.from_type ?? '')
+  const confidence = String(row.confidence ?? '')
+  if (filters.types.length && type && !filters.types.includes(type)) return false
+  if (filters.confidences.length && confidence && !filters.confidences.includes(confidence)) {
+    return false
+  }
+  if (filters.search && !rowText(row).includes(filters.search.toLowerCase())) return false
+  return true
+}
+
+function applyFilters(data: ComponentData | undefined, filters: ActiveFilters) {
+  if (!data || !FILTERABLE_KINDS.includes(data.kind)) return data
+  const active = filters.types.length || filters.confidences.length || filters.search
+  if (!active) return data
+  return { ...data, rows: data.rows.filter((row) => rowMatches(row, filters)) }
+}
 
 // ------------------------------------------------------------- renderer ----
 
@@ -215,6 +250,51 @@ function EntityListBody({ data }: { data: ComponentData }) {
   )
 }
 
+/** Groups facts into columns by confidence, which is the dimension that
+ *  actually varies: Canvas only ever shows confirmed knowledge. */
+function StatusBoardBody({ data }: { data: ComponentData }) {
+  const buckets = new Map<string, Array<Record<string, unknown>>>()
+  if (data.kind === 'aggregate_by_confidence') {
+    for (const row of data.rows) buckets.set(String(row.label), [])
+  } else {
+    for (const row of data.rows) {
+      const key = String(row.confidence || 'unspecified')
+      if (!buckets.has(key)) buckets.set(key, [])
+      buckets.get(key)!.push(row)
+    }
+  }
+  if (!buckets.size) return null
+
+  const counts = new Map<string, number>()
+  if (data.kind === 'aggregate_by_confidence') {
+    for (const row of data.rows) counts.set(String(row.label), Number(row.value))
+  }
+
+  return (
+    <div className="-mx-1 flex gap-2 overflow-x-auto px-1">
+      {[...buckets.entries()].map(([label, rows]) => (
+        <div key={label} className="min-w-[150px] flex-1 rounded-lg border border-line bg-paper-2 p-2">
+          <div className="flex items-baseline justify-between gap-2 border-b border-line pb-1.5">
+            <span className="font-mono text-[9px] font-bold uppercase tracking-wide text-ink-2">
+              {label}
+            </span>
+            <span className="font-mono text-xs font-black">
+              {counts.get(label) ?? rows.length}
+            </span>
+          </div>
+          <ul className="mt-1.5 space-y-1.5">
+            {rows.slice(0, 8).map((row, index) => (
+              <li key={String(row.id ?? index)} className="rounded border border-line bg-white px-2 py-1.5">
+                <p className="break-words text-[11px] leading-4">{String(row.statement ?? '')}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function TimelineBody({ data }: { data: ComponentData }) {
   if (!data.rows.length) return null
   return (
@@ -303,10 +383,13 @@ function EvidenceBody({ data }: { data: ComponentData }) {
 }
 
 function CanvasComponent({
-  spec, data,
+  spec, data, filters, facets, onFilterChange,
 }: {
   spec: ComponentSpec
   data?: ComponentData
+  filters: ActiveFilters
+  facets: { types: string[]; confidences: string[] }
+  onFilterChange: (next: ActiveFilters) => void
 }) {
   const known = (RENDERABLE_TYPES as ReadonlyArray<string>).includes(spec.type)
   const tone = accentTone[spec.options?.accent] ?? 'border-line'
@@ -327,20 +410,91 @@ function CanvasComponent({
   }
 
   if (spec.type === 'filter_bar') {
+    const toggle = (group: 'types' | 'confidences', value: string) => {
+      const current = filters[group]
+      onFilterChange({
+        ...filters,
+        [group]: current.includes(value)
+          ? current.filter((item) => item !== value)
+          : [...current, value],
+      })
+    }
+    const active = filters.types.length || filters.confidences.length || filters.search
     return (
       <section className={`rounded-xl border-2 ${tone} bg-paper-2 px-4 py-3`}>
-        <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-ink-2">
-          {spec.title}
-        </p>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-ink-2">
+            {spec.title}
+          </p>
+          {active ? (
+            <button
+              type="button"
+              onClick={() => onFilterChange(emptyFilters)}
+              className="font-mono text-[9px] uppercase text-orange-dark hover:underline"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
         {spec.description && (
           <p className="mt-1 text-[11px] leading-4 text-muted">{spec.description}</p>
         )}
+        <div className="mt-2.5 flex flex-col gap-2">
+          <input
+            value={filters.search}
+            onChange={(event) => onFilterChange({ ...filters, search: event.target.value })}
+            placeholder="Search this view…"
+            aria-label="Search this view"
+            className="w-full rounded-lg border border-line bg-white px-3 py-1.5 text-xs outline-none focus:border-orange"
+          />
+          {facets.types.length > 1 && (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by type">
+              {facets.types.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => toggle('types', value)}
+                  aria-pressed={filters.types.includes(value)}
+                  className={`rounded-full border px-2.5 py-0.5 text-[10px] ${
+                    filters.types.includes(value)
+                      ? 'border-ink bg-orange text-white'
+                      : 'border-line bg-white text-muted hover:border-ink'
+                  }`}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          )}
+          {facets.confidences.length > 1 && (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by confidence">
+              {facets.confidences.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => toggle('confidences', value)}
+                  aria-pressed={filters.confidences.includes(value)}
+                  className={`rounded-full border px-2.5 py-0.5 text-[10px] capitalize ${
+                    filters.confidences.includes(value)
+                      ? 'border-ink bg-ink text-white'
+                      : 'border-line bg-white text-muted hover:border-ink'
+                  }`}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
     )
   }
 
   const body = (() => {
     if (!data) return null
+    if (FILTERABLE_KINDS.includes(data.kind) && !data.rows.length && !data.error) {
+      return null
+    }
     if (data.error) {
       return (
         <p className="flex items-start gap-1.5 text-[11px] leading-4 text-danger">
@@ -352,8 +506,9 @@ function CanvasComponent({
       case 'metric':
         return <MetricBody data={data} />
       case 'entity_list':
-      case 'status_board':
         return <EntityListBody data={data} />
+      case 'status_board':
+        return <StatusBoardBody data={data} />
       case 'timeline':
         return <TimelineBody data={data} />
       case 'relationship_table':
@@ -416,20 +571,24 @@ export default function CanvasPage() {
   const [prompt, setPrompt] = useState('')
   const [change, setChange] = useState('')
   const [showPicker, setShowPicker] = useState(false)
+  const [filters, setFilters] = useState<ActiveFilters>(emptyFilters)
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [showArchived, setShowArchived] = useState(false)
   const [mobileTab, setMobileTab] = useState<MobileTab>('view')
 
   const orgId = () => getActiveOrgId()
 
   const loadList = useCallback(async () => {
     const response = await apiFetch(
-      `${API_URL}/canvases?org_id=${encodeURIComponent(orgId())}`,
+      `${API_URL}/canvases?org_id=${encodeURIComponent(orgId())}`
+      + `&include_archived=${showArchived}`,
     )
     const payload = await response.json()
     if (!response.ok) throw new Error(payload.detail || 'Could not load Canvas')
     setCanvases(payload.canvases)
     setExamples(payload.examples ?? [])
     setSelectedId((current) => current ?? payload.canvases[0]?.id ?? null)
-  }, [])
+  }, [showArchived])
 
   const loadCanvas = useCallback(async (id: string, version?: string | null) => {
     const org = encodeURIComponent(orgId())
@@ -449,6 +608,12 @@ export default function CanvasPage() {
       setLoading(true)
       setError(null)
       try {
+        const departmentsResponse = await apiFetch(
+          `${API_URL}/departments?org_id=${encodeURIComponent(orgId())}`,
+        ).catch(() => null)
+        if (departmentsResponse?.ok) {
+          setDepartments((await departmentsResponse.json()).departments ?? [])
+        }
         await loadList()
       } catch (bootError) {
         setError(bootError instanceof Error ? bootError.message : 'Could not load Canvas')
@@ -458,6 +623,10 @@ export default function CanvasPage() {
     }
     void bootstrap()
   }, [loadList])
+
+  useEffect(() => {
+    setFilters(emptyFilters)
+  }, [selectedId, viewingVersion])
 
   useEffect(() => {
     if (!selectedId) {
@@ -558,6 +727,54 @@ export default function CanvasPage() {
     }
   }
 
+  const changeVisibility = async (visibility: Visibility) => {
+    if (!selectedId) return
+    const body: Record<string, unknown> = { visibility }
+    // A department-scoped view needs at least one department, so seed it with
+    // the first available one rather than letting the API reject the change.
+    if (visibility === 'departments' && !(canvas?.department_ids ?? []).length) {
+      if (!departments.length) {
+        setError('Create a department first to scope this view to one.')
+        return
+      }
+      body.department_ids = [departments[0].id]
+    }
+    const updated = await mutate(`/canvases/${selectedId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    })
+    if (updated) {
+      await loadCanvas(selectedId, viewingVersion)
+      await loadList()
+    }
+  }
+
+  const toggleDepartment = async (departmentId: string) => {
+    if (!selectedId || !canvas) return
+    const current = canvas.department_ids ?? []
+    const next = current.includes(departmentId)
+      ? current.filter((id) => id !== departmentId)
+      : [...current, departmentId]
+    if (!next.length) {
+      setError('A department-scoped view needs at least one department.')
+      return
+    }
+    const updated = await mutate(`/canvases/${selectedId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ department_ids: next }),
+    })
+    if (updated) await loadCanvas(selectedId, viewingVersion)
+  }
+
+  const archive = async () => {
+    if (!selectedId) return
+    const updated = await mutate(`/canvases/${selectedId}/archive`, { method: 'POST' })
+    if (updated) {
+      setSelectedId(null)
+      await loadList()
+    }
+  }
+
   const ordered = useMemo(() => {
     if (!canvas) return []
     return [...canvas.spec.components].sort(
@@ -565,15 +782,39 @@ export default function CanvasPage() {
     )
   }, [canvas])
 
+  const facets = useMemo(() => {
+    const types = new Set<string>()
+    const confidences = new Set<string>()
+    for (const payload of Object.values(canvas?.data.components ?? {})) {
+      if (!FILTERABLE_KINDS.includes(payload.kind)) continue
+      for (const row of payload.rows) {
+        const type = String(row.entity_type ?? row.from_type ?? '')
+        const confidence = String(row.confidence ?? '')
+        if (type) types.add(type)
+        if (confidence) confidences.add(confidence)
+      }
+    }
+    return { types: [...types].sort(), confidences: [...confidences].sort() }
+  }, [canvas?.data.components])
+
   const isHistoricView = !!viewingVersion
     && canvas?.version?.version !== canvas?.current_version
 
   const canvasList = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-line px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
         <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-ink-2">
           Saved views
         </h2>
+        <label className="flex cursor-pointer items-center gap-1.5 text-[10px] text-muted">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(event) => setShowArchived(event.target.checked)}
+            className="size-3 accent-orange"
+          />
+          Archived
+        </label>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {canvases.length === 0 ? (
@@ -609,6 +850,9 @@ export default function CanvasPage() {
                   </div>
                   <p className="mt-1 font-mono text-[9px] uppercase text-faint">
                     v{item.current_version} · {formatDate(item.updated_at)}
+                    {item.visibility === 'organization' ? ' · shared' : ''}
+                    {item.visibility === 'departments' ? ' · departments' : ''}
+                    {item.status === 'archived' ? ' · archived' : ''}
                   </p>
                 </button>
               </li>
@@ -782,7 +1026,10 @@ export default function CanvasPage() {
           >
             <CanvasComponent
               spec={component}
-              data={canvas.data.components[component.id]}
+              data={applyFilters(canvas.data.components[component.id], filters)}
+              filters={filters}
+              facets={facets}
+              onFilterChange={setFilters}
             />
           </div>
         ))}
@@ -909,6 +1156,60 @@ export default function CanvasPage() {
                   <p className="mt-1.5 max-w-2xl break-words text-sm leading-6 text-muted">
                     {canvas.spec.description}
                   </p>
+
+                  {canvas.is_owner && (
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <label htmlFor="canvas-visibility" className="font-mono text-[9px] font-bold uppercase tracking-wide text-ink-2">
+                        Who can see this
+                      </label>
+                      <select
+                        id="canvas-visibility"
+                        value={canvas.visibility}
+                        onChange={(event) => void changeVisibility(event.target.value as Visibility)}
+                        disabled={working}
+                        className="rounded-lg border border-line bg-paper-2 px-2 py-1.5 text-xs outline-none focus:border-orange"
+                      >
+                        <option value="private">Only me</option>
+                        <option value="organization">Everyone in the organization</option>
+                        <option value="departments">Selected departments</option>
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void archive()}
+                        disabled={working || canvas.status === 'archived'}
+                      >
+                        <Archive /> Archive
+                      </Button>
+                    </div>
+                  )}
+                  {canvas.is_owner && canvas.visibility === 'departments' && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {departments.length === 0 ? (
+                        <p className="text-[11px] text-muted">
+                          No departments exist yet, so this view stays visible to you only.
+                        </p>
+                      ) : departments.map((department) => {
+                        const selected = (canvas.department_ids ?? []).includes(department.id)
+                        return (
+                          <button
+                            key={department.id}
+                            type="button"
+                            onClick={() => void toggleDepartment(department.id)}
+                            aria-pressed={selected}
+                            disabled={working}
+                            className={`rounded-full border px-2.5 py-1 text-[10px] ${
+                              selected
+                                ? 'border-ink bg-orange text-white'
+                                : 'border-line bg-paper-2 text-muted hover:border-ink'
+                            }`}
+                          >
+                            {department.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </header>
 
                 {/* Mobile tabs keep every panel reachable without three columns. */}
