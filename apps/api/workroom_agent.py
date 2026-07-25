@@ -15,9 +15,7 @@ The same is true for cancellation.
 
 import asyncio
 import os
-import socket
 from typing import Any, Callable, Optional
-from uuid import uuid4
 
 import workroom_queue as queue
 from artifacts import source_deep_link_path
@@ -589,33 +587,57 @@ async def run_worker_loop(
 
     ``max_jobs`` bounds the loop for tests; production leaves it unset.
     """
-    worker_id = worker_id or f"{socket.gethostname()[:40]}-{uuid4().hex[:8]}"
+    worker_id = worker_id or queue.default_worker_id()
     stop_event = stop_event or asyncio.Event()
     await queue.register_worker(worker_id)
 
-    processed = 0
-    idle_ticks = 0
-    while not stop_event.is_set():
-        if max_jobs is not None and processed >= max_jobs:
-            break
-        # Recover abandoned work roughly once per lease window.
-        if idle_ticks % max(1, int(queue.HEARTBEAT_SECONDS / max(poll_seconds, 0.1))) == 0:
-            await queue.recover_expired_leases()
-            await queue.worker_heartbeat(worker_id)
+    heartbeat_stop = asyncio.Event()
 
-        job = await queue.claim(worker_id, job_types=list(HANDLERS))
-        if job is None:
-            idle_ticks += 1
+    async def maintain_liveness() -> None:
+        """Keep worker liveness fresh even while one long job is running."""
+        while not heartbeat_stop.is_set():
+            await queue.worker_heartbeat(worker_id)
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
+                await asyncio.wait_for(
+                    heartbeat_stop.wait(),
+                    timeout=queue.HEARTBEAT_SECONDS,
+                )
             except asyncio.TimeoutError:
                 pass
-            continue
 
-        idle_ticks = 0
-        await process_job(job, worker_id)
-        await queue.worker_heartbeat(worker_id, claimed=1)
-        processed += 1
+    liveness = asyncio.create_task(maintain_liveness())
+    processed = 0
+    idle_ticks = 0
+    try:
+        while not stop_event.is_set():
+            if max_jobs is not None and processed >= max_jobs:
+                break
+            # Recover abandoned work roughly once per lease window.
+            if idle_ticks % max(
+                1,
+                int(queue.HEARTBEAT_SECONDS / max(poll_seconds, 0.1)),
+            ) == 0:
+                await queue.recover_expired_leases()
+
+            job = await queue.claim(worker_id, job_types=list(HANDLERS))
+            if job is None:
+                idle_ticks += 1
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+
+            idle_ticks = 0
+            await process_job(job, worker_id)
+            await queue.worker_heartbeat(worker_id, claimed=1)
+            processed += 1
+    finally:
+        heartbeat_stop.set()
+        try:
+            await liveness
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
 
     return processed
 

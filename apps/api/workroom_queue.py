@@ -36,6 +36,17 @@ MAX_RETRY_SECONDS = int(os.getenv("KOMPONIST_WORKROOM_MAX_RETRY_SECONDS", "300")
 WORKER_STALE_SECONDS = int(os.getenv("KOMPONIST_WORKROOM_WORKER_STALE_SECONDS", "90"))
 
 
+def default_worker_id() -> str:
+    """Return an ID shared by the worker process and its health probe.
+
+    A container hostname is unique per replica, while an explicit environment
+    value lets operators provide a stable name when desired. Keeping this
+    deterministic allows a separate Docker healthcheck process to inspect the
+    heartbeat of the exact worker running in the same container.
+    """
+    return os.getenv("KOMPONIST_WORKER_ID") or socket.gethostname()[:200]
+
+
 def job_dict(job: WorkroomJob) -> dict[str, Any]:
     return {
         "id": job.id,
@@ -388,6 +399,27 @@ async def worker_heartbeat(worker_id: str, *, claimed: int = 0) -> None:
         worker.last_heartbeat_at = datetime.utcnow()
         worker.claimed_total += claimed
         await session.commit()
+
+
+async def worker_is_healthy(
+    worker_id: str,
+    *,
+    stale_seconds: int = WORKER_STALE_SECONDS,
+) -> bool:
+    """Check whether one specific worker has sent a recent heartbeat."""
+    stale_before = datetime.utcnow() - timedelta(seconds=stale_seconds)
+    async with async_session() as session:
+        live_worker = (
+            await session.execute(
+                select(func.count())
+                .select_from(WorkroomWorker)
+                .where(
+                    WorkroomWorker.id == worker_id,
+                    WorkroomWorker.last_heartbeat_at >= stale_before,
+                )
+            )
+        ).scalar_one()
+    return bool(live_worker)
 
 
 async def queue_health() -> dict[str, Any]:

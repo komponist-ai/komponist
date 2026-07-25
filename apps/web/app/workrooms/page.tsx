@@ -274,12 +274,12 @@ function SectionCard({
   action?: React.ReactNode
 }) {
   return (
-    <section className="rounded-xl border-2 border-ink bg-white">
+    <section className="min-w-0 rounded-xl border-2 border-ink bg-white">
       <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h3 className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-ink-2">
-          <Icon className="size-3.5 text-orange" /> {title}
+        <h3 className="flex min-w-0 items-center gap-2 break-words font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-ink-2">
+          <Icon className="size-3.5 shrink-0 text-orange" /> {title}
         </h3>
-        {action}
+        {action && <div className="shrink-0">{action}</div>}
       </header>
       <div className="p-4">{children}</div>
     </section>
@@ -1349,8 +1349,8 @@ export default function WorkroomsPage() {
               </div>
             ) : (
               <>
-                <header className="border-b-2 border-ink bg-white px-4 py-5 sm:px-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <header className="border-b-2 border-ink bg-white px-4 py-4 sm:px-6 sm:py-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         {isArchived && (
@@ -1372,7 +1372,7 @@ export default function WorkroomsPage() {
                         {room.objective}
                       </p>
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
                       {activeRun && <RunStatusChip run={activeRun} />}
                       {agentControls}
                       {canManage && (
@@ -1416,20 +1416,24 @@ export default function WorkroomsPage() {
                   )}
                 </header>
 
-                <nav className="flex gap-1 overflow-x-auto border-b-2 border-ink bg-white px-2 sm:px-4" aria-label="Workroom sections">
+                <nav
+                  className="grid grid-cols-3 border-b-2 border-ink bg-white px-2 sm:flex sm:gap-1 sm:overflow-x-auto sm:px-4"
+                  aria-label="Workroom sections"
+                >
                   {tabs.map(({ key, label, icon: Icon }) => (
                     <button
                       key={key}
                       type="button"
                       onClick={() => setTab(key)}
                       aria-current={tab === key ? 'page' : undefined}
-                      className={`flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-bold transition ${
+                      className={`flex min-w-0 items-center justify-center gap-1 border-b-2 px-1.5 py-2.5 text-[10px] font-bold transition sm:shrink-0 sm:justify-start sm:gap-1.5 sm:px-3 sm:text-xs ${
                         tab === key
                           ? 'border-orange text-orange-dark'
                           : 'border-transparent text-muted hover:text-ink'
                       }`}
                     >
-                      <Icon className="size-3.5" /> {label}
+                      <Icon className="size-3.5 shrink-0" />
+                      <span className="min-w-0 truncate">{label}</span>
                     </button>
                   ))}
                 </nav>
@@ -1447,9 +1451,12 @@ export default function WorkroomsPage() {
                     </motion.div>
                   </AnimatePresence>
 
-                  {/* The right rail's content stays reachable without a third
-                      column on narrower screens. */}
-                  <div className="mt-4 xl:hidden">{rightRail}</div>
+                  {/* Supporting status cards belong to Overview on compact
+                      layouts; repeating them below every tab makes mobile
+                      conversations and plans unnecessarily long. */}
+                  {tab === 'overview' && (
+                    <div className="mt-4 xl:hidden">{rightRail}</div>
+                  )}
                 </div>
               </>
             )}
@@ -1475,7 +1482,7 @@ export default function WorkroomsPage() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.97, y: 8 }}
               onClick={(event) => event.stopPropagation()}
-              className="w-full max-w-lg rounded-xl border-2 border-ink bg-white p-5 shadow-[6px_6px_0_var(--color-ink)]"
+              className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border-2 border-ink bg-white p-4 shadow-[6px_6px_0_var(--color-ink)] sm:p-5"
             >
               <h2 className="text-lg font-black">New Workroom</h2>
               <p className="mt-1 text-xs text-muted">

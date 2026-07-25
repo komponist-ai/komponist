@@ -12,10 +12,8 @@ Run locally with:
 import asyncio
 import os
 import signal
-import socket
 import sys
 from pathlib import Path
-from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packages"))
@@ -23,13 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packages"))
 from core.graph import GraphClient  # noqa: E402
 from database import init_db  # noqa: E402
 from workroom_agent import run_worker_loop  # noqa: E402
+from workroom_queue import default_worker_id, worker_is_healthy  # noqa: E402
 
 
 async def main() -> int:
-    worker_id = os.getenv(
-        "KOMPONIST_WORKER_ID",
-        f"{socket.gethostname()[:40]}-{uuid4().hex[:8]}",
-    )
+    worker_id = default_worker_id()
     poll_seconds = float(os.getenv("KOMPONIST_WORKER_POLL_SECONDS", "1"))
 
     GraphClient.initialize()
@@ -60,5 +56,21 @@ async def main() -> int:
     return 0
 
 
+async def healthcheck() -> int:
+    """Verify this container's worker heartbeat through PostgreSQL."""
+    worker_id = default_worker_id()
+    try:
+        healthy = await worker_is_healthy(worker_id)
+    except Exception as error:  # noqa: BLE001 - health probes must fail closed
+        print(f"Worker healthcheck failed: {error}", file=sys.stderr)
+        return 1
+    if not healthy:
+        print(f"Worker {worker_id} has no recent heartbeat", file=sys.stderr)
+        return 1
+    print(f"Worker {worker_id} is healthy")
+    return 0
+
+
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    command = healthcheck if "--healthcheck" in sys.argv[1:] else main
+    raise SystemExit(asyncio.run(command()))

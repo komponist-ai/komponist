@@ -164,6 +164,22 @@ async def check_backoff_is_bounded() -> None:
     print("✓ retry backoff grows and stays bounded")
 
 
+async def check_worker_liveness() -> None:
+    worker_id = f"queue-e2e-health-{uuid4().hex[:12]}"
+    await queue.register_worker(worker_id)
+    assert await queue.worker_is_healthy(worker_id)
+
+    async with async_session() as session:
+        worker = await session.get(WorkroomWorker, worker_id)
+        worker.last_heartbeat_at = datetime.utcnow() - timedelta(seconds=5)
+        await session.commit()
+    assert not await queue.worker_is_healthy(worker_id, stale_seconds=1)
+
+    await queue.worker_heartbeat(worker_id)
+    assert await queue.worker_is_healthy(worker_id, stale_seconds=1)
+    print("✓ worker health reflects its database heartbeat")
+
+
 async def run_all() -> None:
     await init_db()
     await cleanup()
@@ -174,6 +190,7 @@ async def run_all() -> None:
         await check_retry_budget()
         await check_idempotent_completion()
         await check_backoff_is_bounded()
+        await check_worker_liveness()
     finally:
         await cleanup()
 
