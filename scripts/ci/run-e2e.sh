@@ -83,6 +83,9 @@ api_tests=(
   workroom_messages_e2e.py
   workroom_deliverables_e2e.py
   workrooms_e2e.py
+  canvas_spec_contract.py
+  canvas_render_e2e.py
+  canvas_generate_e2e.py
   platform_ai_and_api_keys_e2e.py
   chat_history_e2e.py
   chat_e2e.py

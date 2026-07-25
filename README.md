@@ -146,6 +146,7 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 | Authorization | Organization isolation, owner/admin/member/viewer roles, department assignments, read/write checks, and encrypted connector configuration |
 | Chat | Confirmed-context retrieval, streaming answers, evidence cards, graph expansion, dynamic suggestions, and persistent multi-chat history |
 | Workrooms | Shared rooms with room roles and visibility modes, model-generated approved plans, governed context packs, a shared conversation, durable agent execution in a separate worker, and deliverables shared with room participants |
+| Canvas | Model-described, server-validated dashboards over confirmed knowledge: closed component and query vocabulary, per-viewer permission resolution, cited facts, conversational refinement, and version history |
 | Compose | Permission-aware presentations, briefings, and summaries with private history, inline citations, designed PDF, editable PowerPoint, and Markdown export |
 | Versions | Cross-source document families, provenance timelines, latest-candidate ranking, semantic claim diffs, conflict preservation, and a built-in three-platform example |
 | API and SDK | Organization API keys plus `/v1/context`, `/v1/brain`, `/v1/decisions`, and the typed `@komponist/sdk` workspace package |
@@ -242,6 +243,27 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 Run at least one worker (`python worker.py`, or the `worker` Compose service)
 whenever Workrooms are in use. Without it, runs are stored durably but never
 execute, and `/healthz` reports `workroom_worker.workers_online: 0`.
+
+### Canvas
+
+- Turns a described view — "a pilot dashboard with milestones, risks and
+  evidence" — into a working, cited interface assembled from approved
+  building blocks.
+- The model writes only a declarative specification. It never produces
+  JavaScript, JSX, HTML, SQL or Cypher, and the server owns every query.
+- Components and queries come from a closed vocabulary; filters are typed
+  triples over allowlisted fields whose values reach Neo4j only as bound
+  parameters. An unknown component renders a controlled error and executes
+  nothing.
+- No component may carry a URL, so a generated view cannot make an outbound
+  request or leak a viewer's IP through a remote image.
+- A Canvas stores a question, not an answer: data is resolved against each
+  viewer's own permissions, so a shared view legitimately shows different
+  numbers to different people and never leaks across departments.
+- Prose is only allowed where it names the confirmed facts it rests on.
+- Refinement by chat appends a version; earlier versions stay renderable and
+  restorable.
+- Read-only in this slice: no actions, no data changes, no external calls.
 
 ### Git for files
 

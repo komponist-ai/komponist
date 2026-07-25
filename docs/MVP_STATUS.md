@@ -98,6 +98,9 @@ The core local slice now has broad contract and restart coverage. External provi
 - `apps/api/tests/workroom_context_e2e.py` — context pins, exclusions, run snapshots, and confidential-source non-disclosure (passing)
 - `apps/api/tests/workroom_messages_e2e.py` — conversation threading, references, mention scoping, and separation from the audit trail (passing)
 - `apps/api/tests/workroom_deliverables_e2e.py` — shared artifact access for participants, refusal for non-participants and other organizations, and private-artifact preservation (passing)
+- `apps/api/tests/canvas_spec_contract.py` — strict schema, closed vocabulary, URL ban, narrative citation rule, and revalidation of a tampered spec (passing)
+- `apps/api/tests/canvas_render_e2e.py` — fixture render, scoped bindings, citations, per-viewer resolution, and aggregate scoping (passing)
+- `apps/api/tests/canvas_generate_e2e.py` — generation, prompt-injection resistance, refinement versioning, and restore (passing)
 - `apps/api/tests/workroom_plans_live_ai.py` — optional live OpenAI plan generation, skipped unless `OPENAI_API_KEY` and `RUN_LIVE_AI_TESTS=1` are set (not run in CI)
 - `packages/core/tests/test_versioning.py` — content identity, family matching, chronology, and claim-diff contracts (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
@@ -250,6 +253,19 @@ flow was checked at 1280px and 375px in both themes.
 - [x] Deliverables shared with room participants through room authorization
 - [ ] Live participant presence and email room invitations
 - [ ] Agent-to-agent handoffs and parallel task execution
+
+### Canvas (dynamic interfaces)
+- [x] Strict CanvasSpec contract with a closed component and query vocabulary
+- [x] Versioned canvas persistence with prompt, origin and provider metadata
+- [x] Permission-safe data bindings; the server owns organization, department
+      and confirmed-only scope, and values reach Neo4j only as parameters
+- [x] Hand-written Northstar example rendering end to end without a model
+- [x] Generation and conversational refinement through the central provider
+- [x] Version history with view and restore
+- [x] Renderer allowlist; unknown component types render a controlled error
+- [ ] Read-only by design: no actions, no data changes, no external calls
+- [ ] Live OpenAI canvas generation with production credentials is unverified
+- [ ] No user-defined components, live co-editing, or public embedding
 
 ### Komponist Cloud (Hosted Version)
 - [x] Landing page / marketing website
