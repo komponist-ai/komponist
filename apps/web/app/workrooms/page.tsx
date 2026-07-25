@@ -76,22 +76,52 @@ type WorkroomEvent = {
   payload: Record<string, unknown>
   created_at: string
 }
+type RoomRole = 'owner' | 'editor' | 'approver' | 'viewer'
+type RoomVisibility = 'organization' | 'departments' | 'private'
+type WorkroomMember = {
+  id: string
+  user_id: string
+  name: string
+  email?: string | null
+  room_role: RoomRole
+  status: string
+}
 type WorkroomSummary = {
   id: string
   title: string
   objective: string
   status: string
+  visibility: RoomVisibility
+  room_role: RoomRole
   department_ids: string[]
   creator: { id: string; name: string }
+  member_count: number
   task_count: number
   completed_task_count: number
   latest_run?: WorkroomRun | null
   updated_at: string
 }
-type Workroom = Omit<WorkroomSummary, 'task_count' | 'completed_task_count' | 'latest_run'> & {
+type Workroom = Omit<
+  WorkroomSummary,
+  'task_count' | 'completed_task_count' | 'latest_run' | 'member_count'
+> & {
+  members: WorkroomMember[]
   tasks: WorkroomTask[]
   runs: WorkroomRun[]
   events: WorkroomEvent[]
+}
+
+// Mirrors the server's room permission table so the UI hides actions the API
+// would reject anyway.
+const roomPermissions: Record<RoomRole, ReadonlyArray<string>> = {
+  owner: ['view', 'comment', 'edit', 'approve', 'manage'],
+  editor: ['view', 'comment', 'edit'],
+  approver: ['view', 'comment', 'approve'],
+  viewer: ['view', 'comment'],
+}
+
+function roomCan(role: RoomRole | undefined, permission: string) {
+  return !!role && roomPermissions[role].includes(permission)
 }
 
 const runLabels: Record<WorkroomRun['status'], string> = {
@@ -237,6 +267,11 @@ export default function WorkroomsPage() {
       ?? null,
     [room?.runs],
   )
+
+  // The server is the authority on room permissions; this only avoids
+  // offering actions that would come back as 403.
+  const canEdit = roomCan(room?.room_role, 'edit') && room?.status !== 'archived'
+  const canApprove = roomCan(room?.room_role, 'approve') && room?.status !== 'archived'
 
   const mutate = async (path: string, init: RequestInit = {}) => {
     setWorking(true)
@@ -448,11 +483,11 @@ export default function WorkroomsPage() {
                     <div className="flex shrink-0 items-center gap-2">
                       {activeRun && <RunStatus run={activeRun} />}
                       {!activeRun || ['completed', 'failed', 'cancelled', 'redirected'].includes(activeRun.status) ? (
-                        <Button onClick={() => void startAgent()} disabled={working}>
+                        <Button onClick={() => void startAgent()} disabled={working || !canEdit}>
                           {working ? <Loader2 className="animate-spin" /> : <Play />} Start agent
                         </Button>
                       ) : ['paused', 'pause_requested'].includes(activeRun.status) ? (
-                        <Button onClick={() => void mutate(`/workroom-runs/${activeRun.id}/resume`, { method: 'POST' })} disabled={working}>
+                        <Button onClick={() => void mutate(`/workroom-runs/${activeRun.id}/resume`, { method: 'POST' })} disabled={working || !canEdit}>
                           <Play /> Resume
                         </Button>
                       ) : activeRun.status === 'cancel_requested' ? (
@@ -464,7 +499,7 @@ export default function WorkroomsPage() {
                           <Loader2 className="animate-spin" /> Creating briefing
                         </Button>
                       ) : (
-                        <Button variant="outline" onClick={() => void mutate(`/workroom-runs/${activeRun.id}/pause`, { method: 'POST' })} disabled={working || activeRun.status === 'awaiting_approval'}>
+                        <Button variant="outline" onClick={() => void mutate(`/workroom-runs/${activeRun.id}/pause`, { method: 'POST' })} disabled={working || !canEdit || activeRun.status === 'awaiting_approval'}>
                           <Pause /> Pause
                         </Button>
                       )}
@@ -488,10 +523,10 @@ export default function WorkroomsPage() {
                           <div className="mt-4 flex flex-wrap gap-2">
                             <Button onClick={() => void mutate(`/workroom-runs/${activeRun.id}/approval`, {
                               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved: true }),
-                            })} disabled={working}><Check /> Approve & create briefing</Button>
+                            })} disabled={working || !canApprove}><Check /> Approve & create briefing</Button>
                             <Button variant="outline" onClick={() => void mutate(`/workroom-runs/${activeRun.id}/approval`, {
                               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved: false }),
-                            })} disabled={working}><X /> Reject</Button>
+                            })} disabled={working || !canApprove}><X /> Reject</Button>
                           </div>
                         </div>
                       </div>
@@ -543,7 +578,7 @@ export default function WorkroomsPage() {
                         placeholder="Focus on risks and board-level decisions…"
                         className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 py-2.5 text-sm outline-none focus:border-orange"
                       />
-                      <Button onClick={() => void (activeRun && !['completed', 'failed', 'cancelled', 'redirected'].includes(activeRun.status) ? redirect() : startAgent())} disabled={working || (!direction.trim() && !!activeRun)}>
+                      <Button onClick={() => void (activeRun && !['completed', 'failed', 'cancelled', 'redirected'].includes(activeRun.status) ? redirect() : startAgent())} disabled={working || !canEdit || (!direction.trim() && !!activeRun)}>
                         {working ? <Loader2 className="animate-spin" /> : activeRun && !['completed', 'failed', 'cancelled', 'redirected'].includes(activeRun.status) ? <RotateCcw /> : <Send />}
                         {activeRun && !['completed', 'failed', 'cancelled', 'redirected'].includes(activeRun.status) ? 'Redirect' : 'Start'}
                       </Button>
@@ -589,7 +624,7 @@ export default function WorkroomsPage() {
                   </div>
                   <div className="mt-3 flex gap-2">
                     <input value={newTask} onChange={(event) => setNewTask(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addTask() }} placeholder="Add a task…" className="min-w-0 flex-1 rounded-lg border border-line bg-white px-3 py-2 text-xs outline-none focus:border-orange" />
-                    <button type="button" onClick={() => void addTask()} disabled={!newTask.trim() || working} className="grid size-9 place-items-center rounded-lg border-2 border-ink bg-white hover:bg-orange hover:text-white disabled:opacity-40"><Plus className="size-4" /></button>
+                    <button type="button" onClick={() => void addTask()} disabled={!newTask.trim() || working || !canEdit} className="grid size-9 place-items-center rounded-lg border-2 border-ink bg-white hover:bg-orange hover:text-white disabled:opacity-40"><Plus className="size-4" /></button>
                   </div>
                 </section>
 

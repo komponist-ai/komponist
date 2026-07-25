@@ -4,23 +4,89 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
 
-from sqlalchemy import select, update as sql_update
+from sqlalchemy import func, select, update as sql_update
 
 from database import (
+    OrganizationMembership,
     User,
     Workroom,
     WorkroomEvent,
+    WorkroomMember,
     WorkroomRun,
     WorkroomTask,
     async_session,
 )
 
 
+ROOM_ROLES = ("owner", "editor", "approver", "viewer")
+ROOM_VISIBILITIES = ("organization", "departments", "private")
+
+# Room roles are not a simple ladder — an approver signs off on outputs but
+# does not edit the plan — so permissions are listed explicitly.
+ROOM_PERMISSIONS: dict[str, set[str]] = {
+    "owner": {"view", "comment", "edit", "approve", "manage"},
+    "editor": {"view", "comment", "edit"},
+    "approver": {"view", "comment", "approve"},
+    "viewer": {"view", "comment"},
+}
+
+
 def room_visible(
     room: Workroom, department_ids: list[str], access_all: bool
 ) -> bool:
+    """Whether the room's department scope is covered by the user's access."""
     required = set(room.department_ids or [])
     return access_all or required.issubset(set(department_ids))
+
+
+def effective_room_role(
+    room: Workroom,
+    membership: Optional[WorkroomMember],
+    *,
+    department_ids: list[str],
+    access_all: bool,
+    org_role: str = "member",
+) -> Optional[str]:
+    """The caller's role in this room, or ``None`` when they cannot see it.
+
+    An explicit membership always wins. Otherwise visibility decides whether
+    the caller is an implicit viewer. Organization admins may administer rooms
+    they can already see, but a private room still requires membership — being
+    an org admin must never silently reveal a private room or widen the
+    knowledge the agent may read.
+    """
+    if membership is not None and membership.status == "active":
+        return membership.room_role
+
+    visibility = room.visibility or "organization"
+    if visibility == "private":
+        return None
+    if visibility == "departments" and not room_visible(
+        room, department_ids, access_all
+    ):
+        return None
+    if org_role in {"owner", "admin"}:
+        return "owner"
+    return "viewer"
+
+
+def room_can(role: Optional[str], permission: str) -> bool:
+    return permission in ROOM_PERMISSIONS.get(role or "", set())
+
+
+def member_dict(member: WorkroomMember, user: Optional[User]) -> dict[str, Any]:
+    return {
+        "id": member.id,
+        "workroom_id": member.workroom_id,
+        "user_id": member.user_id,
+        "name": user.name if user else "Team member",
+        "email": user.email if user else None,
+        "room_role": member.room_role,
+        "status": member.status,
+        "invited_by_user_id": member.invited_by_user_id,
+        "created_at": f"{member.created_at.isoformat()}Z",
+        "updated_at": f"{member.updated_at.isoformat()}Z",
+    }
 
 
 def room_dict(room: Workroom) -> dict[str, Any]:
@@ -29,6 +95,7 @@ def room_dict(room: Workroom) -> dict[str, Any]:
         "title": room.title,
         "objective": room.objective,
         "status": room.status,
+        "visibility": room.visibility or "organization",
         "department_ids": room.department_ids or [],
         "created_by_user_id": room.created_by_user_id,
         "created_at": f"{room.created_at.isoformat()}Z",
@@ -86,6 +153,195 @@ def event_dict(event: WorkroomEvent) -> dict[str, Any]:
     }
 
 
+async def get_org_member(org_id: str, user_id: str) -> Optional[dict[str, Any]]:
+    """Look up an active organization member, who alone may join a Workroom."""
+    async with async_session() as session:
+        membership = (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.org_id == org_id,
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if membership is None:
+            return None
+        user = await session.get(User, user_id)
+        return {
+            "id": user_id,
+            "name": user.name if user else "Team member",
+            "email": user.email if user else None,
+            "role": membership.role,
+        }
+
+
+async def get_membership(
+    room_id: str, user_id: str
+) -> Optional[WorkroomMember]:
+    async with async_session() as session:
+        return (
+            await session.execute(
+                select(WorkroomMember).where(
+                    WorkroomMember.workroom_id == room_id,
+                    WorkroomMember.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+
+async def list_members(org_id: str, room_id: str) -> list[dict[str, Any]]:
+    async with async_session() as session:
+        members = (
+            await session.execute(
+                select(WorkroomMember)
+                .where(
+                    WorkroomMember.org_id == org_id,
+                    WorkroomMember.workroom_id == room_id,
+                )
+                .order_by(WorkroomMember.created_at)
+            )
+        ).scalars().all()
+        result = []
+        for member in members:
+            user = await session.get(User, member.user_id)
+            result.append(member_dict(member, user))
+        return result
+
+
+async def add_member(
+    *,
+    org_id: str,
+    room_id: str,
+    user_id: str,
+    room_role: str,
+    invited_by_user_id: str,
+) -> dict[str, Any]:
+    """Add or reactivate a participant. Re-adding a removed person restores them."""
+    now = datetime.utcnow()
+    async with async_session() as session:
+        existing = (
+            await session.execute(
+                select(WorkroomMember).where(
+                    WorkroomMember.workroom_id == room_id,
+                    WorkroomMember.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.room_role = room_role
+            existing.status = "active"
+            existing.updated_at = now
+            member = existing
+        else:
+            member = WorkroomMember(
+                id=str(uuid4()),
+                workroom_id=room_id,
+                org_id=org_id,
+                user_id=user_id,
+                room_role=room_role,
+                status="active",
+                invited_by_user_id=invited_by_user_id,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(member)
+        await session.commit()
+        user = await session.get(User, user_id)
+        return member_dict(member, user)
+
+
+async def set_member_role(
+    org_id: str, room_id: str, user_id: str, room_role: str
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        member = (
+            await session.execute(
+                select(WorkroomMember).where(
+                    WorkroomMember.org_id == org_id,
+                    WorkroomMember.workroom_id == room_id,
+                    WorkroomMember.user_id == user_id,
+                    WorkroomMember.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if member is None:
+            return None
+        member.room_role = room_role
+        member.updated_at = datetime.utcnow()
+        await session.commit()
+        user = await session.get(User, user_id)
+        return member_dict(member, user)
+
+
+async def remove_member(
+    org_id: str, room_id: str, user_id: str
+) -> Optional[dict[str, Any]]:
+    """Deactivate rather than delete, so the audit trail stays intact."""
+    async with async_session() as session:
+        member = (
+            await session.execute(
+                select(WorkroomMember).where(
+                    WorkroomMember.org_id == org_id,
+                    WorkroomMember.workroom_id == room_id,
+                    WorkroomMember.user_id == user_id,
+                    WorkroomMember.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if member is None:
+            return None
+        member.status = "removed"
+        member.updated_at = datetime.utcnow()
+        await session.commit()
+        user = await session.get(User, user_id)
+        return member_dict(member, user)
+
+
+async def count_active_owners(room_id: str) -> int:
+    async with async_session() as session:
+        return int((
+            await session.execute(
+                select(func.count())
+                .select_from(WorkroomMember)
+                .where(
+                    WorkroomMember.workroom_id == room_id,
+                    WorkroomMember.room_role == "owner",
+                    WorkroomMember.status == "active",
+                )
+            )
+        ).scalar_one())
+
+
+async def update_room_settings(
+    org_id: str,
+    room_id: str,
+    *,
+    title: Optional[str] = None,
+    objective: Optional[str] = None,
+    visibility: Optional[str] = None,
+    department_ids: Optional[list[str]] = None,
+    status: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        room = await session.get(Workroom, room_id)
+        if room is None or room.org_id != org_id:
+            return None
+        if title is not None:
+            room.title = title[:160]
+        if objective is not None:
+            room.objective = objective
+        if visibility is not None:
+            room.visibility = visibility
+        if department_ids is not None:
+            room.department_ids = department_ids
+        if status is not None:
+            room.status = status
+        room.updated_at = datetime.utcnow()
+        await session.commit()
+        return room_dict(room)
+
+
 async def create_room(
     *,
     org_id: str,
@@ -94,6 +350,7 @@ async def create_room(
     title: str,
     objective: str,
     department_ids: list[str],
+    visibility: str = "organization",
 ) -> dict[str, Any]:
     now = datetime.utcnow()
     room = Workroom(
@@ -102,8 +359,20 @@ async def create_room(
         title=title[:160],
         objective=objective,
         status="active",
+        visibility=visibility,
         department_ids=department_ids,
         created_by_user_id=user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    owner = WorkroomMember(
+        id=str(uuid4()),
+        workroom_id=room.id,
+        org_id=org_id,
+        user_id=user_id,
+        room_role="owner",
+        status="active",
+        invited_by_user_id=None,
         created_at=now,
         updated_at=now,
     )
@@ -132,13 +401,28 @@ async def create_room(
         created_at=now,
     )
     async with async_session() as session:
-        session.add_all([room, task, event])
+        session.add_all([room, owner, task, event])
         await session.commit()
-    return {**room_dict(room), "tasks": [task_dict(task)], "runs": [], "events": [event_dict(event)]}
+        creator = await session.get(User, user_id)
+        members = [member_dict(owner, creator)]
+    return {
+        **room_dict(room),
+        "room_role": "owner",
+        "tasks": [task_dict(task)],
+        "runs": [],
+        "members": members,
+        "events": [event_dict(event)],
+    }
 
 
 async def list_rooms(
-    org_id: str, department_ids: list[str], access_all: bool
+    org_id: str,
+    department_ids: list[str],
+    access_all: bool,
+    *,
+    user_id: str,
+    org_role: str = "member",
+    include_archived: bool = False,
 ) -> list[dict[str, Any]]:
     async with async_session() as session:
         rooms = (
@@ -148,9 +432,34 @@ async def list_rooms(
                 .order_by(Workroom.updated_at.desc())
             )
         ).scalars().all()
-        visible = [room for room in rooms if room_visible(room, department_ids, access_all)]
+        memberships = {
+            member.workroom_id: member
+            for member in (
+                await session.execute(
+                    select(WorkroomMember).where(
+                        WorkroomMember.org_id == org_id,
+                        WorkroomMember.user_id == user_id,
+                    )
+                )
+            ).scalars().all()
+        }
+
+        visible: list[tuple[Workroom, str]] = []
+        for room in rooms:
+            if room.status == "archived" and not include_archived:
+                continue
+            role = effective_room_role(
+                room,
+                memberships.get(room.id),
+                department_ids=department_ids,
+                access_all=access_all,
+                org_role=org_role,
+            )
+            if role is not None:
+                visible.append((room, role))
+
         result: list[dict[str, Any]] = []
-        for room in visible:
+        for room, role in visible:
             tasks = (
                 await session.execute(
                     select(WorkroomTask).where(WorkroomTask.workroom_id == room.id)
@@ -165,12 +474,24 @@ async def list_rooms(
                 )
             ).scalars().all()
             creator = await session.get(User, room.created_by_user_id)
+            member_count = int((
+                await session.execute(
+                    select(func.count())
+                    .select_from(WorkroomMember)
+                    .where(
+                        WorkroomMember.workroom_id == room.id,
+                        WorkroomMember.status == "active",
+                    )
+                )
+            ).scalar_one())
             result.append({
                 **room_dict(room),
+                "room_role": role,
                 "creator": {
                     "id": room.created_by_user_id,
                     "name": creator.name if creator else "Team member",
                 },
+                "member_count": member_count,
                 "task_count": len(tasks),
                 "completed_task_count": sum(task.status == "completed" for task in tasks),
                 "latest_run": run_dict(runs[0]) if runs else None,
@@ -183,12 +504,30 @@ async def get_room(
     room_id: str,
     department_ids: list[str],
     access_all: bool,
+    *,
+    user_id: str,
+    org_role: str = "member",
 ) -> Optional[dict[str, Any]]:
     async with async_session() as session:
         room = await session.get(Workroom, room_id)
-        if room is None or room.org_id != org_id or not room_visible(
-            room, department_ids, access_all
-        ):
+        if room is None or room.org_id != org_id:
+            return None
+        membership = (
+            await session.execute(
+                select(WorkroomMember).where(
+                    WorkroomMember.workroom_id == room_id,
+                    WorkroomMember.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        role = effective_room_role(
+            room,
+            membership,
+            department_ids=department_ids,
+            access_all=access_all,
+            org_role=org_role,
+        )
+        if role is None:
             return None
         tasks = (
             await session.execute(
@@ -213,12 +552,28 @@ async def get_room(
             )
         ).scalars().all()
         creator = await session.get(User, room.created_by_user_id)
+        members = (
+            await session.execute(
+                select(WorkroomMember)
+                .where(
+                    WorkroomMember.workroom_id == room_id,
+                    WorkroomMember.status == "active",
+                )
+                .order_by(WorkroomMember.created_at)
+            )
+        ).scalars().all()
+        member_dicts = []
+        for member in members:
+            member_user = await session.get(User, member.user_id)
+            member_dicts.append(member_dict(member, member_user))
         return {
             **room_dict(room),
+            "room_role": role,
             "creator": {
                 "id": room.created_by_user_id,
                 "name": creator.name if creator else "Team member",
             },
+            "members": member_dicts,
             "tasks": [task_dict(task) for task in tasks],
             "runs": [run_dict(run) for run in runs],
             "events": [event_dict(event) for event in reversed(events)],

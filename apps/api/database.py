@@ -363,11 +363,46 @@ class Workroom(Base):
     title: Mapped[str] = mapped_column(String(160))
     objective: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    # "organization" | "departments" | "private". Controls who may see the
+    # room at all; room roles control what they may do once inside.
+    visibility: Mapped[str] = mapped_column(
+        String(20), default="organization", index=True
+    )
     department_ids: Mapped[list] = mapped_column(JSON, default=list)
     created_by_user_id: Mapped[str] = mapped_column(String(36), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+
+
+class WorkroomMember(Base):
+    """One person's explicit role in a Workroom.
+
+    Room membership is deliberately separate from organization membership and
+    from department access: joining a room never widens what knowledge a user
+    or the agent can read.
+    """
+    __tablename__ = "workroom_members"
+    __table_args__ = (
+        UniqueConstraint(
+            "workroom_id", "user_id", name="uq_workroom_member_room_user"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workroom_id: Mapped[str] = mapped_column(String(36), index=True)
+    org_id: Mapped[str] = mapped_column(String(36), index=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    # "owner" | "editor" | "approver" | "viewer"
+    room_role: Mapped[str] = mapped_column(String(20), default="viewer")
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    invited_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
 
@@ -514,6 +549,31 @@ async def init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_connected_sources_department_id "
             "ON connected_sources (department_id)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE workrooms ADD COLUMN IF NOT EXISTS visibility "
+            "VARCHAR(20) NOT NULL DEFAULT 'organization'"
+        ))
+        # Rooms created before room roles existed keep working: their creator
+        # is backfilled as owner. Migration 012 is the source of truth for
+        # managed deployments; this keeps create_all installs consistent.
+        await conn.execute(text(
+            """
+            INSERT INTO workroom_members (
+                id, workroom_id, org_id, user_id, room_role, status,
+                invited_by_user_id, created_at, updated_at
+            )
+            SELECT
+                md5(room.id || ':' || room.created_by_user_id),
+                room.id, room.org_id, room.created_by_user_id,
+                'owner', 'active', NULL, room.created_at, room.updated_at
+            FROM workrooms room
+            WHERE NOT EXISTS (
+                SELECT 1 FROM workroom_members member
+                WHERE member.workroom_id = room.id
+                  AND member.user_id = room.created_by_user_id
+            )
+            """
         ))
 
 

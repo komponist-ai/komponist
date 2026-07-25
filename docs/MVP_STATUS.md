@@ -88,6 +88,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - `apps/api/tests/document_versions_e2e.py` — authenticated cross-source grouping, latest candidate, semantic conflicts, and demo visibility (passing)
 - `apps/api/tests/workrooms_e2e.py` — shared membership, room-scoped retrieval, pause/resume, redirect lineage, approval, cancellation, and Compose handoff (passing)
 - `apps/api/tests/workroom_queue_e2e.py` — single-claim safety, idempotency, lease recovery, bounded retries, and restart survival (passing)
+- `apps/api/tests/workroom_roles_e2e.py` — room roles, visibility modes, participant management, archive, and cross-organization isolation (passing)
 - `packages/core/tests/test_versioning.py` — content identity, family matching, chronology, and claim-diff contracts (passing)
 - `apps/api/tests/oauth_persistence_e2e.py` — provider-free OAuth callback persistence (passing)
 - `apps/api/tests/platform_ai_and_api_keys_e2e.py` — API keys, cited programmatic context, project scope, graph stats, approvals, and revocation (passing)
@@ -223,7 +224,10 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Pause/resume, versioned redirect, approval/rejection, and Compose handoff
 - [x] Durable Postgres job queue, separate worker service, and restart recovery
 - [x] Explicit run state machine with deferred pause and cancellation
-- [ ] Live participant presence and room-specific invitations
+- [x] Explicit room membership with owner, editor, approver, and viewer roles
+- [x] Organization, department, and private room visibility modes
+- [x] Participant management, room settings, archive, and reopen with audit events
+- [ ] Live participant presence and email room invitations
 - [ ] Agent-to-agent handoffs and parallel task execution
 
 ### Komponist Cloud (Hosted Version)

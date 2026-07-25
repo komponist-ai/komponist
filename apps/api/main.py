@@ -89,6 +89,16 @@ from workroom_agent import (
     enqueue_research,
 )
 from workrooms import (
+    add_member as add_workroom_member,
+    count_active_owners,
+    effective_room_role,
+    get_membership as get_workroom_membership,
+    get_org_member,
+    list_members as list_workroom_members,
+    remove_member as remove_workroom_member,
+    room_can,
+    set_member_role as set_workroom_member_role,
+    update_room_settings,
     append_event as append_workroom_event,
     create_room as create_workroom,
     create_run as create_workroom_run,
@@ -98,7 +108,6 @@ from workrooms import (
     get_run as load_workroom_run,
     list_events_after,
     list_rooms as load_workrooms,
-    room_visible,
     transition_run as transition_workroom_run,
     update_run as update_workroom_run,
     update_task as update_workroom_task,
@@ -2920,6 +2929,23 @@ class WorkroomCreateRequest(BaseModel):
     title: str = Field(min_length=2, max_length=160)
     objective: str = Field(min_length=5, max_length=2000)
     department_ids: List[str] = Field(default_factory=list, max_length=12)
+    visibility: Literal["organization", "departments", "private"] = "organization"
+
+
+class WorkroomSettingsRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=2, max_length=160)
+    objective: Optional[str] = Field(default=None, min_length=5, max_length=2000)
+    visibility: Optional[Literal["organization", "departments", "private"]] = None
+    department_ids: Optional[List[str]] = Field(default=None, max_length=12)
+
+
+class WorkroomMemberAddRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=36)
+    room_role: Literal["owner", "editor", "approver", "viewer"] = "viewer"
+
+
+class WorkroomMemberRoleRequest(BaseModel):
+    room_role: Literal["owner", "editor", "approver", "viewer"]
 
 
 class WorkroomTaskCreateRequest(BaseModel):
@@ -4106,17 +4132,45 @@ async def _authorized_workroom(
     org_id: str,
     room_id: str,
     *,
-    write: bool = False,
-) -> tuple[dict, Any]:
-    user = await _authorized_org_user(request, org_id, write=write)
+    permission: str = "view",
+    allow_archived: bool = False,
+) -> tuple[dict, Any, str]:
+    """Resolve the caller's room role and enforce one room permission.
+
+    A caller who cannot see the room gets 404 rather than 403, so a private
+    room's existence is not disclosed. A caller who can see it but lacks the
+    permission gets 403.
+    """
+    user = await _authorized_org_user(request, org_id)
     room = await get_room_record(org_id, room_id)
-    if room is None or not room_visible(
-        room,
-        user.get("department_ids") or [],
-        bool(user.get("access_all_departments")),
-    ):
+    if room is None:
         raise HTTPException(status_code=404, detail="Workroom not found")
-    return user, room
+
+    membership = await get_workroom_membership(room_id, user["id"])
+    role = effective_room_role(
+        room,
+        membership,
+        department_ids=user.get("department_ids") or [],
+        access_all=bool(user.get("access_all_departments")),
+        org_role=user.get("role", "member"),
+    )
+    if role is None:
+        raise HTTPException(status_code=404, detail="Workroom not found")
+    if not room_can(role, permission):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Your role in this Workroom cannot {permission} here",
+        )
+    if (
+        not allow_archived
+        and room.status == "archived"
+        and permission != "view"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This Workroom is archived. Reopen it before making changes.",
+        )
+    return user, room, role
 
 
 def _workroom_scoped_user(user: dict, room: Any) -> dict:
@@ -4129,12 +4183,19 @@ def _workroom_scoped_user(user: dict, room: Any) -> dict:
 
 
 @app.get("/workrooms")
-async def get_workrooms(request: Request, org_id: str = Query(...)):
+async def get_workrooms(
+    request: Request,
+    org_id: str = Query(...),
+    include_archived: bool = Query(False),
+):
     user = await _authorized_org_user(request, org_id)
     rooms = await load_workrooms(
         org_id,
         user.get("department_ids") or [],
         bool(user.get("access_all_departments")),
+        user_id=user["id"],
+        org_role=user.get("role", "member"),
+        include_archived=include_archived,
     )
     return {"workrooms": rooms, "total": len(rooms)}
 
@@ -4151,6 +4212,11 @@ async def add_workroom(
         validated = await _validate_department_scope(org_id, user, department_id)
         if validated:
             department_ids.append(validated)
+    if payload.visibility == "departments" and not department_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose at least one department for a department-scoped Workroom",
+        )
     return await create_workroom(
         org_id=org_id,
         user_id=user["id"],
@@ -4158,6 +4224,7 @@ async def add_workroom(
         title=" ".join(payload.title.split()),
         objective=" ".join(payload.objective.split()),
         department_ids=department_ids,
+        visibility=payload.visibility,
     )
 
 
@@ -4165,16 +4232,255 @@ async def add_workroom(
 async def get_workroom(
     room_id: str, request: Request, org_id: str = Query(...)
 ):
-    user, _ = await _authorized_workroom(request, org_id, room_id)
+    user, _, _ = await _authorized_workroom(request, org_id, room_id)
     room = await load_workroom(
         org_id,
         room_id,
         user.get("department_ids") or [],
         bool(user.get("access_all_departments")),
+        user_id=user["id"],
+        org_role=user.get("role", "member"),
     )
     if room is None:
         raise HTTPException(status_code=404, detail="Workroom not found")
     return room
+
+
+@app.get("/workrooms/{room_id}/members")
+async def get_workroom_members(
+    room_id: str, request: Request, org_id: str = Query(...)
+):
+    await _authorized_workroom(request, org_id, room_id)
+    members = await list_workroom_members(org_id, room_id)
+    return {"members": members, "total": len(members)}
+
+
+@app.post("/workrooms/{room_id}/members", status_code=201)
+async def add_workroom_participant(
+    room_id: str,
+    payload: WorkroomMemberAddRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Add an existing organization member to this Workroom.
+
+    Room membership never grants knowledge the person could not already read:
+    the agent's context stays bounded by the room's own scope.
+    """
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="manage"
+    )
+    invitee = await get_org_member(org_id, payload.user_id)
+    if invitee is None:
+        raise HTTPException(
+            status_code=400,
+            detail="That person is not an active member of this organization",
+        )
+    member = await add_workroom_member(
+        org_id=org_id,
+        room_id=room_id,
+        user_id=payload.user_id,
+        room_role=payload.room_role,
+        invited_by_user_id=user["id"],
+    )
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="member_added",
+        message=f"Added {member['name']} to the Workroom as {payload.room_role}.",
+        payload={"user_id": payload.user_id, "room_role": payload.room_role},
+    )
+    return member
+
+
+@app.patch("/workrooms/{room_id}/members/{member_user_id}")
+async def change_workroom_member_role(
+    room_id: str,
+    member_user_id: str,
+    payload: WorkroomMemberRoleRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="manage"
+    )
+    # A room must keep at least one owner who can administer it.
+    if payload.room_role != "owner":
+        current = await get_workroom_membership(room_id, member_user_id)
+        if (
+            current is not None
+            and current.status == "active"
+            and current.room_role == "owner"
+            and await count_active_owners(room_id) <= 1
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="A Workroom needs at least one owner",
+            )
+    member = await set_workroom_member_role(
+        org_id, room_id, member_user_id, payload.room_role
+    )
+    if member is None:
+        raise HTTPException(status_code=404, detail="Participant not found")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="member_role_changed",
+        message=f"Changed {member['name']}'s room role to {payload.room_role}.",
+        payload={"user_id": member_user_id, "room_role": payload.room_role},
+    )
+    return member
+
+
+@app.delete("/workrooms/{room_id}/members/{member_user_id}")
+async def remove_workroom_participant(
+    room_id: str,
+    member_user_id: str,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="manage"
+    )
+    current = await get_workroom_membership(room_id, member_user_id)
+    if (
+        current is not None
+        and current.status == "active"
+        and current.room_role == "owner"
+        and await count_active_owners(room_id) <= 1
+    ):
+        raise HTTPException(
+            status_code=409, detail="A Workroom needs at least one owner"
+        )
+    member = await remove_workroom_member(org_id, room_id, member_user_id)
+    if member is None:
+        raise HTTPException(status_code=404, detail="Participant not found")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="member_removed",
+        message=f"Removed {member['name']} from the Workroom.",
+        payload={"user_id": member_user_id},
+    )
+    return member
+
+
+@app.patch("/workrooms/{room_id}")
+async def update_workroom(
+    room_id: str,
+    payload: WorkroomSettingsRequest,
+    request: Request,
+    org_id: str = Query(...),
+):
+    user, room, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="manage"
+    )
+    department_ids: Optional[list[str]] = None
+    if payload.department_ids is not None:
+        department_ids = []
+        for department_id in dict.fromkeys(payload.department_ids):
+            validated = await _validate_department_scope(org_id, user, department_id)
+            if validated:
+                department_ids.append(validated)
+
+    visibility = payload.visibility
+    effective_departments = (
+        department_ids if department_ids is not None else (room.department_ids or [])
+    )
+    if (
+        (visibility or room.visibility) == "departments"
+        and not effective_departments
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Choose at least one department for a department-scoped Workroom",
+        )
+
+    updated = await update_room_settings(
+        org_id,
+        room_id,
+        title=" ".join(payload.title.split()) if payload.title else None,
+        objective=(
+            " ".join(payload.objective.split()) if payload.objective else None
+        ),
+        visibility=visibility,
+        department_ids=department_ids,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Workroom not found")
+
+    changes: list[str] = []
+    if payload.title:
+        changes.append("title")
+    if payload.objective:
+        changes.append("objective")
+    if visibility:
+        changes.append(f"visibility to {visibility}")
+    if department_ids is not None:
+        changes.append("knowledge scope")
+    if changes:
+        await append_workroom_event(
+            org_id=org_id,
+            room_id=room_id,
+            actor_type="human",
+            actor_name=user["name"],
+            event_type="room_settings_changed",
+            message=f"Updated the Workroom {', '.join(changes)}.",
+            payload={
+                "visibility": updated["visibility"],
+                "department_ids": updated["department_ids"],
+            },
+        )
+    return updated
+
+
+@app.post("/workrooms/{room_id}/archive")
+async def archive_workroom(
+    room_id: str, request: Request, org_id: str = Query(...)
+):
+    """Archive rather than delete, so the record and its citations survive."""
+    user, room, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="manage"
+    )
+    if room.status == "archived":
+        raise HTTPException(status_code=409, detail="This Workroom is already archived")
+    updated = await update_room_settings(org_id, room_id, status="archived")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="room_archived",
+        message="Archived the Workroom.",
+    )
+    return updated
+
+
+@app.post("/workrooms/{room_id}/reopen")
+async def reopen_workroom(
+    room_id: str, request: Request, org_id: str = Query(...)
+):
+    user, room, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="manage", allow_archived=True
+    )
+    if room.status != "archived":
+        raise HTTPException(status_code=409, detail="This Workroom is not archived")
+    updated = await update_room_settings(org_id, room_id, status="active")
+    await append_workroom_event(
+        org_id=org_id,
+        room_id=room_id,
+        actor_type="human",
+        actor_name=user["name"],
+        event_type="room_reopened",
+        message="Reopened the Workroom.",
+    )
+    return updated
 
 
 @app.post("/workrooms/{room_id}/tasks", status_code=201)
@@ -4184,8 +4490,8 @@ async def add_workroom_task(
     request: Request,
     org_id: str = Query(...),
 ):
-    user, _ = await _authorized_workroom(
-        request, org_id, room_id, write=True
+    user, _, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="edit"
     )
     return await create_workroom_task(
         org_id=org_id,
@@ -4206,14 +4512,16 @@ async def start_workroom_run(
     request: Request,
     org_id: str = Query(...),
 ):
-    user, room = await _authorized_workroom(
-        request, org_id, room_id, write=True
+    user, room, _ = await _authorized_workroom(
+        request, org_id, room_id, permission="edit"
     )
     room_bundle = await load_workroom(
         org_id,
         room_id,
         user.get("department_ids") or [],
         bool(user.get("access_all_departments")),
+        user_id=user["id"],
+        org_role=user.get("role", "member"),
     )
     if room_bundle is None:
         raise HTTPException(status_code=404, detail="Workroom not found")
@@ -4272,8 +4580,8 @@ async def pause_workroom_run(
     run = await load_workroom_run(org_id, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found")
-    user, _ = await _authorized_workroom(
-        request, org_id, run["workroom_id"], write=True
+    user, _, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], permission="edit"
     )
     if run["current_step"] == "creating_compose_briefing":
         raise HTTPException(
@@ -4316,8 +4624,8 @@ async def resume_workroom_run(
     run = await load_workroom_run(org_id, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found")
-    user, _ = await _authorized_workroom(
-        request, org_id, run["workroom_id"], write=True
+    user, _, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], permission="edit"
     )
     if run["status"] not in {"paused", "pause_requested"}:
         raise HTTPException(status_code=409, detail="This run is not paused")
@@ -4382,8 +4690,8 @@ async def cancel_workroom_run(
     run = await load_workroom_run(org_id, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found")
-    user, _ = await _authorized_workroom(
-        request, org_id, run["workroom_id"], write=True
+    user, _, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], permission="edit"
     )
     if run["status"] in WORKROOM_TERMINAL_STATES:
         raise HTTPException(status_code=409, detail="This run already finished")
@@ -4429,8 +4737,8 @@ async def retry_workroom_run(
     run = await load_workroom_run(org_id, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found")
-    user, _ = await _authorized_workroom(
-        request, org_id, run["workroom_id"], write=True
+    user, _, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], permission="edit"
     )
     if run["status"] != "failed":
         raise HTTPException(status_code=409, detail="Only a failed run can be retried")
@@ -4475,8 +4783,8 @@ async def redirect_workroom_run(
     run = await load_workroom_run(org_id, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found")
-    user, _ = await _authorized_workroom(
-        request, org_id, run["workroom_id"], write=True
+    user, _, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], permission="edit"
     )
     if run["status"] in WORKROOM_TERMINAL_STATES:
         raise HTTPException(status_code=409, detail="This run cannot be redirected")
@@ -4532,8 +4840,10 @@ async def approve_workroom_run(
     run = await load_workroom_run(org_id, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found")
-    user, _ = await _authorized_workroom(
-        request, org_id, run["workroom_id"], write=True
+    # Signing off on a governed output is the approver's job, deliberately
+    # separate from editing the plan.
+    user, _, _ = await _authorized_workroom(
+        request, org_id, run["workroom_id"], permission="approve"
     )
     if run["status"] != "awaiting_approval":
         raise HTTPException(status_code=409, detail="This run is not awaiting approval")
