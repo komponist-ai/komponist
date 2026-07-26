@@ -6,8 +6,8 @@ import AuthGate from '../components/AuthGate'
 import { ThemeProvider } from '../components/ThemeProvider'
 
 export const metadata: Metadata = {
-  title: 'Komponist — The programmable company brain',
-  description: 'Company context, composed for every agent. Turn scattered company knowledge into governed context that humans and AI agents can use.',
+  title: 'Komponist — One shared score for people and AI',
+  description: 'Turn company noise into reviewed, connected context for Workrooms, live Canvas interfaces, cited presentations, and AI agents.',
   icons: {
     icon: [
       {
