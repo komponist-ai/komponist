@@ -31,8 +31,9 @@ Use:
 - `Komponist SDK`
 - `Komponist context compiler`
 - `@komponist/sdk`
-- `api.komponist.dev`
-- `KOMPONIST_KEY`
+- `api.komponist.build`
+- `mcp.komponist.build`
+- `KOMPONIST_API_KEY`
 
 Do not use alternate product names, legacy names, abbreviations, or a generic placeholder brand.
 
@@ -712,23 +713,22 @@ The Studio is a separate density mode of the same design system.
 
 Top bar:
 
-- Komponist wordmark or compact mark;
-- organization selector;
-- environment selector;
-- command search with `⌘K` hint;
-- feedback, docs, and user avatar.
+- consistent page icon, section label, title, and optional description;
+- page-scoped actions on the right;
+- compact actions on mobile without repeating global navigation.
 
 Left navigation groups:
 
-- Brain: Overview, Sources, Playground, Knowledge gaps;
-- Develop: API keys, Webhooks, Logs;
-- Manage: Permissions, Members, Settings.
+- Brain: Chat, Workrooms, Canvas, Compose, Versions, Graph, Review Queue,
+  Entities;
+- Sources: Connected, Add Source;
+- Settings: General, AI Provider, Team & departments, API & MCP, Export;
+- Resources: GitHub.
 
 Bottom sidebar area:
 
-- usage meter;
-- current plan;
-- upgrade action.
+- appearance toggle;
+- signed-in member, role, email, and explicit sign-out action.
 
 ### 9.2 Studio color mode
 
@@ -740,7 +740,8 @@ Use a light, neutral interface by default:
 - accent for selected navigation and primary actions;
 - semantic colors reserved for state.
 
-Dark mode may be added later, but it should not be the only Studio theme.
+Light and dark mode are both supported. Every product surface must use the
+shared semantic color tokens rather than hard-coded light-only values.
 
 ### 9.3 Page header
 
@@ -1190,11 +1191,12 @@ Use these Komponist-native examples consistently across marketing, documentation
 |---|---|
 | Wordmark | Komponist |
 | Studio | Komponist Studio |
-| SDK import | `import { Komponist } from '@komponist/sdk'` |
-| Client | `const komponist = new Komponist(KOMPONIST_KEY)` |
-| API host | `https://api.komponist.dev` |
-| Context call | `komponist.context(...)` |
-| Compiler call | `komponist.context.compile(...)` |
+| SDK import | `import { createKomponistClient } from '@komponist/sdk'` |
+| Client | `const komponist = createKomponistClient({ url, apiKey })` |
+| API host | `https://api.komponist.build` |
+| MCP host | `https://mcp.komponist.build/mcp` |
+| Context call | `komponist.context.search(question, options)` |
+| Brain call | `komponist.brain.info()` |
 | Example filename | `ask-komponist.ts` |
 | CLI proposal | `komponist context compile` |
 | Environment label | `komponist / production` |

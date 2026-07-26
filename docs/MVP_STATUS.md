@@ -11,19 +11,26 @@ This document tracks what's actually implemented vs what's still needed for MVP 
 | Category | Status | Progress |
 |----------|--------|----------|
 | Core Infrastructure | ✅ Locally verified | 90% |
-| Extraction Pipeline | ✅ Local-docs slice verified | 80% |
+| Extraction Pipeline | ✅ Upload slice verified; connectors exercised | 85% |
 | MCP Server | ✅ All six contracts locally verified | 93% |
-| Integrations | 🚧 Provider-free contracts verified | 55% |
-| Web UI | ✅ Production build and core flows verified | 88% |
+| Integrations | 🚧 Notion/Slack implemented; scale validation ongoing | 70% |
+| Web UI | ✅ Production build and core flows verified | 92% |
 | Chat Feature | ✅ Grounded live OpenAI flow verified | 88% |
 | Agent Collaboration | ✅ Durable multiplayer Workrooms verified | 85% |
 | Auth & Security | ✅ Session/API-key org isolation verified | 88% |
 | User Management | 🚧 Multi-org membership UI | 80% |
-| Deployment | 🚧 Hetzner/Coolify stack prepared | 40% |
+| Deployment | 🚧 Public Hetzner/Coolify pilot running | 65% |
 
-**Overall MVP Readiness: ~75%**
+**Overall MVP Readiness: ~82%**
 
-**Reality check:** The local-documents → extraction → review → confirmed graph → cited chat/API/MCP loop runs end-to-end in Docker. Browser routes are session- and role-protected; programmatic routes and MCP derive the organization from revocable API keys. A private production Compose topology and Hetzner/Coolify runbook now exist, but the first clean-machine public deployment remains unverified. Live external provider OAuth/webhooks and an external MCP host such as Claude Code also remain unverified.
+**Reality check:** The upload → extraction → review → confirmed graph → cited
+chat/API/MCP loop runs end-to-end in Docker. Compose, durable Workrooms, Canvas,
+and Versions run on top of the same permission-scoped graph. Browser routes are
+session- and role-protected; programmatic routes and MCP derive the organization
+from revocable API keys. The production Compose topology has been deployed as a
+public HTTPS pilot on Hetzner through Coolify. Sustained high-volume connector
+sync, external MCP hosts, backup restoration, and production operations remain
+unverified.
 
 ---
 
@@ -49,6 +56,7 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Full Docker stack starts with healthy Neo4j, Postgres, API, MCP, and Web services
 - [x] Local documents create reviewable entities with stable source deduplication
 - [x] Authenticated browser uploads process Markdown, text, and YAML into the same review pipeline
+- [x] Content-identical uploads reuse deterministic extraction while retaining new document provenance
 - [x] Confirm, reject, and merge lifecycle rules persist correctly in Neo4j
 - [x] Chat uses confirmed graph context and returns real Evidence citations
 - [x] Chat excludes proposed entities and data belonging to another organization
@@ -78,6 +86,11 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Model-generated plans are schema-strict, locally re-validated, versioned, and require human approval
 - [x] Context pins and exclusions govern agent retrieval without ever widening access
 - [x] Deliverables are shared through room authorization while older private deliverables stay private
+- [x] Canvas generates, validates, versions, refines, restores, and renders permission-scoped live interfaces
+- [x] Notion internal-integration sync discovers nested pages, preserves department scope, and hands partial successes to review
+- [x] Slack OAuth/channel selection assembles threads and supported attachments for extraction; a real workspace connection and channel discovery have been exercised
+- [x] High-volume entity, review, source-document, chat-history, Workroom, Canvas, and version-family lists use bounded server pagination
+- [x] Graph explorer supports text/type/status filtering, neighborhood focus, relationship inspection, metadata, fullscreen navigation, and JSON export
 
 ### Unit Tests:
 - `packages/core/tests/test_ai_clients.py` — 10 offline AI client contract tests (passing)
@@ -148,17 +161,17 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] `get_active_decisions` applies real project scoping and requires cited decisions
 - [x] `check_constraint` has a provider-free deterministic fallback and validates live structured output
 - [x] All six tools and `company-brain://info` are covered through an authenticated FastMCP client
-- [ ] **NOT TESTED** — Never connected to Claude Code or another external MCP client
+- [ ] **NOT TESTED** — Never connected to Claude Code, Codex, or another external MCP host
 - [ ] **NOT TESTED** — Real Slack delivery and button callbacks never tested
 
 ### API Server (`apps/api/`)
 - [x] `main.py` — FastAPI with ~50 endpoints (code complete):
   - Health check, queue, entities, graph, chat, sources, settings
-  - OAuth flows for Notion, Slack, Google
+  - Notion internal-token flow plus OAuth flows for Slack and Google
   - Export/import endpoints
 - [x] `database.py` — SQLAlchemy models for Postgres (code complete)
 - [x] `security.py` — Login rate limiting and organization validation wired to boundaries
-- [x] `integrations/notion.py` — Notion OAuth + page extraction (code complete)
+- [x] `integrations/notion.py` — Notion internal-token validation, nested-page discovery, and extraction handoff
 - [x] `integrations/slack.py` — Slack OAuth + message extraction (code complete)
 - [x] `integrations/github.py` — GitHub webhook + PR extraction (code complete)
 - [x] `integrations/linear.py` — Linear webhook + issue extraction (code complete)
@@ -170,13 +183,13 @@ The core local slice now has broad contract and restart coverage. External provi
 - [x] Webhook handlers verify signatures/tokens and reject malformed JSON
 - [x] Connector OAuth state is persisted and replay-protected
 - [ ] **NOT TESTED** — Webhooks never received real events
-- [ ] **NOT TESTED** — OAuth flows never completed
+- [ ] **PARTIAL** — Slack OAuth/channel discovery was exercised manually; Google login and all callback/refresh edge cases remain unverified
 
 ### Web UI (`apps/web/`)
-- [x] `app/page.tsx` — Chat page with streaming (193 lines)
-- [x] `app/queue/page.tsx` — Review queue (170 lines)
-- [x] `app/graph/page.tsx` — Graph visualization (337 lines)
-- [x] `app/onboard/page.tsx` — Source connection flow (451 lines)
+- [x] `app/studio/page.tsx` — cited streaming chat with multi-chat history
+- [x] `app/queue/page.tsx` — paginated review queue
+- [x] `app/graph/page.tsx` — searchable/filterable graph explorer with focus and export
+- [x] `app/onboard/page.tsx` — upload, Notion, and Slack connection flow
 - [x] Direct document upload with per-file extraction results and Review Queue handoff
 - [x] `app/entities/page.tsx` — Entity list (169 lines)
 - [x] `app/create/page.tsx` — Compose presentations, briefings, summaries, private history, source preview, and download
@@ -259,7 +272,7 @@ flow was checked at 1280px and 375px in both themes.
 - [x] Versioned canvas persistence with prompt, origin and provider metadata
 - [x] Permission-safe data bindings; the server owns organization, department
       and confirmed-only scope, and values reach Neo4j only as parameters
-- [x] Hand-written Northstar example rendering end to end without a model
+- [x] Hand-written CampusKollektiv example rendering end to end without a model
 - [x] Generation and conversational refinement through the central provider
 - [x] Version history with view and restore
 - [x] Renderer allowlist; unknown component types render a controlled error
@@ -269,18 +282,18 @@ flow was checked at 1280px and 375px in both themes.
 
 ### Komponist Cloud (Hosted Version)
 - [x] Landing page / marketing website
-- [ ] Cloud infrastructure deployment
-- [ ] Multi-tenant data isolation
+- [x] Single-server public pilot deployment
+- [x] Multi-tenant data isolation in the application contract
 - [ ] Billing & subscription (Stripe)
 - [ ] Usage limits & quotas
 - [ ] Terms of Service / Privacy Policy
-- [ ] Hosted infrastructure and commercial operations are not implemented
+- [ ] Managed cloud operations, billing, quotas, SLAs, and commercial support are not implemented
 
 ### Komponist Self-Hosted (Local Version)
-- [ ] One-command setup that actually works
-- [ ] Installation documentation that's been tested
+- [x] Docker Compose setup works on the development Mac and pilot Ubuntu server
+- [x] Installation and Coolify deployment documentation exists and has been followed
 - [ ] Configuration wizard
-- [x] Docker Compose verified on the development Mac; clean-machine portability remains untested
+- [x] Docker Compose verified on the development Mac and a clean Ubuntu pilot
 - [x] Private-port production Compose topology with health checks and persistent volumes
 - [x] Hetzner/Coolify pilot deployment and recovery runbook
 
@@ -313,11 +326,14 @@ flow was checked at 1280px and 375px in both themes.
 
 ### 1. External Integrations Remain Partially Untested
 The local vertical slice is verified, but important boundaries are still open:
-- No one has completed a real Notion OAuth flow
+- Notion internal-token sync and Slack workspace/channel discovery were
+  exercised manually, but neither has sustained high-volume live validation
 - Authenticated Streamable HTTP discovery is verified with a real FastMCP client;
-  Claude Code interoperability is still unverified
-- Live OpenAI grounded chat is verified with `gpt-5.6-luna`; live extraction is still unverified
-- No public cloud deployment or hosted multi-user workflow has been tested
+  external-host interoperability is still unverified
+- Live OpenAI grounded chat has been exercised with the configured chat model;
+  live extraction still needs a dedicated quality evaluation
+- The public single-server pilot is deployed; managed multi-tenant operations
+  and backup restoration remain untested
 
 ### 2. Authentication Is Enforced Locally, but Production Hardening Remains
 - Live Google login has not been completed with real credentials
@@ -328,7 +344,11 @@ The local vertical slice is verified, but important boundaries are still open:
 
 ### 3. Real Provider Lifecycles Remain Unverified
 Connected sources, organization settings, and approval requests now survive service restarts. Remaining gaps:
-- Real provider OAuth exchanges and token refresh behavior remain unverified
+- Slack OAuth has been exercised once; repeat install/uninstall, token rotation,
+  high-volume history, and every attachment edge case remain unverified
+- Notion uses customer-provided Internal Integration tokens rather than OAuth;
+  large workspaces, permission changes, and long-running pagination need testing
+- Google provider exchanges and refresh behavior remain unverified
 - Real Slack approval delivery and signed interaction callbacks remain unverified
 
 ### 4. Security Follow-ups
@@ -342,10 +362,10 @@ Connected sources, organization settings, and approval requests now survive serv
 
 | Task | Effort | Why |
 |------|--------|-----|
-| Test Notion → Queue flow | 2-4 hours | Integration debugging |
-| Test MCP with Claude Code | 2-4 hours | Protocol debugging |
-| Test full review queue flow | 2-4 hours | UI debugging |
-| Exercise prepared Hetzner deployment | 4-8 hours | DNS, build, OAuth, and recovery validation |
+| Load-test Notion/Slack sync and review handoff | 4-8 hours | Pagination, rate limits, attachments |
+| Test MCP with an external host | 2-4 hours | Protocol and client configuration |
+| Rehearse backup restore and upgrade | 4-8 hours | Production recovery |
+| Exercise multi-user pilot workflows | 4-8 hours | Permissions, connectors, redeploy behavior |
 | Add migrations + production rate limits | 6-10 hours | Deployment safety |
 | **Remaining to hosted pilot** | **20-40 hours** | Excludes provider approval delays |
 
@@ -356,9 +376,9 @@ Connected sources, organization settings, and approval requests now survive serv
 ### Must Work End-to-End:
 - [x] `docker compose up` starts everything without errors on the development Mac
 - [ ] User can sign in with Google
-- [ ] User can connect Notion with a token
-- [ ] Syncing Notion creates entities in Neo4j
-- [ ] Review queue shows proposed entities
+- [x] User can connect Notion with an Internal Integration token
+- [x] Notion sync hands pages to extraction and creates proposed entities
+- [x] Review queue shows proposed entities
 - [x] Confirming an entity persists to Neo4j
 - [x] Chat returns answers from confirmed graph context with Evidence citations
 - [ ] MCP server connects to Claude Code (authenticated FastMCP client verified)
@@ -369,9 +389,9 @@ Connected sources, organization settings, and approval requests now survive serv
 - [x] Compose exports cited PDF, PowerPoint, or Markdown deliverables from permission-scoped confirmed context
 
 ### Deployment:
-- [ ] Self-hosted: `docker compose up` on any machine
-- [ ] Cloud: Live at komponist.dev
-- [x] Private production Compose and Hetzner/Coolify runbook prepared
+- [x] Self-hosted: Compose verified on macOS Docker Desktop and Ubuntu
+- [x] Pilot: public HTTPS deployment at `komponist.build`
+- [ ] Managed cloud: backups, monitoring, billing, quotas, and SLAs
 
 **Target: 10 design partners using the system daily**
 
@@ -386,9 +406,9 @@ Connected sources, organization settings, and approval requests now survive serv
 4. [x] Verify API health check passes
 
 ### Phase 1: Test Core Loop (2-3 days)
-5. Connect Notion with real token
-6. Sync pages and verify entities created
-7. Open web UI and test review queue
+5. [x] Connect Notion with an Internal Integration token
+6. [x] Sync pages and verify entities are handed to review
+7. [x] Open web UI and test the paginated review queue
 8. [x] Verify chat returns confirmed results with citations
 
 ### Phase 2: Add Authentication (2-3 days)
@@ -398,70 +418,70 @@ Connected sources, organization settings, and approval requests now survive serv
 12. [x] Persist hashed session tokens to database
 
 ### Phase 3: Test MCP (1-2 days)
-13. [ ] Configure MCP server in Claude Code (authenticated HTTP discovery verified)
+13. [ ] Configure MCP server in an external host (authenticated HTTP discovery verified)
 14. [x] Test all 6 tools with isolated graph data
 15. [x] Fix discovered protocol, citation, and project-scope issues
 
 ### Phase 4: Deploy (1-2 days)
 16. [x] Prepare a private production Compose stack
 17. [x] Document the Hetzner/Coolify pilot setup
-18. Deploy to an available 8 GB Hetzner instance and verify the recovery checklist
-19. [x] Create landing page
+18. [x] Deploy to an 8 GB Ubuntu server with public HTTPS routing
+19. [ ] Rehearse backup restoration, upgrade, rollback, and alerting
+
+### Phase 5: Validate with real teams
+20. [ ] Run Notion and Slack imports with thousands of items
+21. [ ] Measure extraction precision, review load, answer grounding, and cost
+22. [ ] Observe real Compose, Canvas, and Workroom workflows with design partners
+23. [ ] Fix the highest-impact quality and permission failures before expanding connectors
 
 ---
 
 ## Architecture Diagram (Current State)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Integrations                             │
-├──────────┬──────────┬──────────┬──────────┬────────────────────┤
-│  GitHub  │  Slack   │  Linear  │  Notion  │   Google Docs      │
-│    📝    │    📝    │    📝    │    📝    │       📝           │
-│ (code)   │ (code)   │ (code)   │ (code)   │    (code)          │
-└────┬─────┴────┬─────┴────┬─────┴────┬─────┴────────┬───────────┘
-     │          │          │          │              │
-     ▼          ▼          ▼          ▼              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    API (FastAPI)                                 │
-│ ✅ Tested │ ✅ Session/API-key isolation │ ✅ Persistence      │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│               Extraction Pipeline (LangGraph)                    │
-│ ✅ Local-doc slice │ 🚧 Live extraction still unverified         │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Neo4j (Company Brain)                         │
-│ ✅ Schema + local E2E data │ ❌ Not deployed                      │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              ▼                              ▼
-┌─────────────────────────┐    ┌─────────────────────────────────┐
-│      MCP Server         │    │          Web UI                  │
-│ ✅ Six tools + resource │    │ ✅ Production build             │
-│ 🚧 External host open   │    │ ✅ Auth/core flows verified     │
-└─────────────────────────┘    └─────────────────────────────────┘
+```mermaid
+flowchart LR
+    uploads["Browser uploads"]
+    notion["Shared Notion pages"]
+    slack["Selected Slack channels"]
+    extraction["Extraction pipeline"]
+    review["Human review"]
+    graph["Neo4j entities, evidence, relationships, versions"]
+    app["Postgres identity, permissions, history, jobs, audit"]
+    studio["Ask and Graph"]
+    compose["Compose"]
+    canvas["Canvas"]
+    rooms["Workrooms and worker"]
+    api["REST and JS SDK"]
+    mcp["Authenticated MCP"]
 
-Legend:
-📝 = Code written but untested
-❌ = Not working / Not implemented
-✅ = Tested and working
+    uploads --> extraction
+    notion --> extraction
+    slack --> extraction
+    extraction --> review --> graph
+    app --> studio
+    app --> compose
+    app --> canvas
+    app --> rooms
+    graph --> studio
+    graph --> compose
+    graph --> canvas
+    graph --> rooms
+    graph --> api
+    graph --> mcp
 ```
 
 ---
 
 ## Summary
 
-**The honest truth:** The local core loop, authenticated API/MCP surface, SDK, and auth foundation are tested, but this is not yet a hosted user-ready product. The path from here to "10 design partners using it daily" requires:
+**The honest truth:** The core loop, authenticated API/MCP surface, SDK,
+multiplayer Workrooms, Compose, Canvas, and pilot deployment exist. This is
+still not a production-ready managed product. The path to "10 design partners
+using it daily" now requires:
 
-1. **Completing live Google login and provider OAuth/webhook testing**
+1. **Sustained high-volume Notion and Slack testing with measurable quality**
 2. **Connecting a real external MCP host**
-3. **Adding migrations, production rate limits, and operational monitoring**
-4. **Deploying and operating it safely**
+3. **Adding migrations, proxy-aware rate limits, backups, and monitoring**
+4. **Observing whether Compose, Canvas, and Workrooms solve recurring real work**
 
 Estimated time to MVP: **2-4 weeks of focused work**, assuming no major surprises when testing reveals bugs.

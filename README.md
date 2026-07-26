@@ -37,6 +37,11 @@ briefings, and summaries. **Versions** acts as Git for files: it groups likely
 revisions across sources, traces editors and timestamps, and compares the
 ontology-aligned claims beneath each document.
 
+**Workrooms** give people and agents a shared objective, approved plan,
+permission-scoped context, durable execution, conversation, and cited
+deliverables. **Canvas** turns a question into a validated live interface over
+the graph, resolved separately for every viewer's permissions.
+
 > [!IMPORTANT]
 > Komponist is currently a self-hostable MVP, not a production-ready managed
 > cloud service. The complete document → review → graph → cited chat/API/MCP
@@ -123,9 +128,13 @@ docker-compose --env-file .env -f docker/docker-compose.yml up -d --build
 4. Inspect confirmed entities and relationships in **Graph**.
 5. Ask a question in **Chat** and inspect the attached evidence.
 6. Open **Compose** to create a cited PowerPoint deck, briefing, or summary.
-7. Open **Versions** to try the built-in three-platform example or compare
+7. Create a **Workroom**, approve its generated plan, and let the durable worker
+   research a task against the same confirmed graph.
+8. Ask **Canvas** for a live interface such as “show projects at risk and the
+   decisions blocking them”.
+9. Open **Versions** to try the built-in three-platform example or compare
    related documents from your own sources.
-8. Create an organization-scoped key under **Settings → API & MCP** when you
+10. Create an organization-scoped key under **Settings → API & MCP** when you
    want to connect server-side code or an agent.
 
 > [!NOTE]
@@ -144,7 +153,7 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 | Area | Current state |
 | --- | --- |
 | Local core loop | Verified end-to-end in Docker: upload or scan documents, extract facts, review them, browse the graph, and receive cited answers |
-| Web application | Landing page, authentication, Studio chat, shared Workrooms, Compose, file version intelligence, chat history, review queue, entities, graph, sources, team/departments, AI status, API keys, and export UI |
+| Web application | Landing page, authentication, cited chat, shared Workrooms, Compose, Canvas, file version intelligence, chat history, review queue, scalable entities/sources, interactive graph explorer, team/departments, AI status, API keys, and export UI |
 | Authentication | Email/password registration and login, revocable HttpOnly sessions, invitations, organization switching, and provider-free Google login contracts |
 | Authorization | Organization isolation, owner/admin/member/viewer roles, department assignments, read/write checks, and encrypted connector configuration |
 | Chat | Confirmed-context retrieval, streaming answers, evidence cards, graph expansion, dynamic suggestions, and persistent multi-chat history |
@@ -159,15 +168,15 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 
 ### Still unverified or missing
 
-- A live Slack workspace installation; OAuth, channel discovery, selected-channel
-  thread and attachment sync, document parsing, and extraction handoff are
-  covered by provider-free contracts
-- Real-time Slack event delivery and signed interaction callbacks
+- Slack OAuth and selected-channel sync have been exercised in a real workspace.
+  High-volume history, every attachment type, real-time event delivery, and
+  signed interaction callbacks still need broader live validation
 - Google Drive, GitHub, and Linear are not exposed as product connectors
   until their provider flows meet the same end-to-end bar
-- A live Notion workspace installation; internal-token validation, nested-page
-  retrieval, extraction handoff, and partial-sync reporting are covered by
-  provider-free contracts
+- Notion internal-integration sync is implemented and has been exercised
+  manually; nested-page, partial-failure, extraction, and department-scope
+  behavior also have provider-free contracts, but large live workspaces still
+  need sustained testing
 - Google user sign-in with production credentials
 - Live OpenAI extraction; live grounded chat and offline OpenAI request contracts
   have been tested separately
@@ -198,6 +207,9 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 - Supports confirm, reject, edit-on-confirm, and merge lifecycle actions.
 - Stores confirmed entities and relationships in Neo4j.
 - Lists entities with accurate status/type counts and one-hop neighborhoods.
+- Provides an interactive graph explorer with text search, entity/status
+  filters, neighborhood focus, relationship inspection, evidence and degree
+  metadata, fullscreen navigation, and JSON export.
 - Exports a portable YAML snapshot; YAML import is available through the API.
 
 ### Grounded chat
@@ -298,8 +310,8 @@ human review.
 | Source | Interface | Validation status |
 | --- | --- | --- |
 | Browser upload | Markdown, text, YAML, and YML | Locally verified |
-| Notion | Internal Integration token, explicitly shared pages, nested block sync, document inspection | Provider-free contracts passing; live workspace installation pending |
-| Slack | OAuth, explicit channel allowlist, complete thread sync, PDF/DOCX/PPTX/text attachment ingestion, document inspection | Provider-free contracts passing; live workspace installation pending |
+| Notion | Internal Integration token, explicitly shared pages, nested block sync, document inspection | Manually exercised; provider-free scope, pagination, partial-failure, and extraction contracts passing |
+| Slack | OAuth, explicit channel allowlist, complete thread sync, PDF/DOCX/PPTX/text attachment ingestion, document inspection | Workspace install/channel discovery exercised; provider-free thread, attachment, event-scope, and extraction contracts passing |
 
 Synced documents can be inspected, moved between department scopes, or deleted
 from Komponist without deleting the original item on its provider. Connected
@@ -344,6 +356,8 @@ flowchart LR
     studio["Studio chat and graph"]
     workrooms["Shared Workrooms and agent runs"]
     compose["Compose deliverables"]
+    canvas["Dynamic Canvas interfaces"]
+    versions["Cross-source file versions"]
     api["REST API and JS SDK"]
     mcp["MCP tools for agents"]
 
@@ -353,6 +367,9 @@ flowchart LR
     brain --> studio
     brain --> workrooms
     workrooms -->|human approval| compose
+    brain --> compose
+    brain --> canvas
+    sources --> versions
     brain --> api
     brain --> mcp
 ```

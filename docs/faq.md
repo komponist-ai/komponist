@@ -1,257 +1,252 @@
 # Komponist FAQ
 
-## General
+This FAQ describes the current self-hostable MVP as of July 2026. For the
+evidence behind each status claim, see [MVP_STATUS.md](MVP_STATUS.md).
+
+## Product
 
 ### What is Komponist?
 
-Komponist is a context and governance layer for AI coding agents. It builds a "company brain" by ingesting decisions from GitHub, Slack, and Linear, then serves cited context to agents via MCP tools. Critically, it also governs agents by checking their actions against confirmed constraints.
+Komponist is an open-source context layer for organizations. It turns documents,
+shared Notion pages, and selected Slack channels into a reviewed graph of
+**Decisions**, **Goals**, **Constraints**, and **Projects**, keeps source
+evidence attached, and exposes the confirmed context to people, products, and
+AI agents.
 
-### How is this different from enterprise search (Glean, etc.)?
+It is more than chat over documents:
 
-Enterprise search is built for humans typing keywords. Komponist is built for agents: every fact is cited (source, reference, URL, excerpt), decisions are supersede-aware (no stale results), and constraint checking blocks risky actions before they happen.
+- **Ask** returns direct, cited answers and keeps multiple conversations.
+- **Compose** creates cited presentations, briefings, and summaries with
+  designed PDF, editable PowerPoint, and Markdown export.
+- **Workrooms** coordinate humans and a durable agent around an approved plan,
+  governed context, redirects, approvals, and shared deliverables.
+- **Canvas** creates validated, read-only live interfaces over permission-aware
+  graph queries.
+- **Versions** groups likely file revisions across sources and compares their
+  underlying claims.
+- The **REST API**, typed JavaScript SDK, and **MCP** expose the same confirmed
+  context programmatically.
 
-### How is this different from agent memory (Hyperspell, etc.)?
+### What works today?
 
-Agent memory stores chat session history. Komponist stores org-level context (goals, decisions, constraints, customer requests) that applies across all agents and sessions. It's the governed memory every agent calls, not per-session persistence.
+The browser-upload → extraction → review → confirmed graph → cited answer loop
+is verified end to end in Docker. Compose, Workrooms, Canvas, Versions, the API,
+and all six MCP tool contracts have provider-free end-to-end coverage. The
+single-server Coolify deployment has run publicly over HTTPS.
 
-### What's the "killer feature"?
+Slack selected-channel sync and Notion internal-integration sync are implemented
+and have been exercised manually. Large live workspaces, every provider edge
+case, external MCP hosts, backup restoration, and managed-cloud operations
+still need broader validation.
 
-**Constraint checking.** An agent asks "may I do X?" and Komponist searches relevant constraints, adjudicates with an LLM, and returns: allowed | blocked | approval_required. If blocked, the agent sees the constraint citation and cannot proceed. If approval is required, a Slack approval flow kicks in. This is governance, not just memory retrieval.
+### What is not ready yet?
 
----
+Komponist is not yet a production-ready managed SaaS. It does not yet include
+password reset, billing, quotas, enterprise SSO, operational dashboards,
+off-server backup restoration, live Workroom presence, email room invitations,
+parallel specialist agents, or writable Canvas actions.
 
-## Setup
+Google Drive, GitHub, and Linear are not presented as working product
+connectors until their complete provider flows meet the same validation bar as
+uploads, Notion, and Slack.
 
-### What do I need to get started?
+## Knowledge and trust
 
-- Neo4j 5.x (Docker locally, or AuraDB for production)
-- Postgres (Docker locally, or Neon/Supabase)
-- No AI key in mock mode
-- One OpenAI project API key for live chat, extraction, and embeddings
-- GitHub, Slack, and/or Linear accounts to connect
+### Why only four entity types?
 
-### How long does onboarding take?
+Decisions, Goals, Constraints, and Projects are the narrow MVP ontology. They
+capture durable organizational context without turning every sentence or
+person name into noisy graph data. More types should be introduced only after a
+real use case proves that the existing four cannot express it.
 
-About 5 minutes to connect the three integrations. Backfilling 90 days of history takes 10-30 minutes depending on data volume. Your first review session (confirming 50 facts) takes another 10-15 minutes.
+### What happens after extraction?
 
-### Do I need to review every extracted fact?
+New entities are **proposed** by default. A member reviews the statement and its
+exact evidence, then confirms, rejects, edits, or merges it. Only confirmed
+knowledge is used by normal chat, Compose, Workrooms, Canvas, API, and MCP
+retrieval.
 
-Yes. Every fact in the brain must be human-confirmed (ADR-009). This is core to trust: extraction is never auto-confirmed. The review queue makes this fast (inline edit, keyboard shortcuts, <5 seconds per fact).
+An organization can deliberately enable auto-publish, but that trades review
+control for speed.
 
-### Can I bulk-import existing ADRs?
+### Are citations preserved?
 
-Not directly in MVP. The extraction pipeline runs on SourceItems (from webhooks or backfill), so your existing ADRs will be extracted during GitHub backfill. If you have hundreds, consider confirming the most critical ones first.
+Yes. Evidence stores the source type, source reference, excerpt, URL where
+available, and source date. Answers and generated artifacts cite the evidence
+that supported them. Workroom runs also keep an immutable context snapshot.
 
----
+### How are duplicate uploads handled?
 
-## Usage
+The extraction pipeline uses stable content identity, so uploading identical
+content under another filename reuses the existing extraction while preserving
+the new document provenance. Versions additionally groups likely revisions by
+content hash, normalized name, chronology, and overlap between extracted
+claims.
 
-### How do agents use Komponist?
+### Why Neo4j?
 
-Via MCP (Model Context Protocol). You install the Komponist MCP server, configure it in Claude Code or Cursor, and agents can call 6 tools:
-- `search_company_context` — search the brain
-- `get_active_decisions` — supersede-aware decisions
-- `report_result` — feed new decisions back
-- `check_constraint` — ask permission before risky actions
-- `request_approval` — request human approval
-- `get_approval_status` — poll approval state
+Relationships such as `SUPPORTS`, `AFFECTS`, `CONSTRAINS`, and `SUPERSEDES` are
+part of the product, not metadata added after retrieval. Neo4j stores those
+relationships and the vector index in one permission-scoped knowledge layer.
+Postgres stores identity, configuration, conversations, jobs, and audit state.
 
-### What if an agent ignores a constraint?
+## AI and privacy
 
-If the agent calls `check_constraint` and gets `blocked`, it should not proceed (and Claude will respect this). If an agent bypasses the tool entirely, you'll catch the violation in PR review. The goal is to block at intention time, not cleanup time.
+### Do members need their own AI keys?
 
-### How do I add a new constraint?
+No. A deployment owner configures one centrally managed provider key. Workspace
+members never enter provider credentials.
 
-Either:
-1. Manually create a Constraint entity in the web UI (future feature)
-2. Document it in an ADR or Slack decision thread, let extraction find it, then confirm it in the review queue
-3. Use the MCP `report_result` tool to add it programmatically
+### Can Komponist run without a model?
 
-Once confirmed, it's immediately active for `check_constraint`.
+`KOMPONIST_AI_MODE=mock` runs deterministic test doubles and makes no AI-provider
+network calls. This validates workflows and contracts, but not extraction,
+retrieval, planning, or writing quality.
 
-### What happens when a decision is superseded?
+Use `KOMPONIST_AI_MODE=live` with an OpenAI project key for real extraction,
+embeddings, chat, Compose, Workroom planning, and Canvas generation.
 
-The old decision's status becomes `superseded` and it no longer appears in `get_active_decisions` or `search_company_context` (unless you explicitly search for superseded entities). The supersede chain is preserved, so you can view history.
+### What leaves the server in live mode?
 
-### How do I know if Komponist is working?
+Relevant document and query content is sent to the centrally configured OpenAI
+models. Responses API storage is disabled by default with
+`KOMPONIST_OPENAI_STORE=false`. Connected source credentials are encrypted in
+Postgres with `KOMPONIST_SECRET_KEY`.
 
-Check these metrics:
-- **Violations blocked** (the killer metric): `SELECT COUNT(*) FROM tool_calls WHERE tool = 'check_constraint' AND verdict = 'blocked'`
-- **Facts confirmed**: `MATCH (e:Entity {status: 'confirmed'}) RETURN count(e)`
-- **Tool calls per week**: `SELECT COUNT(*) FROM tool_calls WHERE created_at > NOW() - INTERVAL '7 days'`
+## Sources
 
-If violations blocked > 0, the system is providing value.
+### How do I add documents?
 
----
+Open **Add Source → Upload documents**. Markdown, text, YAML, and YML are
+supported directly. The upload enters the same extraction and review path as a
+connector sync.
 
-## Technical
+### How do I connect Notion?
 
-### Why Neo4j instead of Postgres with pgvector?
+Create a Notion Internal Integration, share only the intended pages with that
+integration through **••• → Connections**, then paste its `ntn_…` or legacy
+`secret_…` token in **Add Source → Notion**. A customer does not configure
+deployment environment variables for this path.
 
-Graph relationships (supersedes, affects, supports, constrains) are first-class in Neo4j. Traversals are native and fast. Neo4j 5's vector indexes eliminate the need for a separate vector DB (Pinecone, Weaviate), reducing operational complexity.
+### How do I connect Slack?
 
-### What embedding model do you use?
+The Komponist deployment owner creates one Slack app and configures its client
+ID, client secret, and signing secret. Each customer then uses **Connect Slack**
+to install that app into their own workspace and explicitly selects the
+channels Komponist may sync. Customers never receive or configure the
+deployment secrets.
 
-OpenAI `text-embedding-3-small` (1536 dimensions). **This is fixed at initialization** — changing models later requires reindexing the entire graph.
+Start with a few high-signal channels. Importing an entire workspace at once
+creates unnecessary review load and makes quality harder to evaluate.
 
-### What LLM model do you use?
+### Does deleting a synced document delete the original?
 
-OpenAI `gpt-5.6-terra` is the initial live default for classification,
-extraction, chat, and constraint adjudication. Before API access is available,
-mock mode validates contracts only and does not run an AI model.
+No. Deleting a synced document removes its Komponist copy and derived context
+only. It does not delete the Notion page, Slack message, or provider attachment.
 
-### How does deduplication work?
+## Organizations and permissions
 
-During extraction, we embed each fact and search for similar entities (vector cosine similarity):
-- **Score > 0.92:** Exact duplicate → don't create a new entity, just attach the new Evidence node to the existing one
-- **Score 0.80-0.92:** Possible duplicate → create the entity but add a RELATES_TO edge and flag for human review
-- **Score < 0.80:** Fresh entity → create normally
+### Is data isolated between organizations?
 
-### What's the "bias toward allowed" rule?
+Yes. Browser requests derive the active organization from a revocable session.
+REST and MCP requests derive it from a hashed, revocable API key. Callers
+cannot select an arbitrary organization ID.
 
-ADR-010: `check_constraint` must default to "allowed" unless a constraint clearly and explicitly applies. Ambiguity → allowed. False positives (blocking valid work) kill trust and cause uninstall. False negatives (missing a violation) are caught in review.
+### How do departments work?
 
-### Can I run Komponist on-premises?
+Organization-wide knowledge is visible to all active members. Department-scoped
+knowledge is visible to owners/admins and to members or viewers assigned to a
+matching department. Uploads can be scoped per document; connected items inherit
+their source's default department.
 
-Yes. The system is self-hosted (no SaaS component). Run Neo4j, Postgres, and the API/MCP/web services wherever you want. No data leaves your infrastructure.
+Organization API and MCP keys are currently organization-wide. Do not expose
+them to department-limited users or browser code.
 
-### What's the architecture?
+### Which roles exist?
 
-- **Brain:** Neo4j 5 (graph + vector index)
-- **App data:** Postgres (webhooks, metrics, sync state)
-- **API:** FastAPI (Python 3.12, async)
-- **Pipelines:** LangGraph (extraction, compiler)
-- **MCP server:** FastMCP (Python, stdio/SSE transports)
-- **Web UI:** Next.js 14 (App Router, Tailwind)
+- **Owner:** all data and organization administration.
+- **Admin:** all data and non-owner administration.
+- **Member:** reads and contributes inside organization and assigned scopes.
+- **Viewer:** read-only access inside organization and assigned scopes.
 
----
+## Workrooms, Compose, and Canvas
+
+### What can a Workroom do?
+
+A Workroom has an objective, participants, room visibility, a versioned
+model-generated plan, editable tasks, context pins/exclusions, shared
+conversation, durable agent runs, an immutable activity trail, and shared
+Compose deliverables. Plans require human approval before execution.
+
+Run at least one separate worker service. Without it, jobs remain stored safely
+but do not execute.
+
+### Are Workroom agents autonomous?
+
+The MVP runs one Komponist Analyst. It can research confirmed context and draft
+a deliverable, but it cannot widen room permissions, edit source systems, or
+skip explicit approvals. Pause and cancellation take effect at the next safe
+step; an already-running provider request cannot be recalled.
+
+### What does Compose generate?
+
+Compose creates presentations, executive briefings, and summaries from
+permission-scoped confirmed context. It keeps private history, shows citations
+in the preview, and exports designed PDF, editable `.pptx`, or Markdown with an
+evidence appendix.
+
+### Does Canvas execute generated code?
+
+No. The model creates a declarative `CanvasSpec` from a closed component and
+query vocabulary. The server validates it and owns every graph query. A Canvas
+stores the question/specification and resolves current data separately for each
+viewer. The MVP is read-only and cannot call external URLs or mutate data.
+
+## API and MCP
+
+### How do I connect an application or agent?
+
+Create an organization-scoped key under **Settings → API & MCP**. Use it as a
+Bearer token with the REST API, typed SDK, or Streamable HTTP MCP endpoint.
+Keys are hashed at rest, shown once, individually revocable, and
+organization-wide in the current MVP.
+
+### Which MCP tools exist?
+
+- `search_company_context`
+- `get_active_decisions`
+- `report_result`
+- `check_constraint`
+- `request_approval`
+- `get_approval_status`
+
+`company-brain://info` exposes compact brain metadata. Writeback through
+`report_result` creates proposed Decisions that still require review.
 
 ## Troubleshooting
 
-### No facts are appearing in the review queue
+### Upload or sync says it worked, but nothing appears in the graph
 
-Check:
-1. Are webhooks configured correctly? Test with a real PR or Slack message
-2. Is the worker processing events? Check `events_raw` table for `processed_at IS NULL`
-3. Is the extraction pipeline running? Check API logs for "[Extract]" lines
-4. Are entities being created? Query Neo4j: `MATCH (e:Entity {status: 'proposed'}) RETURN count(e)`
+Check the **Review Queue** first. Proposed entities do not appear in normal
+confirmed-only retrieval until approved. Also verify the active organization,
+department scope, source sync result, and the graph's type/status filters.
 
-### Extraction is creating too many irrelevant facts
+### Search or chat returns nothing
 
-Lower the extraction quality threshold by tweaking the classify node prompt (packages/pipelines/extract.py). The gate is intentionally loose (false positives go to review, false negatives are lost forever). You can reject irrelevant facts quickly in the queue.
+Confirm that visible entities exist and are confirmed, then try a more specific
+question. In mock mode semantic quality is intentionally not representative.
+In live mode verify the embedding model still uses the 1536-dimensional graph
+index.
 
-### search_company_context returns no results
+### A Workroom run stays queued
 
-Check:
-1. Do confirmed entities exist? `MATCH (e:Entity {status: 'confirmed'}) RETURN count(e)`
-2. Is your query specific enough? "auth" is too generic, "authentication library decision" is better
-3. Is the embedding dimension correct? Should be 1536 for text-embedding-3-small
-4. Is the org_id correct in your MCP config?
+Open the health endpoint and check `workroom_worker.workers_online`. Start the
+`worker` Compose service or `python worker.py`. The job remains durable while no
+worker is online.
 
-### check_constraint never blocks anything
+### Where can I report a problem?
 
-Check:
-1. Do confirmed Constraint entities exist?
-2. Are constraints global or project-scoped? If project-scoped, pass the project ID
-3. Is the intended_action description specific enough? "Make a change" is too vague, "Add Redis as a caching database" is specific
-4. Are you testing with an action that actually violates a constraint?
-
-### Slack approval buttons don't work
-
-Check:
-1. Is SLACK_BOT_TOKEN set correctly?
-2. Is the Slack app installed in the workspace?
-3. Does the bot have `chat:write` scope?
-4. Is the interaction webhook endpoint configured in Slack app settings? (This is in apps/api/main.py, needs to be exposed)
-
----
-
-## Best Practices
-
-### What should I put in constraints?
-
-Things that must never be violated:
-- "Never auto-confirm extracted entities" (human-in-the-loop)
-- "All storage must go through Neo4j or Postgres" (no Redis, no MongoDB)
-- "Embedding dimension is fixed at 1536" (reindex is expensive)
-- "Database migrations require approval" (safety)
-
-Not: "Write tests for new features" (that's a requirement, not a constraint)
-
-### How do I organize watched Slack channels?
-
-Watch 2-3 high-signal channels only:
-- #decisions or #engineering-decisions (explicit decision discussions)
-- #engineering or #architecture (where technical choices are debated)
-
-Do NOT watch #general, #random, or standup channels (too much noise).
-
-### Should I backfill more than 90 days?
-
-Probably not for MVP. More history = more facts to review. Start with 90 days, confirm those, then optionally extend.
-
-### How often should I review the queue?
-
-Daily or every few days. Unconfirmed facts don't appear in agent searches, so a backlog just means agents have less context. Set aside 10-15 minutes every few days to clear the queue.
-
----
-
-## Roadmap
-
-### What's not in MVP?
-
-- Notion/CRM/email connectors
-- Fine-tuned extraction models
-- Multi-tenant org isolation (single org for MVP)
-- Analytics dashboards
-- Enterprise SSO
-- Temporal "point-in-time" queries
-
-### When will you add X integration?
-
-If 3+ design partners ask for it, we'll prioritize it. Otherwise, post-MVP.
-
-### Can I contribute?
-
-Yes! File issues or PRs at github.com/komponist/komponist. Areas we'd love help with:
-- Extraction prompt tuning (packages/pipelines/extract.py)
-- Additional eval fixtures (packages/pipelines/eval/fixtures.py)
-- Integration connectors (Notion, etc.)
-- UI polish (empty states, loading states)
-
----
-
-## Support
-
-### How do I get help?
-
-1. Check this FAQ
-2. Check docs/install.md and docs/deployment.md
-3. File an issue: github.com/aistos/aistos/issues
-4. Email: support@komponist.dev (design partners only)
-
-### How do I report a bug?
-
-File an issue with:
-- What you did
-- What you expected
-- What actually happened
-- Logs (from API, MCP server, or browser console)
-- Neo4j/Postgres versions
-
-### How do I request a feature?
-
-File an issue with:
-- The problem you're solving
-- Your proposed solution
-- Why this is important
-
-We prioritize features that:
-1. Improve extraction quality
-2. Reduce false positives in constraint checking
-3. Speed up the review queue
-4. Are requested by 3+ design partners
-
----
-
-**Still have questions?** File an issue: https://github.com/komponist/komponist/issues
+Open an issue at
+[github.com/komponist-ai/komponist/issues](https://github.com/komponist-ai/komponist/issues)
+with reproduction steps, the expected result, the actual result, and relevant
+API/worker logs. Remove credentials and private company content first.

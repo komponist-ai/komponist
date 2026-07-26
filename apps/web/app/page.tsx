@@ -4,102 +4,43 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowRight, Braces, Check, ChevronRight, DatabaseZap, FileCheck2,
-  FileText, GitBranch, KeyRound, MessageSquareText, Network, Search,
-  LoaderCircle, Menu, Send, ShieldCheck, Sparkles, TerminalSquare, Upload, UsersRound, X,
+  ArrowRight,
+  Blocks,
+  Bot,
+  Braces,
+  Check,
+  ChevronRight,
+  FileCheck2,
+  FileClock,
+  Files,
+  GitBranch,
+  LayoutDashboard,
+  LoaderCircle,
+  Menu,
+  MessageSquareText,
+  Network,
+  Presentation,
+  Search,
+  Send,
+  Sparkles,
+  Upload,
+  UsersRound,
+  X,
 } from 'lucide-react'
 import BrandMark from '@/components/BrandMark'
 import GitHubMark from '@/components/GitHubMark'
 import GitHubStars from '@/components/GitHubStars'
+import ThemeToggle from '@/components/ThemeToggle'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { API_URL } from '@/lib/api'
-import ThemeToggle from '@/components/ThemeToggle'
 
 const reveal = {
-  initial: { opacity: 0, y: 24 },
+  initial: { opacity: 0, y: 22 },
   whileInView: { opacity: 1, y: 0 },
   viewport: { once: true, margin: '-80px' },
   transition: { duration: 0.5, ease: 'easeOut' as const },
 }
-
-const features = [
-  {
-    icon: Upload,
-    number: '01',
-    title: 'Ingest the useful stuff',
-    copy: 'Upload documents or connect shared Notion pages and selected Slack channels. Komponist extracts decisions, goals, constraints, and projects — not another pile of chunks.',
-    tag: 'Sources → facts',
-  },
-  {
-    icon: FileCheck2,
-    number: '02',
-    title: 'Review before trust',
-    copy: 'Every new fact enters a human review queue with confidence, exact evidence, and its original source attached.',
-    tag: 'Governed by default',
-  },
-  {
-    icon: Network,
-    number: '03',
-    title: 'Keep the relationships',
-    copy: 'Projects advance goals. Decisions affect projects. Constraints stay connected to the work they shape.',
-    tag: 'Context graph',
-  },
-  {
-    icon: MessageSquareText,
-    number: '04',
-    title: 'Ask with receipts',
-    copy: 'Chat across confirmed company knowledge. Every answer carries citations an engineer — or an agent — can inspect.',
-    tag: 'Cited answers',
-  },
-  {
-    icon: KeyRound,
-    number: '05',
-    title: 'One brain per workspace',
-    copy: 'Organization-scoped users, roles, credentials, API keys, and revocation keep customer context separated.',
-    tag: 'Multi-tenant',
-  },
-  {
-    icon: Braces,
-    number: '06',
-    title: 'Built for agents too',
-    copy: 'Expose the same confirmed brain over MCP and API so coding agents stop guessing what the company decided.',
-    tag: 'MCP + API',
-  },
-]
-
-const steps = [
-  ['Drop in a document', 'Markdown, text, or YAML. Raw uploads are processed in memory.', Upload],
-  ['Confirm the facts', 'Approve what is true, reject what is noise, keep every citation.', FileCheck2],
-  ['Call the brain', 'Ask in Studio or connect an agent through your scoped MCP key.', TerminalSquare],
-] as const
-
-const platformLayers = [
-  {
-    eyebrow: '01 · Connect',
-    icon: Upload,
-    title: 'Bring your company sources',
-    copy: 'Documents, shared Notion pages, and selected Slack channels flow into one organization-scoped workspace.',
-    detail: 'Connectors · uploads · sync',
-    tone: 'bg-warning-soft',
-  },
-  {
-    eyebrow: '02 · Govern',
-    icon: DatabaseZap,
-    title: 'Build trusted company memory',
-    copy: 'Komponist extracts durable facts, links them in a graph, and keeps a human in control.',
-    detail: 'Entities · evidence · review',
-    tone: 'bg-success-soft',
-  },
-  {
-    eyebrow: '03 · Serve',
-    icon: Braces,
-    title: 'Give context to every interface',
-    copy: 'People use Studio. Products and agents use the same knowledge through API and MCP.',
-    detail: 'Studio · chat · API · MCP',
-    tone: 'bg-info-soft',
-  },
-] as const
 
 type DemoResult = {
   mode: 'demo'
@@ -121,41 +62,122 @@ const fallbackDemoResults: DemoResult[] = [
     mode: 'demo',
     workspace: 'CampusKollektiv browser demo',
     question: demoQuestions[0],
-    answer: 'The Campus Forum project runs for 6 weeks and ends with the event on 14 November 2026. [1]',
-    sources: [{ id: 'fallback-forum', number: 1, title: '08-campus-forum-plan-v2.md', excerpt: 'Project: The Campus Forum project runs for six weeks and ends with the event on 14 November 2026.', type: 'Project' }],
-    trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
+    answer: 'The Campus Forum runs for 6 weeks and ends with the event on 14 November 2026. [1]',
+    sources: [{ id: 'fallback-forum', number: 1, title: '08-campus-forum-plan-v2.md', excerpt: 'The Campus Forum project runs for six weeks and ends with the event on 14 November 2026.', type: 'Project' }],
+    trace: ['Confirmed entities retrieved', 'Graph context expanded', 'Citation attached'],
   },
   {
     mode: 'demo',
     workspace: 'CampusKollektiv browser demo',
     question: demoQuestions[1],
-    answer: 'Board minutes marked highly confidential are visible only to board members. [1]',
-    sources: [{ id: 'fallback-confidentiality', number: 1, title: '04-data-and-access-policy.md', excerpt: 'Constraint: Board minutes marked highly confidential are visible only to board members.', type: 'Constraint' }],
-    trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
+    answer: 'Highly confidential board minutes are visible only to board members. [1]',
+    sources: [{ id: 'fallback-confidentiality', number: 1, title: '04-data-and-access-policy.md', excerpt: 'Board minutes marked highly confidential are visible only to board members.', type: 'Constraint' }],
+    trace: ['Permission scope applied', 'Confirmed constraint retrieved', 'Citation attached'],
   },
   {
     mode: 'demo',
     workspace: 'CampusKollektiv browser demo',
     question: demoQuestions[2],
-    answer: 'CampusKollektiv offers one main sponsorship package for €1,500. [1]',
-    sources: [{ id: 'fallback-sponsor', number: 1, title: '06-sponsorship-policy.md', excerpt: 'Decision: CampusKollektiv offers one main sponsorship package for €1,500.', type: 'Decision' }],
-    trace: ['Browser demo selected', 'Confirmed fact selected', 'Citation attached'],
+    answer: 'The main sponsorship package costs €1,500. [1]',
+    sources: [{ id: 'fallback-sponsor', number: 1, title: '06-sponsorship-policy.md', excerpt: 'CampusKollektiv offers one main sponsorship package for €1,500.', type: 'Decision' }],
+    trace: ['Confirmed decision retrieved', 'Direct answer composed', 'Citation attached'],
   },
 ]
 
+const workflow = [
+  {
+    number: '01',
+    icon: Upload,
+    title: 'Connect the work',
+    copy: 'Upload documents or sync shared Notion pages and selected Slack channels. Komponist keeps provenance, versions, and source boundaries intact.',
+    meta: 'Uploads · Notion · Slack',
+  },
+  {
+    number: '02',
+    icon: FileCheck2,
+    title: 'Turn activity into facts',
+    copy: 'Extract Decisions, Goals, Constraints, and Projects. Review the proposed knowledge with exact evidence before it becomes trusted context.',
+    meta: 'Extraction · Review · Evidence',
+  },
+  {
+    number: '03',
+    icon: Network,
+    title: 'Connect what matters',
+    copy: 'The graph preserves how projects support goals, how decisions affect work, and where constraints apply — instead of returning isolated chunks.',
+    meta: 'Entities · Relationships · Access',
+  },
+  {
+    number: '04',
+    icon: Sparkles,
+    title: 'Put context to work',
+    copy: 'Ask questions, generate briefings, coordinate agent work, build live canvases, or call the same governed context from your product.',
+    meta: 'Ask · Compose · Workrooms · Canvas',
+  },
+] as const
+
+const interfaces = [
+  {
+    icon: MessageSquareText,
+    title: 'Ask',
+    copy: 'Direct answers grounded in confirmed company knowledge, with inspectable citations and reusable chat history.',
+    href: '/studio',
+    accent: 'bg-success-soft',
+    label: 'Cited answers',
+  },
+  {
+    icon: Presentation,
+    title: 'Compose',
+    copy: 'Create source-backed presentations, executive briefings, and summaries. Export designed PDF, PowerPoint, or Markdown.',
+    href: '/create',
+    accent: 'bg-warning-soft',
+    label: 'Deliverables',
+  },
+  {
+    icon: UsersRound,
+    title: 'Workrooms',
+    copy: 'Plan and supervise durable agent work with teammates, approvals, scoped context, conversation, and shared outputs.',
+    href: '/workrooms',
+    accent: 'bg-info-soft',
+    label: 'Multiplayer AI',
+  },
+  {
+    icon: LayoutDashboard,
+    title: 'Canvas',
+    copy: 'Ask a useful interface into existence. Komponist generates a safe dashboard over live, permission-aware graph queries.',
+    href: '/canvas',
+    accent: 'bg-paper-3',
+    label: 'Dynamic software',
+  },
+  {
+    icon: FileClock,
+    title: 'Versions',
+    copy: 'Find related files across platforms, identify the latest candidate, and compare the actual claims underneath every revision.',
+    href: '/versions',
+    accent: 'bg-white',
+    label: 'Git for files',
+  },
+] as const
+
+const trustItems = [
+  ['Evidence first', 'Every fact keeps its excerpt, source, reference, and date.'],
+  ['Human governed', 'New knowledge enters review by default before people or agents rely on it.'],
+  ['Permission aware', 'Organization, role, department, and source scope follow every retrieval.'],
+  ['Open interfaces', 'Use the Studio, REST API, typed SDK, or authenticated MCP tools.'],
+] as const
+
 function fallbackDemo(question: string) {
-  const terms = question.toLowerCase()
-  if (terms.includes('trust') || terms.includes('review')) return fallbackDemoResults[1]
-  if (terms.includes('agent') || terms.includes('access') || terms.includes('api') || terms.includes('mcp')) return fallbackDemoResults[2]
+  const normalized = question.toLowerCase()
+  if (normalized.includes('confidential') || normalized.includes('read')) return fallbackDemoResults[1]
+  if (normalized.includes('sponsor') || normalized.includes('cost') || normalized.includes('price')) return fallbackDemoResults[2]
   return fallbackDemoResults[0]
 }
 
 export default function LandingPage() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [demoQuestion, setDemoQuestion] = useState<string>(demoQuestions[0])
   const [demoResult, setDemoResult] = useState<DemoResult | null>(null)
   const [demoStatus, setDemoStatus] = useState<'checking' | 'live' | 'fallback'>('checking')
   const [demoLoading, setDemoLoading] = useState(true)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const runDemo = useCallback(async (question: string) => {
     const normalizedQuestion = question.trim()
@@ -185,26 +207,27 @@ export default function LandingPage() {
 
   return (
     <main className="min-h-screen overflow-hidden bg-paper text-ink">
-      <div className="border-b-2 border-ink bg-ink px-4 py-2 text-center font-mono text-[11px] text-white sm:text-xs">
-        <span className="mr-2 inline-block size-2 rounded-full bg-orange" />
-        The context backend for AI-native companies · local-first MVP
+      <div className="border-b-2 border-ink bg-ink px-4 py-2 text-center font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white sm:text-xs">
+        <span className="mr-2 inline-block size-2 rounded-full bg-teal-light" />
+        Open-source MVP · self-host it or try the live pilot
       </div>
 
       <header className="sticky top-0 z-40 border-b-2 border-ink bg-paper/95 backdrop-blur">
-        <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
-          <Link href="/" className="landing-brand flex items-center gap-3 text-xl font-bold tracking-tight">
+        <div className="mx-auto flex h-[72px] max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
+          <Link href="/" className="flex items-center gap-3 text-xl font-bold tracking-tight" aria-label="Komponist home">
             <BrandMark />
-            <span className="landing-brand-name">Komponist</span>
+            <span>Komponist</span>
           </Link>
-          <nav className="hidden items-center gap-8 text-sm font-bold md:flex">
-            <a href="#platform" className="hover:text-orange">Platform</a>
-            <a href="#workflow" className="hover:text-orange">How it works</a>
-            <a href="#developers" className="hover:text-orange">Developers</a>
+          <nav className="hidden items-center gap-8 text-sm font-bold md:flex" aria-label="Main navigation">
+            <a href="#product" className="transition hover:text-orange">Product</a>
+            <a href="#workflow" className="transition hover:text-orange">How it works</a>
+            <a href="#interfaces" className="transition hover:text-orange">Interfaces</a>
+            <a href="#developers" className="transition hover:text-orange">Developers</a>
             <a
               href="https://github.com/komponist-ai/komponist"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 hover:text-orange"
+              className="flex items-center gap-2 transition hover:text-orange"
             >
               <GitHubMark className="size-4" /> GitHub <GitHubStars />
             </a>
@@ -212,7 +235,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
-              className="grid size-10 place-items-center rounded-md border-2 border-ink bg-white text-ink shadow-[2px_2px_0_#201c15] md:hidden"
+              className="grid size-10 place-items-center rounded-md border-2 border-ink bg-white shadow-[2px_2px_0_#201c15] md:hidden"
               aria-label={mobileMenuOpen ? 'Close navigation' : 'Open navigation'}
               aria-expanded={mobileMenuOpen}
               onClick={() => setMobileMenuOpen(current => !current)}
@@ -221,14 +244,10 @@ export default function LandingPage() {
             </button>
             <ThemeToggle />
             <Button asChild variant="ghost" className="hidden sm:inline-flex">
-              <Link href="/studio">Sign in</Link>
+              <Link href="/login">Sign in</Link>
             </Button>
-            <Button asChild size="sm" className="landing-studio-button">
-              <Link href="/studio">
-                <span className="landing-studio-label-full">Open Studio</span>
-                <span className="landing-studio-label-short">Studio</span>
-                <ArrowRight />
-              </Link>
+            <Button asChild size="sm">
+              <Link href="/studio">Open Studio <ArrowRight /></Link>
             </Button>
           </div>
         </div>
@@ -242,8 +261,9 @@ export default function LandingPage() {
               aria-label="Mobile navigation"
             >
               {[
-                ['Platform', '#platform'],
+                ['Product', '#product'],
                 ['How it works', '#workflow'],
+                ['Interfaces', '#interfaces'],
                 ['Developers', '#developers'],
               ].map(([label, href]) => (
                 <a
@@ -260,9 +280,8 @@ export default function LandingPage() {
                 target="_blank"
                 rel="noreferrer"
                 className="flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-paper-2"
-                onClick={() => setMobileMenuOpen(false)}
               >
-                <GitHubMark className="size-4" /> GitHub <GitHubStars className="ml-auto" />
+                <GitHubMark className="size-4" /> Open source <GitHubStars className="ml-auto" />
               </a>
             </motion.nav>
           )}
@@ -270,286 +289,359 @@ export default function LandingPage() {
       </header>
 
       <section className="relative border-b-2 border-ink">
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(#d9cfbf55_1px,transparent_1px),linear-gradient(90deg,#d9cfbf55_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
-        <div className="relative mx-auto grid max-w-[1440px] gap-14 px-5 py-16 sm:px-8 sm:py-28 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:px-12 lg:py-32">
-          <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
-            <Badge variant="default" className="mb-7 normal-case tracking-normal">
-              <span className="size-2 rounded-full bg-teal" />
-              Think Supabase — for your company&apos;s knowledge
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(#d9cfbf44_1px,transparent_1px),linear-gradient(90deg,#d9cfbf44_1px,transparent_1px)] bg-[size:44px_44px] [mask-image:linear-gradient(to_bottom,black,transparent_88%)]" />
+        <div className="relative mx-auto grid max-w-[1440px] gap-14 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:px-12 lg:py-28">
+          <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.55 }}>
+            <Badge variant="orange" className="mb-7 normal-case tracking-normal">
+              <Sparkles className="size-3.5" />
+              Shared context for people and AI
             </Badge>
-            <h1 className="max-w-[760px] font-display text-[clamp(2.75rem,13vw,7rem)] font-bold leading-[0.9] tracking-[-0.06em] sm:text-[clamp(3rem,7vw,7rem)] sm:leading-[0.86] sm:tracking-[-0.065em]">
-              Build your company brain.
-              <span className="mt-2 block text-orange">Ship context-aware AI.</span>
+            <h1 className="max-w-3xl font-display text-[clamp(3.15rem,12vw,7rem)] font-bold leading-[0.86] tracking-[-0.065em] sm:text-[clamp(4rem,7vw,7rem)]">
+              Turn company activity into
+              <span className="mt-2 block text-orange">shared intelligence.</span>
             </h1>
             <p className="mt-8 max-w-2xl text-lg leading-8 text-ink-2 sm:text-xl">
-              Komponist is the backend platform for company context: connect scattered sources, turn them into reviewed knowledge with citations, then serve the same truth to your team, product, and AI agents.
+              Komponist turns documents, Notion, and Slack into reviewed company knowledge — then makes it usable in cited answers, briefings, live interfaces, team workrooms, and AI agents.
             </p>
-            <div className="mt-9 flex flex-wrap gap-4">
-              <Button asChild size="lg" variant="dark" className="w-full min-[430px]:w-auto">
-                <Link href="/studio">Start building with Komponist <ArrowRight /></Link>
+            <div className="mt-9 flex flex-col gap-3 min-[430px]:flex-row">
+              <Button asChild size="lg" variant="dark">
+                <Link href="/studio">Build your company brain <ArrowRight /></Link>
               </Button>
-              <Button asChild size="lg" variant="outline" className="w-full min-[430px]:w-auto">
-                <a href="#platform">See what is inside <ChevronRight /></a>
+              <Button asChild size="lg" variant="outline">
+                <a href="#product">See the product <ChevronRight /></a>
               </Button>
             </div>
-            <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted">
-              <span className="flex items-center gap-2"><Check className="size-4 shrink-0 text-teal" /> One workspace per organization</span>
-              <span className="flex items-center gap-2"><Check className="size-4 shrink-0 text-teal" /> Human-governed</span>
-              <span className="flex items-center gap-2"><Check className="size-4 shrink-0 text-teal" /> API + MCP ready</span>
+            <div className="mt-8 grid max-w-2xl gap-3 text-sm sm:grid-cols-3">
+              {[
+                ['4', 'durable entity types'],
+                ['6', 'authenticated MCP tools'],
+                ['1', 'shared source of truth'],
+              ].map(([value, label]) => (
+                <div key={label} className="flex items-baseline gap-2 border-l-2 border-ink pl-3">
+                  <strong className="font-mono text-lg text-orange-dark">{value}</strong>
+                  <span className="text-xs font-semibold text-muted">{label}</span>
+                </div>
+              ))}
             </div>
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, rotate: 1.5, y: 30 }}
-            animate={{ opacity: 1, rotate: 0, y: 0 }}
-            transition={{ duration: 0.65, delay: 0.1 }}
-            className="relative min-w-0 lg:pl-6"
+            initial={{ opacity: 0, y: 28, rotate: 1 }}
+            animate={{ opacity: 1, y: 0, rotate: 0 }}
+            transition={{ duration: 0.6, delay: 0.08 }}
+            className="relative min-w-0"
           >
-            <div className="max-w-full overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[5px_5px_0_#e8641b] sm:shadow-[10px_10px_0_#e8641b]">
-              <div className="flex items-center justify-between gap-2 border-b-2 border-ink bg-ink px-3 py-3 text-white sm:px-4">
-                <div className="flex min-w-0 items-center gap-2">
+            <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15] sm:shadow-[11px_11px_0_#201c15]">
+              <div className="flex items-center justify-between border-b-2 border-ink bg-ink px-4 py-3 text-white">
+                <div className="flex items-center gap-2 font-mono text-[10px]">
                   <span className="size-2.5 rounded-full bg-orange" />
-                  <span className="size-2.5 rounded-full bg-teal" />
-                  <span className="size-2.5 rounded-full bg-white/25" />
-                  <span className="ml-1 hidden truncate font-mono text-xs text-white/60 min-[360px]:inline sm:ml-2">campuskollektiv / company-brain</span>
+                  <span className="size-2.5 rounded-full bg-teal-light" />
+                  <span className="ml-2 text-white/65">campuskollektiv / live context</span>
                 </div>
                 <Badge variant="dark" className="border-white/20 px-2 py-0.5 text-[9px]">
-                  {demoStatus === 'live' ? 'API live' : demoStatus === 'fallback' ? 'Browser demo' : 'Checking API'}
+                  {demoStatus === 'live' ? 'API live' : demoStatus === 'fallback' ? 'Browser demo' : 'Connecting'}
                 </Badge>
               </div>
 
-              <div className="grid min-h-[480px] md:grid-cols-[180px_1fr]">
-                <div className="min-w-0 border-b-2 border-ink bg-paper-2 p-4 md:border-b-0 md:border-r-2">
-                  <p className="mb-4 font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Sources</p>
-                  <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 md:mx-0 md:block md:overflow-visible md:px-0 md:pb-0">
+              <div className="grid gap-0 lg:grid-cols-[0.82fr_1.18fr]">
+                <div className="border-b-2 border-ink bg-paper-2 p-4 lg:border-b-0 lg:border-r-2 sm:p-5">
+                  <div className="flex items-center justify-between">
+                    <p className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">Knowledge pipeline</p>
+                    <span className="font-mono text-[9px] text-teal">synced now</span>
+                  </div>
+                  <div className="mt-4 space-y-3">
                     {[
-                      ['UP', 'Board minutes', 'highly confidential'],
-                      ['UP', 'Campus Forum v2', 'approved'],
-                      ['UP', '12 more documents', 'connected'],
-                    ].map(([abbr, name, meta], index) => (
-                      <div key={name} className="flex min-w-[150px] items-center gap-2 rounded-md border border-line bg-white p-2.5 shadow-sm md:mb-2 md:min-w-0">
-                        <span className={`grid size-8 shrink-0 place-items-center rounded border border-line font-mono text-[9px] font-bold ${index === 2 ? 'bg-ink text-white' : 'bg-warning-soft text-orange-dark'}`}>{abbr}</span>
-                        <span className="min-w-0">
-                          <strong className="block truncate text-xs">{name}</strong>
-                          <span className="font-mono text-[9px] text-muted">{meta}</span>
-                        </span>
-                      </div>
-                    ))}
-                    <div className="grid min-w-[150px] place-items-center rounded-md border border-dashed border-muted/50 p-3 text-center font-mono text-[10px] text-muted md:mt-5 md:min-w-0">+ connect source</div>
+                      [Files, 'Sources', '14 documents · Notion · Slack', 'bg-warning-soft'],
+                      [FileCheck2, 'Review', '3 confirmed · 1 proposed', 'bg-success-soft'],
+                      [Network, 'Graph', '24 entities · 17 relationships', 'bg-info-soft'],
+                    ].map(([Icon, title, detail, tone]) => {
+                      const ItemIcon = Icon as typeof Files
+                      return (
+                        <div key={title as string} className="flex items-center gap-3 rounded-lg border-2 border-ink bg-white p-3 shadow-[2px_2px_0_#201c15]">
+                          <span className={`grid size-9 shrink-0 place-items-center rounded-md border border-ink ${tone}`}>
+                            <ItemIcon className="size-4" />
+                          </span>
+                          <span className="min-w-0">
+                            <strong className="block text-sm">{title as string}</strong>
+                            <span className="block truncate font-mono text-[9px] text-muted">{detail as string}</span>
+                          </span>
+                          <Check className="ml-auto size-4 shrink-0 text-teal" />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-5 rounded-lg border-2 border-dashed border-line bg-paper p-3">
+                    <div className="flex items-center gap-2 text-xs font-bold"><GitBranch className="size-4 text-orange" /> Connected context</div>
+                    <p className="mt-1 text-[11px] leading-5 text-muted">Campus Forum supports member growth and is constrained by the approved budget.</p>
                   </div>
                 </div>
 
-                <div className="relative min-w-0 overflow-hidden p-4 sm:p-7">
-                  <div className="mb-6 flex items-center justify-between">
+                <div className="min-w-0 p-4 sm:p-6">
+                  <div className="mb-4 flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Context graph</p>
-                      <h3 className="mt-1 text-xl font-bold">Campus Forum</h3>
+                      <p className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-orange-dark">Ask the company</p>
+                      <h3 className="mt-1 text-xl font-bold">Answers with receipts</h3>
                     </div>
-                    <Badge variant="teal"><span className="size-1.5 rounded-full bg-teal" /> confirmed</Badge>
+                    <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange text-white shadow-[2px_2px_0_#201c15]">
+                      <Bot className="size-5" />
+                    </span>
                   </div>
-
-                  <div className="relative mx-auto h-52 max-w-md">
-                    <svg className="absolute inset-0 size-full" viewBox="0 0 440 210" aria-hidden="true">
-                      <path d="M218 102 L78 46 M218 102 L365 45 M218 102 L82 168 M218 102 L360 168" fill="none" stroke="#d6a679" strokeWidth="2" strokeDasharray="5 5" />
-                    </svg>
-                    <div className="absolute left-1/2 top-1/2 z-10 flex size-24 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border-2 border-ink bg-orange text-center text-white shadow-[4px_4px_0_#201c15]">
-                      <Network className="mb-1 size-5" />
-                      <span className="text-xs font-bold">Project</span>
+                  <form
+                    className="flex gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void runDemo(demoQuestion)
+                    }}
+                  >
+                    <label className="sr-only" htmlFor="landing-demo-question">Ask the Komponist demo</label>
+                    <input
+                      id="landing-demo-question"
+                      value={demoQuestion}
+                      onChange={(event) => setDemoQuestion(event.target.value)}
+                      maxLength={240}
+                      className="min-w-0 flex-1 rounded-md border-2 border-ink bg-paper px-3 py-2 text-xs font-semibold outline-none focus:shadow-[2px_2px_0_#e8641b]"
+                    />
+                    <Button size="icon" aria-label="Ask Komponist" disabled={demoLoading || demoQuestion.trim().length < 3}>
+                      {demoLoading ? <LoaderCircle className="animate-spin" /> : <Send />}
+                    </Button>
+                  </form>
+                  <div className="mt-4 min-h-[156px] rounded-lg border-2 border-ink bg-paper p-4">
+                    <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-wider text-muted">
+                      <Search className="size-3.5" /> {demoLoading ? 'Retrieving permitted context…' : 'Confirmed context only'}
                     </div>
-                    <GraphNode className="left-0 top-2" icon={Sparkles} label="Goal" detail="220 attendees" color="bg-success-soft" />
-                    <GraphNode className="right-0 top-1" icon={GitBranch} label="Decision" detail="Free entry" color="bg-info-soft" />
-                    <GraphNode className="bottom-0 left-0" icon={ShieldCheck} label="Constraint" detail="€4,800 cap" color="bg-warning-soft" />
-                    <GraphNode className="bottom-0 right-0" icon={FileText} label="Evidence" detail="board-minutes.md" color="bg-paper-2" />
-                  </div>
-
-                  <div className="mt-5 rounded-lg border-2 border-ink bg-paper p-4 shadow-[4px_4px_0_#0e8a7d]">
-                    <form
-                      className="flex gap-2"
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        void runDemo(demoQuestion)
-                      }}
-                    >
-                      <label className="sr-only" htmlFor="landing-demo-question">Ask the Komponist demo</label>
-                      <input
-                        id="landing-demo-question"
-                        value={demoQuestion}
-                        onChange={(event) => setDemoQuestion(event.target.value)}
-                        maxLength={240}
-                        className="min-w-0 flex-1 rounded-md border-2 border-ink bg-white px-3 py-2 text-xs font-semibold outline-none focus:shadow-[2px_2px_0_#e8641b]"
-                      />
-                      <Button className="size-10 shrink-0 p-0" aria-label="Ask Komponist" disabled={demoLoading || demoQuestion.trim().length < 3}>
-                        {demoLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
-                      </Button>
-                    </form>
-                    <div className="mt-3 flex items-center gap-2 font-mono text-[9px] uppercase tracking-wider text-muted">
-                      <Search className="size-3.5" /> {demoLoading ? 'Retrieving confirmed context…' : 'Answer compiled from demo data'}
-                    </div>
-                    <p className="mt-2 min-h-12 text-sm font-semibold leading-6" aria-live="polite">
+                    <p className="mt-3 text-sm font-semibold leading-6" aria-live="polite">
                       {demoLoading ? 'Komponist is checking the demo workspace.' : demoResult?.answer}
                     </p>
                     {demoResult?.sources[0] && !demoLoading && (
-                      <p className="mt-2 truncate font-mono text-[10px] text-orange-dark">[{demoResult.sources[0].number}] {demoResult.sources[0].title}</p>
+                      <div className="mt-4 rounded-md border border-line bg-white p-2.5">
+                        <p className="truncate font-mono text-[9px] font-bold text-orange-dark">[{demoResult.sources[0].number}] {demoResult.sources[0].title}</p>
+                        <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted">{demoResult.sources[0].excerpt}</p>
+                      </div>
                     )}
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {demoQuestions.map((question, index) => (
-                        <button
-                          key={question}
-                          type="button"
-                          onClick={() => void runDemo(question)}
-                          className="min-h-9 rounded-full border border-line bg-white px-3 py-1 font-mono text-[9px] font-semibold text-muted transition hover:border-ink hover:text-ink"
-                        >
-                          Try 0{index + 1}
-                        </button>
-                      ))}
-                    </div>
+                  </div>
+                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                    {demoQuestions.map((question, index) => (
+                      <button
+                        key={question}
+                        type="button"
+                        onClick={() => void runDemo(question)}
+                        className="min-h-8 shrink-0 rounded-full border border-line bg-white px-3 font-mono text-[9px] font-semibold transition hover:border-ink"
+                      >
+                        Try 0{index + 1}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
             </div>
-            <div className="absolute -bottom-7 -left-2 rotate-[-2deg] rounded-md border-2 border-ink bg-[#f4d06f] px-4 py-3 text-sm font-bold shadow-[4px_4px_0_#201c15]">
-              No Dave required. ✓
+            <div className="absolute -bottom-6 right-3 rotate-2 rounded-md border-2 border-ink bg-success-soft px-4 py-2.5 font-mono text-[10px] font-bold uppercase tracking-wider shadow-[3px_3px_0_#201c15] sm:right-8">
+              Source → fact → action
             </div>
           </motion.div>
         </div>
       </section>
 
-      <section className="border-b-2 border-ink bg-paper-2 px-5 py-5 sm:px-8 lg:px-12">
-        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-center gap-x-10 gap-y-3 font-mono text-xs font-semibold uppercase tracking-wider text-ink-2">
-          <span className="text-orange-dark">One context layer underneath</span>
-          <span>Humans</span><span className="text-faint">+</span><span>Claude</span><span className="text-faint">+</span><span>OpenAI</span><span className="text-faint">+</span><span>Codex</span><span className="text-faint">+</span><span>Your agent</span>
+      <section className="border-b-2 border-ink bg-ink text-white">
+        <div className="mx-auto grid max-w-[1440px] divide-y-2 divide-white/15 px-5 sm:grid-cols-2 sm:divide-x-2 sm:divide-y-0 sm:px-8 lg:grid-cols-4 lg:px-12">
+          {trustItems.map(([title, copy]) => (
+            <div key={title} className="px-0 py-6 sm:px-5 lg:px-7">
+              <div className="flex items-center gap-2 text-sm font-bold"><Check className="size-4 text-teal-light" />{title}</div>
+              <p className="mt-2 text-xs leading-5 text-white/55">{copy}</p>
+            </div>
+          ))}
         </div>
       </section>
 
-      <section id="platform" className="border-b-2 border-ink bg-white px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
+      <section id="product" className="border-b-2 border-ink bg-white px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
         <div className="mx-auto max-w-[1440px]">
-          <motion.div {...reveal} className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+          <motion.div {...reveal} className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-end">
             <div>
-              <Badge variant="teal">The company context stack</Badge>
-              <h2 className="mt-6 font-display text-[clamp(2.8rem,5.5vw,5.8rem)] font-bold leading-[0.92] tracking-[-0.055em]">
-                The backend your agents are <span className="text-orange">missing.</span>
+              <Badge variant="teal">The product today</Badge>
+              <h2 className="mt-6 max-w-4xl font-display text-[clamp(3rem,6vw,6rem)] font-bold leading-[0.9] tracking-[-0.06em]">
+                Not another chat over a <span className="text-orange">folder.</span>
               </h2>
             </div>
             <div className="border-l-2 border-ink pl-6 sm:pl-8">
               <p className="text-xl font-semibold leading-8 text-ink-2 sm:text-2xl">
-                Supabase gives applications a database, auth, and APIs. Komponist gives AI applications governed company memory, retrieval, and agent access.
+                Komponist turns scattered activity into an explicit, reviewed model of what your organization decided, wants, must respect, and is doing.
               </p>
-              <p className="mt-4 font-mono text-xs uppercase tracking-wider text-muted">Not another chatbot · shared infrastructure for every AI surface</p>
+              <p className="mt-4 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+                Decisions · Goals · Constraints · Projects
+              </p>
             </div>
           </motion.div>
 
-          <div className="mt-14 grid border-l-2 border-t-2 border-ink lg:grid-cols-3">
-            {platformLayers.map((layer, index) => (
+          <div id="workflow" className="mt-14 grid border-l-2 border-t-2 border-ink md:grid-cols-2 xl:grid-cols-4">
+            {workflow.map((step, index) => (
               <motion.article
-                key={layer.title}
+                key={step.title}
                 {...reveal}
-                transition={{ ...reveal.transition, delay: index * 0.08 }}
-                className={`relative min-h-[360px] overflow-hidden border-b-2 border-r-2 border-ink p-7 pb-20 sm:p-9 sm:pb-20 ${layer.tone}`}
+                transition={{ ...reveal.transition, delay: index * 0.06 }}
+                className="group relative min-h-[390px] border-b-2 border-r-2 border-ink bg-paper p-7 transition-colors hover:bg-warning-soft sm:p-8"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted">{layer.eyebrow}</span>
-                  <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-white shadow-[3px_3px_0_#201c15]">
-                    <layer.icon className="size-5" />
+                  <span className="font-mono text-xs font-bold text-orange-dark">{step.number}</span>
+                  <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-white shadow-[3px_3px_0_#201c15] transition-transform group-hover:-rotate-3">
+                    <step.icon className="size-5" />
                   </span>
                 </div>
-                <h3 className="mt-14 max-w-xs text-3xl font-bold leading-tight tracking-tight">{layer.title}</h3>
-                <p className="mt-4 max-w-sm leading-7 text-ink-2">{layer.copy}</p>
-                <p className="absolute bottom-7 left-7 font-mono text-[10px] font-bold uppercase tracking-wider text-orange-dark sm:bottom-9 sm:left-9">{layer.detail}</p>
+                <h3 className="mt-14 text-2xl font-bold tracking-tight">{step.title}</h3>
+                <p className="mt-4 leading-7 text-ink-2">{step.copy}</p>
+                <p className="absolute bottom-7 left-7 font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-muted sm:left-8">{step.meta}</p>
               </motion.article>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="capabilities" className="mx-auto max-w-[1440px] px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
-        <motion.div {...reveal} className="max-w-4xl">
-          <Badge variant="orange">Platform primitives</Badge>
-          <h2 className="mt-6 font-display text-[clamp(2.8rem,5.8vw,6rem)] font-bold leading-[0.92] tracking-[-0.055em]">
-            Company context without the <span className="text-orange">document archaeology.</span>
-          </h2>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-ink-2">The dashboard and infrastructure come together. Start with documents today; connect every teammate, product, and agent tomorrow.</p>
-        </motion.div>
-
-        <div className="mt-14 grid border-l-2 border-t-2 border-ink md:grid-cols-2 xl:grid-cols-3">
-          {features.map((feature, index) => (
-            <motion.article
-              key={feature.title}
-              {...reveal}
-              transition={{ ...reveal.transition, delay: index * 0.05 }}
-              className="group min-h-[330px] border-b-2 border-r-2 border-ink bg-white p-7 transition-colors hover:bg-warning-soft sm:p-9"
-            >
-              <div className="flex items-start justify-between">
-                <span className="font-mono text-xs text-muted">{feature.number}</span>
-                <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-paper shadow-[3px_3px_0_#201c15] transition-transform group-hover:-rotate-3 group-hover:scale-105">
-                  <feature.icon className="size-5" />
-                </span>
-              </div>
-              <h3 className="mt-12 text-2xl font-bold tracking-tight">{feature.title}</h3>
-              <p className="mt-3 leading-7 text-ink-2">{feature.copy}</p>
-              <div className="mt-6 font-mono text-[10px] font-semibold uppercase tracking-wider text-orange-dark">{feature.tag} →</div>
-            </motion.article>
-          ))}
-        </div>
-      </section>
-
-      <section id="workflow" className="border-y-2 border-ink bg-ink text-white">
-        <div className="mx-auto grid max-w-[1440px] lg:grid-cols-[0.75fr_1.25fr]">
-          <motion.div {...reveal} className="border-b-2 border-white/20 p-8 sm:p-12 lg:border-b-0 lg:border-r-2 lg:p-16">
-            <Badge variant="dark" className="border-white/30">Three steps</Badge>
-            <h2 className="mt-7 text-4xl font-bold leading-tight tracking-tight sm:text-6xl">From messy source to useful brain.</h2>
-            <p className="mt-6 max-w-lg text-lg leading-8 text-white/65">No migration project. No ontology workshop. No mysterious answer without a source.</p>
+      <section id="interfaces" className="px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
+        <div className="mx-auto max-w-[1440px]">
+          <motion.div {...reveal} className="max-w-4xl">
+            <Badge variant="orange">One brain, many interfaces</Badge>
+            <h2 className="mt-6 font-display text-[clamp(3rem,6vw,6rem)] font-bold leading-[0.9] tracking-[-0.06em]">
+              Knowledge becomes useful when work can <span className="text-orange">happen on top.</span>
+            </h2>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-ink-2">
+              Every surface resolves the same permission-aware graph. A citation can move from an answer to a briefing, a canvas, or an agent run without losing its origin.
+            </p>
           </motion.div>
-          <div>
-            {steps.map(([title, copy, Icon], index) => (
-              <motion.div key={title} {...reveal} className="grid gap-5 border-b-2 border-white/20 p-8 last:border-b-0 sm:grid-cols-[64px_1fr] sm:p-10">
-                <span className="grid size-14 place-items-center rounded-lg border-2 border-white/70 bg-orange text-lg font-bold shadow-[4px_4px_0_#fff]">0{index + 1}</span>
-                <div>
-                  <div className="flex items-center gap-3"><Icon className="size-5 text-orange-light" /><h3 className="text-2xl font-bold">{title}</h3></div>
-                  <p className="mt-2 max-w-xl leading-7 text-white/65">{copy}</p>
+
+          <div className="mt-14 grid gap-5 lg:grid-cols-6">
+            {interfaces.map((item, index) => (
+              <motion.article
+                key={item.title}
+                {...reveal}
+                transition={{ ...reveal.transition, delay: index * 0.05 }}
+                className={`group rounded-xl border-2 border-ink p-7 shadow-[5px_5px_0_#201c15] transition hover:-translate-y-1 ${item.accent} ${index < 2 ? 'lg:col-span-3' : 'lg:col-span-2'}`}
+              >
+                <div className="flex items-start justify-between">
+                  <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-white">
+                    <item.icon className="size-5" />
+                  </span>
+                  <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-orange-dark">{item.label}</span>
                 </div>
-              </motion.div>
+                <h3 className="mt-12 text-3xl font-bold">{item.title}</h3>
+                <p className="mt-3 max-w-xl leading-7 text-ink-2">{item.copy}</p>
+                <Link href={item.href} className="mt-7 inline-flex items-center gap-2 text-sm font-bold transition group-hover:text-orange">
+                  Open {item.title} <ArrowRight className="size-4" />
+                </Link>
+              </motion.article>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="developers" className="mx-auto grid max-w-[1440px] gap-14 px-5 py-24 sm:px-8 lg:grid-cols-2 lg:items-center lg:px-12 lg:py-32">
+      <section className="border-y-2 border-ink bg-paper-2">
+        <div className="mx-auto grid max-w-[1440px] lg:grid-cols-2">
+          <motion.div {...reveal} className="border-b-2 border-ink p-7 sm:p-12 lg:border-b-0 lg:border-r-2 lg:p-16">
+            <Badge variant="teal"><UsersRound className="size-3.5" /> Multiplayer AI</Badge>
+            <h2 className="mt-7 text-4xl font-bold leading-[0.95] tracking-[-0.045em] sm:text-6xl">
+              Agents join the team, not another private chat.
+            </h2>
+            <p className="mt-6 max-w-xl text-lg leading-8 text-ink-2">
+              Workrooms combine a shared objective, approved plan, durable worker, scoped context, human redirects, approvals, and cited deliverables in one auditable place.
+            </p>
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              {['Versioned plans', 'Room-scoped context', 'Pause and redirect', 'Shared deliverables'].map(item => (
+                <div key={item} className="flex items-center gap-3 rounded-lg border border-line bg-white p-3 text-sm font-bold">
+                  <Check className="size-4 text-teal" /> {item}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+
+          <motion.div {...reveal} className="bg-ink p-7 text-white sm:p-12 lg:p-16">
+            <Badge variant="dark" className="border-white/25"><Blocks className="size-3.5" /> Dynamic software</Badge>
+            <h2 className="mt-7 text-4xl font-bold leading-[0.95] tracking-[-0.045em] sm:text-6xl">
+              Ask a live interface into existence.
+            </h2>
+            <p className="mt-6 max-w-xl text-lg leading-8 text-white/65">
+              Canvas converts a question into a validated layout and a closed set of safe graph queries. Each viewer sees fresh data inside their own permissions — not a generated screenshot.
+            </p>
+            <div className="mt-9 rounded-xl border-2 border-white/25 bg-white/5 p-5">
+              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-orange-light">
+                <LayoutDashboard className="size-4" /> Canvas request
+              </div>
+              <p className="mt-3 text-lg font-semibold">&ldquo;Show the board the projects at risk and the decisions blocking them.&rdquo;</p>
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                {['Risk metric', 'Project table', 'Decision list'].map(item => (
+                  <div key={item} className="rounded-md border border-white/20 bg-white/10 p-2 text-center font-mono text-[9px] text-white/70">{item}</div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      <section id="developers" className="mx-auto grid max-w-[1440px] gap-14 px-5 py-24 sm:px-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-center lg:px-12 lg:py-32">
         <motion.div {...reveal}>
-          <Badge variant="teal">Agent interface</Badge>
-          <h2 className="mt-6 text-5xl font-bold leading-[0.95] tracking-[-0.05em] sm:text-7xl">A company brain you can call.</h2>
-          <p className="mt-6 max-w-xl text-lg leading-8 text-ink-2">Use the same confirmed context in Studio, your own product, or any MCP-compatible coding agent.</p>
+          <Badge variant="orange"><Braces className="size-3.5" /> Context infrastructure</Badge>
+          <h2 className="mt-6 text-5xl font-bold leading-[0.92] tracking-[-0.055em] sm:text-7xl">
+            Use the brain from your own product.
+          </h2>
+          <p className="mt-6 max-w-xl text-lg leading-8 text-ink-2">
+            Organization API keys, a typed JavaScript SDK, and authenticated MCP tools expose confirmed context with evidence — without letting callers choose another organization.
+          </p>
           <ul className="mt-8 space-y-4">
-            {['Organization-scoped API keys', 'Citations and entity metadata', 'Revocable access for every agent'].map(item => (
-              <li key={item} className="flex items-center gap-3 font-semibold"><span className="grid size-6 place-items-center rounded-full bg-success-soft text-teal"><Check className="size-4" /></span>{item}</li>
+            {['REST context and brain endpoints', 'Typed { data, error } SDK contract', 'Search, decisions, constraints, approvals, and writeback over MCP'].map(item => (
+              <li key={item} className="flex items-start gap-3 font-semibold">
+                <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-success-soft text-teal"><Check className="size-4" /></span>
+                {item}
+              </li>
             ))}
           </ul>
-          <Button asChild className="mt-9" variant="outline"><Link href="/studio">Open API settings <ArrowRight /></Link></Button>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <Button asChild variant="outline"><Link href="/settings/api">Open API settings <ArrowRight /></Link></Button>
+            <Button asChild variant="ghost"><a href="https://github.com/komponist-ai/komponist" target="_blank" rel="noreferrer"><GitHubMark className="size-4" /> View source</a></Button>
+          </div>
         </motion.div>
 
         <motion.div {...reveal} className="overflow-hidden rounded-xl border-2 border-ink bg-code-bg text-code-text shadow-[9px_9px_0_#0e8a7d]">
           <div className="flex items-center justify-between border-b border-white/15 bg-code-surface px-5 py-3 font-mono text-xs text-code-muted">
-            <span>ask-komponist.ts</span><span>MCP · API</span>
+            <span>company-context.ts</span><span>SDK · REST · MCP</span>
           </div>
-          <pre className="overflow-x-auto p-6 font-mono text-[13px] leading-7 sm:p-8"><code><span className="text-code-keyword">import</span> {'{'} createKomponistClient {'}'} <span className="text-code-keyword">from</span> <span className="text-code-string">&quot;@komponist/sdk&quot;</span>{`\n\n`}<span className="text-code-keyword">const</span> komponist = createKomponistClient({'{'}{`\n`}  url: process.env.KOMPONIST_URL!,{`\n`}  apiKey: process.env.KOMPONIST_API_KEY!{`\n`}{'}'}){`\n\n`}<span className="text-code-keyword">const</span> {'{'} data, error {'}'} = <span className="text-code-keyword">await</span> komponist.context.search({`\n`}  <span className="text-code-string">&quot;What did we decide?&quot;</span>,{`\n`}  {'{'} types: [<span className="text-code-string">&quot;Decision&quot;</span>, <span className="text-code-string">&quot;Constraint&quot;</span>] {'}'}{`\n`}){`\n\n`}<span className="text-code-comment">{'// confirmed facts · citations · org isolated'}</span>{`\n`}<span className="text-code-number">data?.items[0].evidence</span></code></pre>
-          <div className="border-t border-white/15 bg-black/20 px-6 py-4 font-mono text-xs text-teal-light">✓ Context compiled. Nothing invented.</div>
+          <pre className="overflow-x-auto p-6 font-mono text-[13px] leading-7 sm:p-8"><code><span className="text-code-keyword">import</span> {'{'} createKomponistClient {'}'} <span className="text-code-keyword">from</span> <span className="text-code-string">&quot;@komponist/sdk&quot;</span>{`\n\n`}<span className="text-code-keyword">const</span> komponist = createKomponistClient({'{'}{`\n`}  url: process.env.KOMPONIST_URL!,{`\n`}  apiKey: process.env.KOMPONIST_API_KEY!{`\n`}{'}'}){`\n\n`}<span className="text-code-keyword">const</span> {'{'} data, error {'}'} = <span className="text-code-keyword">await</span> komponist.context.search({`\n`}  <span className="text-code-string">&quot;Which constraints affect Campus Forum?&quot;</span>,{`\n`}  {'{'} types: [<span className="text-code-string">&quot;Constraint&quot;</span>, <span className="text-code-string">&quot;Project&quot;</span>] {'}'}{`\n`}){`\n\n`}<span className="text-code-comment">{'// permission-scoped facts with source evidence'}</span>{`\n`}data?.items[0].evidence</code></pre>
+          <div className="border-t border-white/15 bg-black/20 px-6 py-4 font-mono text-xs text-teal-light">
+            ✓ Context retrieved · citations preserved
+          </div>
         </motion.div>
       </section>
 
-      <section className="border-y-2 border-ink bg-orange px-5 py-20 sm:px-8 lg:px-12">
-        <motion.div {...reveal} className="mx-auto flex max-w-[1200px] flex-col items-start justify-between gap-8 lg:flex-row lg:items-center">
+      <section className="border-y-2 border-ink bg-warning-soft px-5 py-16 sm:px-8 lg:px-12">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="font-mono text-xs font-bold uppercase tracking-widest text-ink/70">Local MVP · ready to test</p>
-            <h2 className="mt-3 max-w-4xl text-4xl font-bold leading-tight tracking-tight sm:text-6xl">Give your company&apos;s decisions object permanence.</h2>
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-orange-dark">Honest MVP status</p>
+            <h2 className="mt-3 max-w-4xl text-4xl font-bold leading-tight tracking-tight sm:text-6xl">
+              The core loop works. We are testing the edges in public.
+            </h2>
+            <p className="mt-4 max-w-3xl leading-7 text-ink-2">
+              Upload → extraction → review → graph → cited answers, Compose, Canvas, Workrooms, API, and MCP are implemented. Live connector lifecycles and production operations are still being validated.
+            </p>
+          </div>
+          <Button asChild size="lg" variant="dark" className="shrink-0">
+            <a href="https://github.com/komponist-ai/komponist" target="_blank" rel="noreferrer"><GitHubMark className="size-4" /> Follow the build</a>
+          </Button>
+        </div>
+      </section>
+
+      <section className="bg-orange px-5 py-16 text-white sm:px-8 lg:px-12">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-white/70">Your company already has the context</p>
+            <h2 className="mt-3 max-w-4xl text-5xl font-bold leading-[0.95] tracking-[-0.05em] sm:text-7xl">Make it usable together.</h2>
           </div>
           <Button asChild size="lg" variant="dark" className="shrink-0 shadow-[6px_6px_0_#fff]">
             <Link href="/studio">Open Komponist <ArrowRight /></Link>
           </Button>
-        </motion.div>
+        </div>
       </section>
 
       <footer className="bg-paper px-5 py-12 sm:px-8 lg:px-12">
         <div className="mx-auto flex max-w-[1440px] flex-col justify-between gap-8 sm:flex-row sm:items-end">
-          <div><div className="flex items-center gap-3 text-xl font-bold"><BrandMark /> Komponist</div><p className="mt-4 max-w-md text-sm text-muted">The programmable company brain. Built by people who also forgot where the roadmap lives.</p></div>
+          <div>
+            <div className="flex items-center gap-3 text-xl font-bold"><BrandMark /> Komponist</div>
+            <p className="mt-4 max-w-md text-sm text-muted">The shared context layer for people, products, and AI agents.</p>
+          </div>
           <div className="flex flex-col items-start gap-4 sm:items-end">
             <a
               href="https://github.com/komponist-ai/komponist"
@@ -559,19 +651,10 @@ export default function LandingPage() {
             >
               <GitHubMark className="size-4" /> Open source on GitHub <GitHubStars />
             </a>
-            <div className="font-mono text-xs text-muted">© 2026 Komponist · SELECT * FROM company_brain;</div>
+            <div className="font-mono text-xs text-muted">© 2026 Komponist · Apache-2.0</div>
           </div>
         </div>
       </footer>
     </main>
-  )
-}
-
-function GraphNode({ className, icon: Icon, label, detail, color }: { className: string; icon: typeof Sparkles; label: string; detail: string; color: string }) {
-  return (
-    <div className={`absolute flex w-[110px] items-center gap-2 rounded-lg border-2 border-ink ${color} p-2 shadow-[3px_3px_0_#201c15] min-[380px]:w-32 sm:p-2.5 ${className}`}>
-      <Icon className="size-4 shrink-0" />
-      <span className="min-w-0"><strong className="block text-xs">{label}</strong><span className="block truncate font-mono text-[8px] text-muted">{detail}</span></span>
-    </div>
   )
 }

@@ -1,239 +1,186 @@
-# Installing the Komponist MCP Server
+# Connect Komponist through MCP
 
-This guide shows how to connect Claude Code and Cursor to your Komponist company brain.
+Komponist exposes confirmed, cited company context to MCP-compatible agents over
+an authenticated Streamable HTTP endpoint. The MCP server runs as part of the
+normal Komponist stack; a client should not receive Neo4j, Postgres, organization
+ID, or AI-provider credentials.
 
 ## Prerequisites
 
-- Komponist API running (see [deployment.md](deployment.md))
-- Neo4j database initialized with your org's data
-- Organization ID from your Komponist account
+1. Start Komponist and verify that API, MCP, Neo4j, and Postgres are healthy.
+2. Upload or sync knowledge, review it, and confirm at least one entity.
+3. Open **Settings → API & MCP**.
+4. Create an organization API key and copy it immediately. The plain token is
+   shown once; only its hash is stored.
 
-## Claude Code Installation
+The local MCP URL is:
 
-Add the Komponist MCP server to your Claude Code configuration:
-
-### 1. Edit `.mcp.json`
-
-```bash
-# In your project or home directory
-nano ~/.claude/mcp.json
+```text
+http://localhost:8080/mcp
 ```
 
-### 2. Add Komponist server
+For a hosted deployment, use its public HTTPS MCP domain, for example:
+
+```text
+https://mcp.example.com/mcp
+```
+
+## Codex-style TOML configuration
+
+Store the token in your shell or secret manager:
+
+```bash
+export KOMPONIST_API_KEY="kom_..."
+```
+
+Add the server to the client's TOML configuration:
+
+```toml
+[mcp_servers.komponist]
+url = "http://localhost:8080/mcp"
+bearer_token_env_var = "KOMPONIST_API_KEY"
+```
+
+For a hosted deployment, replace only the URL. Keep the token out of the file.
+
+## JSON-based clients
+
+Clients that support remote HTTP MCP servers usually accept the same information
+as JSON:
 
 ```json
 {
   "mcpServers": {
     "komponist": {
-      "command": "python",
-      "args": ["/path/to/komponist/apps/mcp/server.py"],
-      "env": {
-        "KOMPONIST_ORG_ID": "your-org-id",
-        "NEO4J_URI": "bolt://localhost:7687",
-        "NEO4J_USERNAME": "neo4j",
-        "NEO4J_PASSWORD": "your-password",
-        "KOMPONIST_AI_MODE": "mock",
-        "KOMPONIST_LLM_PROVIDER": "openai",
-        "KOMPONIST_EMBEDDING_PROVIDER": "openai",
-        "DATABASE_URL": "postgresql+asyncpg://..."
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KOMPONIST_API_KEY}"
       }
     }
   }
 }
 ```
 
-Mock mode makes no AI network calls. For live extraction and semantic search,
-set `KOMPONIST_AI_MODE` to `live` and add a project-scoped `OPENAI_API_KEY`.
+The exact environment-variable syntax differs between clients. If a client
+cannot resolve `${KOMPONIST_API_KEY}`, use its built-in secret store rather than
+committing the token.
 
-### 3. Verify installation
+## Verify the connection
 
-```bash
-# In a fresh Claude Code session
+Start a fresh agent session and ask:
+
+```text
+Search Komponist for the current authentication decisions. Cite the original
+evidence and tell me when no confirmed answer exists.
 ```
 
-Ask Claude: "What auth approach do we use and why?"
+A successful connection should:
 
-Claude should call `search_company_context` and return your team's auth decision with citations.
+1. discover the Komponist tools;
+2. call `search_company_context`;
+3. return only confirmed knowledge visible to the key's organization;
+4. include source evidence.
 
-## Cursor Installation
+You can also ask the client to read the `company-brain://info` MCP resource.
 
-### 1. Open Cursor settings
+## Available tools
 
-`Cmd+,` (Mac) or `Ctrl+,` (Windows/Linux) → Search "MCP"
+### `search_company_context`
 
-### 2. Add server config
+Search confirmed Decisions, Goals, Constraints, and Projects with evidence.
+Use it before planning work that depends on company context.
 
-Same JSON as Claude Code above.
+### `get_active_decisions`
 
-### 3. Restart Cursor
+List active decisions, optionally scoped to a topic or project. Superseded and
+uncited decisions are excluded from the normal result.
 
-The Komponist tools will appear in Cursor's composer.
+### `report_result`
 
-## Adding Project Instructions
+Report completed agent work and create structured Decision proposals. Calls are
+idempotent and every proposed decision enters the Review Queue; an agent cannot
+silently confirm its own output.
 
-Tell the agent to consult Komponist before architectural decisions:
+### `check_constraint`
 
-Create `CLAUDE.md` in your project root:
+Check an intended action against confirmed constraints. It returns `allowed`,
+`blocked`, or `approval_required` with supporting evidence.
+
+### `request_approval`
+
+Persist a human approval request. Delivery through an external chat provider is
+separate from persistence.
+
+### `get_approval_status`
+
+Read the current state of a previously created approval request.
+
+## Recommended agent instructions
+
+Add a short policy to the repository or agent configuration:
 
 ```markdown
-# Project Instructions for Claude
+## Company context
 
-## Architecture Decisions
+Before an architectural, product, security, or data-model decision:
 
-Before making architectural changes (choosing libraries, changing data models, adding integrations):
+1. Search Komponist for relevant Decisions, Goals, Constraints, and Projects.
+2. Cite the evidence you relied on.
+3. Check applicable constraints before implementation.
+4. If work creates a durable company decision, report it to Komponist.
 
-1. **Search existing decisions**: Use `search_company_context` to find relevant ADRs and decisions
-2. **Check constraints**: After drafting your approach, describe it and ask if any constraints apply
-3. **Report new decisions**: After implementing, use `report_result` to document new decisions made
-
-Example: "I'm about to add Redis for caching. Let me search for caching decisions first."
-
-## Active Constraints
-
-Use `get_active_decisions` to review constraints before:
-- Database schema changes
-- Adding dependencies
-- Changing authentication/authorization
-- Modifying API contracts
-
-## After Completing Work
-
-Always call `report_result` with:
-- Summary of what you built
-- New decisions made (e.g., "chose library X over Y because...")
-- Any deviations from original plan
-- Unresolved questions
-
-This keeps the company brain up to date.
+Treat no result as missing context, not permission to invent company policy.
+Never expose the Komponist API key in code, logs, commits, or browser bundles.
 ```
 
-## Available Tools
+## Security model
 
-### `search_company_context(query, types?, limit?)`
-
-Search the brain for goals, decisions, constraints, and customer requests.
-
-**Example:**
-```
-Agent: Let me search for our authentication decisions.
-
-Tool call: search_company_context("authentication auth identity")
-
-Result:
-**[Decision]** Use WorkOS for enterprise identity management
-  WorkOS handles SSO, directory sync, and compliance out of the box.
-  Confidence: high
-  📎 github · PR#142 · https://github.com/komponist/komponist/pull/142
-```
-
-### `get_active_decisions(topic?, project?)`
-
-Get all active (non-superseded) decisions, optionally filtered by topic.
-
-**Example:**
-```
-Tool call: get_active_decisions("database")
-
-Result:
-**Use Neo4j 5.x with native vector indexes as the company brain**
-  Neo4j 5's native vector indexes eliminate need for separate vector DB.
-  Confidence: high
-  📎 manual · ADR-001 · ...
-```
-
-### `report_result(summary, new_decisions?, deviations?, unresolved_questions?, work_pack_id?)`
-
-Report work completion and feed new decisions back into the brain.
-
-**Example:**
-```
-Tool call: report_result(
-  summary="Added Redis caching for API endpoints. 60% latency reduction.",
-  new_decisions=[{
-    "statement": "Use Redis for API response caching with 5-minute TTL",
-    "detail": "Reduces P95 latency from 800ms to 320ms. TTL chosen to balance freshness and hit rate."
-  }]
-)
-
-Result:
-Report received. Reference: `agent-report-...`.
-
-1 new decision proposal added to the review queue: `agent-decision-...`
-```
-
-`report_result` does not call a model for already structured decisions. Reports
-are idempotent, retain `agent_report` Evidence, and always require human review
-before they become visible to agent searches.
-
-## Testing the Connection
-
-Run this test in Claude Code:
-
-```
-You: What architectural decisions have we made about the database?
-
-Claude: Let me search the company brain.
-[calls search_company_context("database architecture")]
-
-Claude: Based on your company brain, you've decided to:
-
-**Use Neo4j 5.x as the company brain storage**
-- Neo4j's native vector indexes eliminate the need for a separate vector database
-- Embedding dimension is fixed at 1536 (text-embedding-3-small)
-- Source: ADR-001 from GitHub
-
-This was confirmed on July 1, 2026 by sovin.
-```
-
-If you see the tool call and cited result, you're connected! 🎉
+- The Bearer token determines the organization. A caller does not pass or choose
+  `org_id`.
+- Keys are individually revocable and fail immediately after revocation.
+- The current MVP's programmatic keys are organization-wide, not department
+  scoped. Use them only in trusted server-side or agent environments.
+- Keep separate keys for separate agents or deployments so access can be
+  revoked independently.
+- Use HTTPS outside localhost.
+- Do not reuse the OpenAI, Neo4j, Postgres, Slack, or Notion credentials as an
+  MCP key.
 
 ## Troubleshooting
 
-### "Tool search_company_context not found"
+### The client cannot discover tools
 
-- Check `.mcp.json` path is correct
-- Restart Claude Code/Cursor after config changes
-- Verify Python dependencies installed: `cd apps/mcp && pip install -r requirements.txt`
+- Confirm the URL ends in `/mcp`.
+- Confirm the MCP service is healthy and publicly reachable from the client.
+- Confirm the Authorization header contains the organization key.
+- Restart the client after changing its MCP configuration.
 
-### "No context found for this query"
+### The server returns `401`
 
-- Check Neo4j is running and accessible
-- Verify `KOMPONIST_ORG_ID` matches your data's org_id
-- Confirm you have confirmed entities in the graph (not just proposed)
+The key is missing, malformed, revoked, or belongs to a deleted/inactive
+organization membership. Create a new key under **Settings → API & MCP** and
+update the client's secret.
 
-### "Database connection failed"
+### Search returns no context
 
-- Test Neo4j connection: `cypher-shell -u neo4j -p your-password "RETURN 1"`
-- Check DATABASE_URL for Postgres (tool call logging)
-- Verify firewall/network allows connections
+- Confirm relevant entities in the Review Queue.
+- Confirm they are **confirmed**, not only proposed.
+- Check the signed-in user's organization before creating the key.
+- Use a specific query.
+- Remember that API/MCP keys are organization-scoped and cannot read another
+  organization's graph.
 
-### Permission prompts
+### Localhost works but the hosted URL does not
 
-Add these to your Claude Code `~/.claude/settings.json` to reduce prompts:
+Verify DNS, HTTPS, reverse-proxy routing, and that the public MCP domain forwards
+to the MCP service rather than the web or API container. See
+[deployment.md](deployment.md) and the
+[Coolify runbook](../deploy/hetzner/README.md).
 
-```json
-{
-  "autoApprovals": {
-    "mcp_tools": ["komponist:search_company_context", "komponist:get_active_decisions"]
-  }
-}
-```
+## Next steps
 
-(Keep `report_result` and `check_constraint` requiring approval.)
-
-## Next Steps
-
-- Review your first extracted facts in the queue: http://localhost:3000/queue
-- Connect GitHub, Slack, and Linear to start ingesting decisions
-- Add constraints and watch `check_constraint` block risky actions
-
-## Security Notes
-
-- MCP server runs locally with your credentials
-- Tool calls are logged to `tool_calls` table for metrics
-- No data is sent to Komponist servers (self-hosted)
-- API keys never leave your environment
-
----
-
-Questions? File an issue: https://github.com/komponist/komponist/issues
+- Review [MVP_STATUS.md](MVP_STATUS.md) before relying on Komponist in
+  production.
+- Read the REST and SDK examples in the [README](../README.md#api-sdk-and-mcp).
+- Report interoperability problems at
+  [github.com/komponist-ai/komponist/issues](https://github.com/komponist-ai/komponist/issues).

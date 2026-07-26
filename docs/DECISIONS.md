@@ -17,9 +17,17 @@ These decisions will be the first Decision nodes in the Komponist brain (dogfood
 
 ## ADR-002: Postgres for App Data Only
 
-**Decision:** Postgres stores boring app data only: `users/orgs`, `events_raw` (webhook landing zone), `tool_calls` (metrics), `sync_state`. Zero brain-related data in Postgres.
+**Decision:** Postgres stores transactional application state: users,
+organizations, sessions, memberships, departments, invitations, encrypted
+connector configuration, chat history, API keys, approvals, Workrooms, Canvas
+specifications, generated-artifact metadata, durable jobs, and audit events.
+Neo4j remains the canonical store for entities, evidence, relationships,
+document versions, and semantic retrieval.
 
-**Why:** Clear separation of concerns. Postgres is excellent at OLTP (auth, webhooks, logs). Neo4j owns all knowledge graph operations.
+**Why:** Postgres is the right durable state machine for identity, permissions,
+jobs, conversations, and versioned product workflows. Neo4j owns the knowledge
+model and graph traversal. Product records may reference graph IDs but do not
+duplicate the graph as a second source of truth.
 
 ## ADR-003: Python Backend with FastAPI
 
@@ -51,7 +59,9 @@ These decisions will be the first Decision nodes in the Komponist brain (dogfood
 
 ## ADR-006: Next.js for Frontend
 
-**Decision:** Next.js (App Router) + Tailwind for the web app. One app: review queue + graph browser.
+**Decision:** Next.js (App Router) + Tailwind for one responsive web application
+covering the public site, authentication, sources, review, entities, graph,
+cited chat, Compose, Versions, Workrooms, Canvas, teams, API keys, and exports.
 
 **Why:**
 - App Router: server components, streaming, excellent DX
@@ -60,23 +70,27 @@ These decisions will be the first Decision nodes in the Komponist brain (dogfood
 
 ## ADR-007: Hosting Stack
 
-**Decision:**
-- API + Web: Fly.io or Railway (container-native, simple deploys)
-- Neo4j: AuraDB Professional (managed, automatic backups, scaling)
-- Postgres: Neon or Supabase (serverless, branching, connection pooling)
+**Decision:** Keep a portable Docker Compose topology. The current pilot runs
+Web, API, MCP, Worker, Postgres, and Neo4j on one Ubuntu server managed through
+Coolify, with only routed HTTPS services exposed publicly and persistent
+database volumes kept private.
 
-**Why:** Minimize operational overhead. Focus on product, not infrastructure. All three have generous free tiers for MVP.
+**Why:** One server is the cheapest understandable pilot topology and exercises
+the real deployment boundary without committing the product to a cloud vendor.
+The Compose contract remains the portability layer. A managed Postgres/Neo4j
+split can follow once reliability or scale justifies the operational cost.
 
-## ADR-008: Wedge Integrations Only
+## ADR-008: Narrow Source Wedge
 
-**Decision:** GitHub, Slack, Linear. Nothing else in MVP.
+**Decision:** The product-facing MVP supports direct document uploads, explicitly
+shared Notion pages through an Internal Integration, and explicitly selected
+Slack channels through one centrally configured Slack app.
 
-**Why:** These three tools represent the decision-making layer at AI-native startups:
-- GitHub: ADRs, PR discussions, code decisions
-- Slack: real-time decisions, approvals, context
-- Linear: project goals, customer requests
-
-Notion/CRM/email/transcripts are out of scope until design partners demand them.
+**Why:** Uploads provide the deterministic vertical slice. Notion and Slack
+cover durable documentation plus active team discussion for the first design
+partner use cases. Google Drive, GitHub, Linear, email, CRM, and transcripts
+remain hidden until their full provider lifecycle meets the same authentication,
+scope, sync, inspection, deletion, and extraction bar.
 
 ## ADR-009: Status-Based Entity Lifecycle
 
@@ -113,6 +127,33 @@ are available.
 **Privacy default:** Responses are created with application storage disabled
 unless `KOMPONIST_OPENAI_STORE=true` is explicitly configured.
 
+## ADR-012: Safe Dynamic Interfaces
+
+**Decision:** Canvas stores a declarative, versioned specification produced from
+a closed component and query vocabulary. Generated output cannot contain
+JavaScript, JSX, HTML, SQL, Cypher, arbitrary URLs, or write actions. The server
+validates the specification and resolves every binding through parameterized,
+permission-aware graph queries at view time.
+
+**Why:** A dynamic interface is useful only if it stays live and shareable.
+Storing a question/specification instead of a generated snapshot lets different
+viewers see current data inside their own permissions without executing
+untrusted code.
+
+## ADR-013: Durable Human-Agent Workrooms
+
+**Decision:** Workroom plans, tasks, participants, conversations, runs, context
+snapshots, deliverables, and audit events persist in Postgres. Agent work runs
+in a separate leased worker queue. Plans require human approval, redirects
+create new run versions, and room scope may narrow but never widen a
+participant's knowledge permissions.
+
+**Why:** Multiplayer agent work needs a durable, inspectable state machine
+rather than one long API request or a private chat transcript. Separating the
+worker keeps redeploys and retries from losing intent while maintaining an
+immutable record of what context supported each output.
+
 ---
 
-**Implementation note:** These ADRs will be manually entered as the first Decision nodes in the Komponist brain during Step 2 (graph schema) completion, demonstrating dogfooding from day one.
+**Implementation note:** These ADRs are intended to be ingested into a Komponist
+workspace as source documents and reviewed like any other company decision.
