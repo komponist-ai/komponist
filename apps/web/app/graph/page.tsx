@@ -77,9 +77,15 @@ const SEARCH_DEBOUNCE_MS = 275
 /**
  * Ceilings on progressive expansion. Without them a few enthusiastic
  * double-taps rebuild the hairball the overview limit exists to prevent.
+ *
+ * The node ceiling is measured rather than guessed. At 250 the force layout
+ * still resolves, but into a tangle of unlabelled dots that answers no
+ * question; at 500 it does not resolve at all within any patience a reader has.
+ * So 250 is where the explorer stops adding and asks for a narrower question
+ * instead of quietly drawing something useless.
  */
 const MAX_EXPANSIONS = 25
-const MAX_VISIBLE_NODES = 600
+const MAX_VISIBLE_NODES = 250
 
 /**
  * Above this many nodes the graph is drawn without animation.

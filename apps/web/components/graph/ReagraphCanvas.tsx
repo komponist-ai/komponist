@@ -194,12 +194,13 @@ export default function ReagraphCanvas({
         nodes={nodes}
         edges={edges}
         theme={activeTheme}
-        // ForceAtlas2 over the plain force layout: on a graph with long chains
-        // of decisions it pulls the structure apart into something readable,
-        // where forceDirected2d was still a knot after several seconds. No
-        // third dimension and no rotation — a knowledge graph has neither, and
-        // an orbiting camera makes a 2D layout harder to read and to click.
-        layoutType="forceatlas2"
+        // forceDirected2d, chosen for its centring force. A truncated overview
+        // is full of nodes whose neighbours did not make the cut, and ForceAtlas2
+        // has nothing pulling those back: they drift until fit-to-view zooms out
+        // far enough to show an empty canvas. No third dimension and no rotation
+        // either — a knowledge graph has neither, and an orbiting camera makes a
+        // 2D layout harder to read and to click.
+        layoutType="forceDirected2d"
         cameraMode="pan"
         sizingType="default"
         defaultNodeSize={7}
