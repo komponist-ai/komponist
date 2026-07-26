@@ -75,7 +75,7 @@ export default function KnowledgeGraphCanvas(props: ReagraphCanvasProps) {
       <CanvasNotice
         icon="warning"
         message="This browser cannot draw the graph"
-        detail="The visual explorer needs WebGL, which is disabled or unavailable here. The entity list below stays fully usable, and Browse entities shows the same knowledge."
+        detail="The visual explorer needs WebGL, which is disabled or unavailable here. Search, the filters and the details panel still work, and the entity library lists the same knowledge without a canvas."
       />
     )
   }
