@@ -1553,6 +1553,11 @@ async def notion_token_connect(
     user = await _authorized_org_user(request, org_id, manage=True)
     department_id = await _validate_department_scope(org_id, user, department_id)
     token = payload.token.strip()
+    if not token.startswith(("ntn_", "secret_")):
+        raise HTTPException(
+            status_code=400,
+            detail="Use a Notion Internal Integration token starting with ntn_ or secret_",
+        )
     # Validate the token
     user_info = await validate_token(token)
 
@@ -2589,6 +2594,7 @@ async def sync_notion_source(org_id: str, source: dict) -> dict:
     total_entities = 0
     total_relationships = 0
     pages_processed = 0
+    failed_pages = []
 
     async def process_page(page):
         """Process a single page."""
@@ -2609,8 +2615,15 @@ async def sync_notion_source(org_id: str, source: dict) -> dict:
                 }
             return {"success": True, "entities": 0, "relationships": 0}
         except Exception as e:
-            print(f"[Notion Sync] Error: {e}")
-            return {"success": False, "entities": 0, "relationships": 0}
+            page_id = str(page.get("id") or "unknown")
+            print(f"[Notion Sync] Error for {page_id}: {type(e).__name__}")
+            return {
+                "success": False,
+                "entities": 0,
+                "relationships": 0,
+                "page_id": page_id,
+                "error": str(e),
+            }
 
     # Process in batches
     for i in range(0, len(all_pages), batch_size):
@@ -2625,14 +2638,21 @@ async def sync_notion_source(org_id: str, source: dict) -> dict:
                 pages_processed += 1
                 total_entities += r["entities"]
                 total_relationships += r["relationships"]
+            else:
+                failed_pages.append({
+                    "page_id": r["page_id"],
+                    "error": r["error"],
+                })
 
     print(f"[Notion Sync] Complete: {pages_processed} pages, {total_entities} entities, {total_relationships} relationships")
 
     return {
-        "status": "complete",
+        "status": "partial" if failed_pages else "complete",
         "items_processed": pages_processed,
         "entities_created": total_entities,
-        "relationships_created": total_relationships
+        "relationships_created": total_relationships,
+        "items_failed": len(failed_pages),
+        "failed_pages": failed_pages,
     }
 
 

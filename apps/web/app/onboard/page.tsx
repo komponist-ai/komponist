@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 import { useAuth } from '../../components/AuthProvider'
 
-type SourceType = 'slack' | 'upload'
+type SourceType = 'notion' | 'slack' | 'upload'
 type ConnectorStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 type UploadResult = {
@@ -33,10 +33,12 @@ const SOURCE_OPTIONS: Array<{
   badge: string
 }> = [
   { type: 'upload', title: 'Upload documents', description: 'Upload files from this device and send extracted company context through review.', meta: 'Markdown · text · YAML', badge: 'Fastest start' },
+  { type: 'notion', title: 'Notion', description: 'Sync only the pages you explicitly share with a Komponist integration.', meta: 'Shared pages · nested blocks', badge: 'Internal integration' },
   { type: 'slack', title: 'Slack', description: 'Select channels and turn complete threads into reviewed company context.', meta: 'Selected channels · complete threads', badge: 'OAuth + channel scope' },
 ]
 
 const SOURCE_TITLES: Record<SourceType, string> = {
+  notion: 'Notion',
   slack: 'Slack',
   upload: 'Document uploads',
 }
@@ -51,6 +53,7 @@ function OnboardContent() {
   const [error, setError] = useState<string | null>(null)
 
   // Form fields
+  const [notionToken, setNotionToken] = useState('')
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([])
 
@@ -116,6 +119,35 @@ function OnboardContent() {
     }
   }
 
+  const handleConnectNotion = async () => {
+    const token = notionToken.trim()
+    if (!token) {
+      setError('Paste your Notion Internal Integration token')
+      return
+    }
+    setStatus('connecting')
+    setError(null)
+
+    try {
+      const response = await apiFetch(
+        `${API_URL}/auth/notion/token?org_id=${encodeURIComponent(orgId)}${departmentQuery}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        },
+      )
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Notion could not be connected')
+      setNotionToken('')
+      setStatus('connected')
+      router.push('/sources?configure=notion')
+    } catch (err: any) {
+      setError(err.message || 'Notion could not be connected')
+      setStatus('error')
+    }
+  }
+
   const handleDocumentUpload = async () => {
     if (uploadFiles.length === 0) {
       setError('Choose at least one document')
@@ -169,7 +201,7 @@ function OnboardContent() {
               </div>
             </div>
 
-            <section className="mt-9 grid gap-4 md:grid-cols-2" aria-label="Available source connectors">
+            <section className="mt-9 grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Available source connectors">
               {SOURCE_OPTIONS.map((source, index) => (
                 <motion.button
                   key={source.type}
@@ -207,7 +239,7 @@ function OnboardContent() {
     <AppLayout>
       <StudioTopbar
         section="Sources"
-        title={`Connect ${selectedSource === 'slack' ? 'Slack' : 'Upload Documents'}`}
+        title={`Connect ${SOURCE_TITLES[selectedSource]}`}
         description="Configure the connection, then sync company knowledge"
         icon={PlugZap}
         actions={
@@ -258,7 +290,7 @@ function OnboardContent() {
             </div>
           )}
 
-          {selectedSource === 'upload' && (
+          {(selectedSource === 'notion' || selectedSource === 'upload') && (
             <div className="card mb-6">
               <div className="flex items-start gap-3">
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink bg-warning-soft"><LockKeyhole className="size-4" /></span>
@@ -272,6 +304,50 @@ function OnboardContent() {
                   {!user?.access_all_departments && departments.length === 0 && <p className="mt-2 text-caption text-danger">An admin must assign you to a department before you can upload knowledge.</p>}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Notion form */}
+          {selectedSource === 'notion' && (
+            <div className="card">
+              <div className="mb-4 flex items-center gap-3">
+                <SourceLogo type="notion" className="size-9 rounded-lg shadow-none" />
+                <h2 className="text-h3">Notion Internal Integration</h2>
+              </div>
+              <p className="mb-6 text-muted">
+                Komponist can only discover pages you explicitly share with the integration.
+                The token stays encrypted on the server and is never returned to the browser.
+              </p>
+
+              <div className="mb-6 rounded-md border border-line bg-paper-2 p-4">
+                <p className="mb-3 text-small font-medium">Set up in three steps</p>
+                <ol className="space-y-3 text-small text-muted">
+                  <li><strong className="text-ink">1.</strong> Create an Internal Integration at <a className="font-medium text-orange-dark underline" href="https://www.notion.so/my-integrations" target="_blank" rel="noreferrer">notion.so/my-integrations</a>.</li>
+                  <li><strong className="text-ink">2.</strong> In Notion, open each page you want to sync and choose <strong>••• → Connections → your integration</strong>.</li>
+                  <li><strong className="text-ink">3.</strong> Paste the integration secret below, connect it, then run the first sync in Sources.</li>
+                </ol>
+              </div>
+
+              <label className="mb-2 block text-small font-semibold" htmlFor="notion-token">
+                Internal Integration token
+              </label>
+              <input
+                id="notion-token"
+                className="input mb-5 font-mono"
+                type="password"
+                autoComplete="off"
+                placeholder="ntn_… or secret_…"
+                value={notionToken}
+                onChange={event => setNotionToken(event.target.value)}
+                disabled={status === 'connecting'}
+              />
+              <button
+                onClick={handleConnectNotion}
+                className="btn btn-primary"
+                disabled={status === 'connecting' || !notionToken.trim() || (!user?.access_all_departments && !departmentId)}
+              >
+                {status === 'connecting' ? 'Checking shared pages…' : 'Connect Notion'}
+              </button>
             </div>
           )}
 

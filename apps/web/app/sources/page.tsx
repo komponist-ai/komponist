@@ -94,6 +94,12 @@ type DeleteDocumentModal = {
   document: SyncedDocument
 } | null
 
+type SyncNotice = {
+  sourceName: string
+  itemsProcessed: number
+  itemsFailed: number
+} | null
+
 const SOURCE_COPY: Record<Source['type'], { label: string; description: string }> = {
   notion: { label: 'Notion', description: 'Pages and databases shared with Komponist' },
   slack: { label: 'Slack', description: 'Channel conversations, threads, and decisions' },
@@ -102,7 +108,7 @@ const SOURCE_COPY: Record<Source['type'], { label: string; description: string }
   upload: { label: 'Document uploads', description: 'Files uploaded directly through the browser' },
 }
 
-const SUPPORTED_SOURCE_TYPES = new Set<Source['type']>(['slack', 'upload'])
+const SUPPORTED_SOURCE_TYPES = new Set<Source['type']>(['notion', 'slack', 'upload'])
 
 function formatDate(value?: string | null) {
   if (!value) return 'Never'
@@ -123,6 +129,7 @@ export default function SourcesPage() {
   const [documentsLoading, setDocumentsLoading] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [syncNotice, setSyncNotice] = useState<SyncNotice>(null)
   const [orgId, setOrgId] = useState('')
   const [syncing, setSyncing] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -213,9 +220,9 @@ export default function SourcesPage() {
       )
       setSources(nextSources)
       setDepartments(departmentPayload.departments ?? [])
-      const configureSlack = new URLSearchParams(window.location.search).get('configure') === 'slack'
-      const preferredSource = configureSlack
-        ? nextSources.find((source) => source.type === 'slack')
+      const configureSource = new URLSearchParams(window.location.search).get('configure')
+      const preferredSource = configureSource
+        ? nextSources.find((source) => source.type === configureSource)
         : null
       setExpanded((current) => current ?? preferredSource?.id ?? nextSources[0]?.id ?? null)
       await Promise.all(nextSources.map((source) => fetchDocuments(source.id)))
@@ -326,10 +333,16 @@ export default function SourcesPage() {
   const handleSync = async (source: Source) => {
     setSyncing(source.id)
     setError(null)
+    setSyncNotice(null)
     try {
       const response = await apiFetch(`${API_URL}/sources/${source.id}/sync?org_id=${orgId}`, { method: 'POST' })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || payload.error || 'Sync failed')
+      setSyncNotice({
+        sourceName: source.name || SOURCE_COPY[source.type].label,
+        itemsProcessed: Number(payload.items_processed || 0),
+        itemsFailed: Number(payload.items_failed || 0),
+      })
       await fetchSources()
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : 'Failed to sync source')
@@ -443,6 +456,21 @@ export default function SourcesPage() {
             </div>
           )}
 
+          {syncNotice && (
+            <div
+              className={`mb-6 flex items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 text-sm font-semibold ${syncNotice.itemsFailed ? 'border-orange bg-warning-soft text-orange-dark' : 'border-teal bg-success-soft text-teal'}`}
+              role="status"
+            >
+              <span className="flex items-center gap-3">
+                {syncNotice.itemsFailed ? <CircleAlert className="size-4" /> : <CheckCircle2 className="size-4" />}
+                {syncNotice.itemsFailed
+                  ? `${syncNotice.sourceName}: ${syncNotice.itemsProcessed} pages synced, ${syncNotice.itemsFailed} could not be read. Check that those pages are still shared with the integration.`
+                  : `${syncNotice.sourceName}: ${syncNotice.itemsProcessed} page${syncNotice.itemsProcessed === 1 ? '' : 's'} synced into the review workflow.`}
+              </span>
+              <button type="button" onClick={() => setSyncNotice(null)} aria-label="Dismiss sync result"><X className="size-4" /></button>
+            </div>
+          )}
+
           {passageLoading && (
             <div className="mb-7 flex items-center gap-3 rounded-xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_#d9cfc0]">
               <Loader2 className="size-5 animate-spin text-orange" />
@@ -518,7 +546,7 @@ export default function SourcesPage() {
               <div>
                 <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-warning-soft text-orange-dark shadow-[4px_4px_0_#201c15]"><Database className="size-7" /></span>
                 <h2 className="mt-6 text-3xl">Bring in your first source.</h2>
-                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">Upload documents from this device or connect selected Slack channels.</p>
+                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">Upload documents, share selected Notion pages, or connect selected Slack channels.</p>
                 <Button asChild className="mt-6"><Link href="/onboard"><Plus /> Add source</Link></Button>
               </div>
             </div>

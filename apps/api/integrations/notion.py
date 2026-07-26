@@ -6,6 +6,7 @@ OAuth, webhooks, page/database extraction.
 
 import os
 import json
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
@@ -25,6 +26,31 @@ NOTION_CLIENT_SECRET = os.getenv("NOTION_CLIENT_SECRET", "")
 NOTION_REDIRECT_URI = os.getenv("NOTION_REDIRECT_URI", "http://localhost:8000/auth/notion/callback")
 NOTION_API_VERSION = "2022-06-28"
 NOTION_API_URL = "https://api.notion.com/v1"
+
+
+async def _notion_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    **kwargs,
+) -> httpx.Response:
+    """Retry transient Notion throttling and server failures with a bounded delay."""
+    response = None
+    for attempt in range(4):
+        response = await client.request(method, url, **kwargs)
+        if response.status_code != 429 and response.status_code < 500:
+            return response
+        if attempt == 3:
+            return response
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = max(0.25, min(float(retry_after or 0), 5.0))
+        except ValueError:
+            delay = 0.0
+        if not delay:
+            delay = min(0.5 * (2 ** attempt), 4.0)
+        await asyncio.sleep(delay)
+    return response
 
 
 async def validate_token(token: str) -> Dict[str, Any]:
@@ -47,7 +73,7 @@ async def validate_token(token: str) -> Dict[str, Any]:
 
     async with httpx.AsyncClient(headers=headers) as client:
         # Test the token by fetching user info
-        response = await client.get(f"{NOTION_API_URL}/users/me")
+        response = await _notion_request(client, "GET", f"{NOTION_API_URL}/users/me")
 
         if response.status_code == 401:
             raise HTTPException(status_code=401, detail="Invalid Notion token")
@@ -136,7 +162,7 @@ def extract_text_from_blocks(blocks: List[Dict[str, Any]]) -> str:
         # Handle different block types
         if block_type in ["paragraph", "heading_1", "heading_2", "heading_3",
                           "bulleted_list_item", "numbered_list_item", "toggle",
-                          "quote", "callout"]:
+                          "quote", "callout", "table_row"]:
             rich_text = block_data.get("rich_text", [])
             text = "".join(rt.get("plain_text", "") for rt in rich_text)
             if text:
@@ -157,10 +183,67 @@ def extract_text_from_blocks(blocks: List[Dict[str, Any]]) -> str:
             if text:
                 text_parts.append(f"{checkbox} {text}")
 
+        elif block_type in {"bookmark", "embed", "link_preview"}:
+            url = block_data.get("url")
+            if url:
+                text_parts.append(url)
+
         elif block_type == "divider":
             text_parts.append("---")
 
+        children_text = block.get("_komponist_children_text")
+        if children_text:
+            text_parts.append(children_text)
+
     return "\n\n".join(text_parts)
+
+
+async def _get_block_children(
+    client: httpx.AsyncClient,
+    block_id: str,
+    *,
+    depth: int = 0,
+    max_depth: int = 8,
+) -> List[Dict[str, Any]]:
+    """Fetch a block's paginated descendants without walking unbounded trees."""
+    blocks: List[Dict[str, Any]] = []
+    start_cursor = None
+
+    while True:
+        params: Dict[str, Any] = {"page_size": 100}
+        if start_cursor:
+            params["start_cursor"] = start_cursor
+        response = await _notion_request(
+            client,
+            "GET",
+            f"{NOTION_API_URL}/blocks/{block_id}/children",
+            params=params,
+        )
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Notion could not read a shared page ({response.status_code})",
+            )
+
+        data = response.json()
+        page_blocks = data.get("results", [])
+        if depth < max_depth:
+            for block in page_blocks:
+                if block.get("has_children") and block.get("id"):
+                    children = await _get_block_children(
+                        client,
+                        block["id"],
+                        depth=depth + 1,
+                        max_depth=max_depth,
+                    )
+                    block["_komponist_children_text"] = extract_text_from_blocks(children)
+        blocks.extend(page_blocks)
+
+        if not data.get("has_more"):
+            break
+        start_cursor = data.get("next_cursor")
+
+    return blocks
 
 
 async def get_page_content(access_token: str, page_id: str) -> Optional[str]:
@@ -179,31 +262,8 @@ async def get_page_content(access_token: str, page_id: str) -> Optional[str]:
         "Notion-Version": NOTION_API_VERSION,
     }
 
-    all_blocks = []
-    start_cursor = None
-
     async with httpx.AsyncClient(headers=headers) as client:
-        # Paginate through all blocks
-        while True:
-            params = {"page_size": 100}
-            if start_cursor:
-                params["start_cursor"] = start_cursor
-
-            response = await client.get(
-                f"{NOTION_API_URL}/blocks/{page_id}/children",
-                params=params
-            )
-
-            if response.status_code != 200:
-                return None
-
-            data = response.json()
-            all_blocks.extend(data.get("results", []))
-
-            if not data.get("has_more"):
-                break
-
-            start_cursor = data.get("next_cursor")
+        all_blocks = await _get_block_children(client, page_id)
 
     return extract_text_from_blocks(all_blocks)
 
@@ -270,14 +330,18 @@ def normalize_page(page_data: Dict[str, Any], content: str, org_id: str) -> Sour
     properties = page_data.get("properties", {})
     title = ""
 
-    # Title can be in different property names
-    for prop_name in ["Name", "Title", "title", "name"]:
-        if prop_name in properties:
-            title_prop = properties[prop_name]
-            if title_prop.get("type") == "title":
-                rich_text = title_prop.get("title", [])
-                title = "".join(rt.get("plain_text", "") for rt in rich_text)
-                break
+    # Database title properties can be named freely (e.g. "Meeting" or "Topic").
+    title_property = next(
+        (
+            property_data
+            for property_data in properties.values()
+            if property_data.get("type") == "title"
+        ),
+        None,
+    )
+    if title_property:
+        rich_text = title_property.get("title", [])
+        title = "".join(rt.get("plain_text", "") for rt in rich_text)
 
     if not title:
         title = "Untitled"
@@ -344,13 +408,18 @@ async def search_notion(
         body["start_cursor"] = start_cursor
 
     async with httpx.AsyncClient(headers=headers) as client:
-        response = await client.post(
+        response = await _notion_request(
+            client,
+            "POST",
             f"{NOTION_API_URL}/search",
-            json=body
+            json=body,
         )
 
         if response.status_code != 200:
-            return {"results": [], "has_more": False}
+            raise HTTPException(
+                status_code=400,
+                detail=f"Notion could not list shared pages ({response.status_code})",
+            )
 
         return response.json()
 

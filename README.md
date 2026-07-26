@@ -162,8 +162,11 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 - A live Slack workspace installation; OAuth, channel discovery, selected-channel
   thread sync, and extraction handoff are covered by provider-free contracts
 - Real-time Slack event delivery and signed interaction callbacks
-- Notion, Google Drive, GitHub, and Linear are not exposed as product connectors
+- Google Drive, GitHub, and Linear are not exposed as product connectors
   until their provider flows meet the same end-to-end bar
+- A live Notion workspace installation; internal-token validation, nested-page
+  retrieval, extraction handoff, and partial-sync reporting are covered by
+  provider-free contracts
 - Google user sign-in with production credentials
 - Live OpenAI extraction; live grounded chat and offline OpenAI request contracts
   have been tested separately
@@ -294,11 +297,19 @@ human review.
 | Source | Interface | Validation status |
 | --- | --- | --- |
 | Browser upload | Markdown, text, YAML, and YML | Locally verified |
+| Notion | Internal Integration token, explicitly shared pages, nested block sync, document inspection | Provider-free contracts passing; live workspace installation pending |
 | Slack | OAuth, explicit channel allowlist, complete thread sync, document inspection | Provider-free contracts passing; live workspace installation pending |
 
 Synced documents can be inspected, moved between department scopes, or deleted
 from Komponist without deleting the original item on its provider. Connected
 sources can define a default department for future items.
+
+To connect Notion, create an **Internal Integration** at
+`notion.so/my-integrations`, share only the intended pages through
+**••• → Connections**, then paste its `ntn_…` or legacy `secret_…` token in
+**Sources → Add source → Notion**. No deployment-level Notion OAuth variables
+are required for this internal-token path. A sync discovers the shared pages,
+reads nested blocks, and sends extracted facts into the normal review workflow.
 
 ### Organizations, roles, and departments
 
@@ -325,7 +336,7 @@ newly inaccessible context.
 
 ```mermaid
 flowchart LR
-    sources["Browser uploads · Selected Slack channels"]
+    sources["Browser uploads · Shared Notion pages · Selected Slack channels"]
     extract["Extract Decisions, Goals, Constraints, Projects"]
     review["Human review queue"]
     brain["Neo4j company brain"]
