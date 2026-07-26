@@ -160,7 +160,8 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 ### Still unverified or missing
 
 - A live Slack workspace installation; OAuth, channel discovery, selected-channel
-  thread sync, and extraction handoff are covered by provider-free contracts
+  thread and attachment sync, document parsing, and extraction handoff are
+  covered by provider-free contracts
 - Real-time Slack event delivery and signed interaction callbacks
 - Google Drive, GitHub, and Linear are not exposed as product connectors
   until their provider flows meet the same end-to-end bar
@@ -298,7 +299,7 @@ human review.
 | --- | --- | --- |
 | Browser upload | Markdown, text, YAML, and YML | Locally verified |
 | Notion | Internal Integration token, explicitly shared pages, nested block sync, document inspection | Provider-free contracts passing; live workspace installation pending |
-| Slack | OAuth, explicit channel allowlist, complete thread sync, document inspection | Provider-free contracts passing; live workspace installation pending |
+| Slack | OAuth, explicit channel allowlist, complete thread sync, PDF/DOCX/PPTX/text attachment ingestion, document inspection | Provider-free contracts passing; live workspace installation pending |
 
 Synced documents can be inspected, moved between department scopes, or deleted
 from Komponist without deleting the original item on its provider. Connected

@@ -1,6 +1,7 @@
 """Provider-free contract checks for the organization-scoped Slack connector."""
 
 import asyncio
+import io
 import json
 import sys
 from datetime import datetime
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "packages"))
 
 from integrations.slack import (  # noqa: E402
+    _extract_slack_file_text,
     fetch_slack_threads,
     get_oauth_url,
     handle_slack_webhook,
@@ -26,10 +28,12 @@ from core.models import SourceItem, SourceType  # noqa: E402
 class FakeResponse:
     status_code = 200
 
-    def __init__(self, payload: dict):
+    def __init__(self, payload: dict | None = None, *, content: bytes = b""):
         self._payload = payload
+        self.content = content
 
     def json(self) -> dict:
+        assert self._payload is not None
         return self._payload
 
 
@@ -46,8 +50,15 @@ class FakeSlackClient:
     async def __aexit__(self, *_args):
         return None
 
-    async def get(self, url: str, params: dict):
+    async def get(self, url: str, params: dict | None = None):
         method = url.rsplit("/", 1)[-1]
+        if method == "strategy.md":
+            return FakeResponse(
+                content=(
+                    b"# Campus strategy\n\n"
+                    b"Decision: The board approved a four-week member campaign."
+                ),
+            )
         if method == "conversations.list":
             return FakeResponse({
                 "ok": True,
@@ -74,6 +85,15 @@ class FakeSlackClient:
                         "ts": "1784970000.000100",
                         "user": "U1",
                         "text": "The board approved the event budget.",
+                        "files": [{
+                            "id": "F123",
+                            "name": "strategy.md",
+                            "size": 78,
+                            "user": "U1",
+                            "timestamp": 1784970010,
+                            "url_private_download": "https://files.slack.test/strategy.md",
+                            "permalink": "https://workspace.slack.com/files/U1/F123",
+                        }],
                     },
                     {
                         "ts": "1784970030.000200",
@@ -108,20 +128,26 @@ async def check_connector() -> None:
             department_id="department-board",
         )
 
-    assert len(items) == 1
-    item = items[0]
-    assert item.reference == "slack:C123/1784970000.000100"
-    assert item.title.startswith("#board —")
-    assert "Amir: The board approved" in item.body
-    assert "Lea: The limit is EUR 4,800." in item.body
-    assert item.department_id == "department-board"
+    assert len(items) == 2
+    by_reference = {item.reference: item for item in items}
+    thread = by_reference["slack:C123/1784970000.000100"]
+    attachment = by_reference["slack-file:F123"]
+    assert thread.title.startswith("#board —")
+    assert "Amir: The board approved" in thread.body
+    assert "[Attached: strategy.md]" in thread.body
+    assert "Lea: The limit is EUR 4,800." in thread.body
+    assert attachment.title == "strategy.md"
+    assert "four-week member campaign" in attachment.body
+    assert attachment.kind == "file"
+    assert attachment.url == "https://workspace.slack.com/files/U1/F123"
+    assert all(item.department_id == "department-board" for item in items)
     assert set(FakeSlackClient.seen_authorizations) == {"Bearer xoxb-org-token"}
 
     query = parse_qs(urlsplit(get_oauth_url("safe-state")).query)
     scopes = set(query["scope"][0].split(","))
-    assert {"channels:history", "groups:history", "users:read"} <= scopes
+    assert {"channels:history", "groups:history", "files:read", "users:read"} <= scopes
     assert query["state"] == ["safe-state"]
-    print("✓ Slack OAuth, channel discovery, thread assembly, and org token scope")
+    print("✓ Slack OAuth, channel discovery, thread and attachment assembly, and org token scope")
 
 
 async def check_sync_handoff() -> None:
@@ -175,6 +201,39 @@ async def check_sync_handoff() -> None:
     assert result["entities_created"] == 2
     assert result["relationships_created"] == 1
     print("✓ manual sync hands selected Slack threads to extraction and review")
+
+
+def check_attachment_parsers() -> None:
+    from docx import Document
+    from pptx import Presentation
+    from reportlab.pdfgen import canvas
+
+    docx_buffer = io.BytesIO()
+    docx_document = Document()
+    docx_document.add_paragraph("The finance department approved EUR 4,800.")
+    docx_document.save(docx_buffer)
+    assert "approved EUR 4,800" in _extract_slack_file_text(
+        docx_buffer.getvalue(), "budget.docx"
+    )
+
+    pptx_buffer = io.BytesIO()
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+    textbox = slide.shapes.add_textbox(0, 0, 3_000_000, 800_000)
+    textbox.text = "Campus campaign runs for four weeks."
+    presentation.save(pptx_buffer)
+    assert "four weeks" in _extract_slack_file_text(
+        pptx_buffer.getvalue(), "campaign.pptx"
+    )
+
+    pdf_buffer = io.BytesIO()
+    pdf = canvas.Canvas(pdf_buffer)
+    pdf.drawString(72, 720, "The board confirmed the sponsorship policy.")
+    pdf.save()
+    assert "sponsorship policy" in _extract_slack_file_text(
+        pdf_buffer.getvalue(), "policy.pdf"
+    )
+    print("✓ PDF, DOCX, and PPTX Slack attachment parsers return extractable text")
 
 
 def slack_request(payload: dict) -> Request:
@@ -237,6 +296,7 @@ async def check_webhook_tenant_binding() -> None:
 
 if __name__ == "__main__":
     asyncio.run(check_connector())
+    check_attachment_parsers()
     asyncio.run(check_sync_handoff())
     asyncio.run(check_webhook_tenant_binding())
     print("Slack connector contract: OK")

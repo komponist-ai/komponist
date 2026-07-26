@@ -6,6 +6,7 @@ Webhook handling, thread assembly, backfill, and normalization to SourceItem.
 
 import hmac
 import hashlib
+import io
 import os
 import json
 from datetime import datetime, timedelta
@@ -27,6 +28,11 @@ SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_CLIENT_ID = os.getenv("SLACK_CLIENT_ID", "")
 SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET", "")
 SLACK_REDIRECT_URI = os.getenv("SLACK_REDIRECT_URI", "http://localhost:8000/auth/slack/callback")
+MAX_SLACK_FILE_BYTES = 10 * 1024 * 1024
+SLACK_FILE_EXTENSIONS = {
+    ".csv", ".docx", ".json", ".markdown", ".md", ".pdf", ".pptx",
+    ".tsv", ".txt", ".yaml", ".yml",
+}
 
 # Watched channels (configured per org)
 WATCHED_CHANNELS = [
@@ -81,6 +87,7 @@ def get_oauth_url(state: str) -> str:
         "channels:read",
         "groups:history",
         "groups:read",
+        "files:read",
         "users:read",
     ])
     params = {
@@ -273,9 +280,117 @@ async def assemble_thread(
     Returns:
         SourceItem with full thread content
     """
+    items = await assemble_thread_items(
+        channel,
+        thread_ts,
+        org_id,
+        access_token=access_token,
+        channel_name=channel_name,
+        department_id=department_id,
+    )
+    return items[0] if items else None
+
+
+def _extract_slack_file_text(content: bytes, filename: str) -> str:
+    """Extract text from the document formats accepted by the Slack connector."""
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix not in SLACK_FILE_EXTENSIONS:
+        raise SlackApiError(
+            f"Unsupported Slack file type for {filename}. "
+            "Supported: Markdown, text, YAML, JSON, CSV, PDF, DOCX, PPTX"
+        )
+
+    if suffix == ".pdf":
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(content))
+        text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    elif suffix == ".docx":
+        from docx import Document
+
+        document = Document(io.BytesIO(content))
+        text = "\n\n".join(
+            paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()
+        )
+    elif suffix == ".pptx":
+        from pptx import Presentation
+
+        presentation = Presentation(io.BytesIO(content))
+        slides = []
+        for slide in presentation.slides:
+            parts = [
+                shape.text
+                for shape in slide.shapes
+                if hasattr(shape, "text") and str(shape.text).strip()
+            ]
+            if parts:
+                slides.append("\n".join(parts))
+        text = "\n\n".join(slides)
+    else:
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise SlackApiError(f"{filename} is not UTF-8 encoded text") from error
+
+    if not text.strip():
+        raise SlackApiError(
+            f"{filename} contains no extractable text. Scanned PDFs need OCR first."
+        )
+    return text
+
+
+async def _download_slack_file(
+    access_token: str,
+    file_data: Dict[str, Any],
+) -> tuple[str, bytes]:
+    """Download one private Slack file with the workspace OAuth token."""
+    filename = str(file_data.get("name") or f"{file_data.get('id', 'file')}.txt")
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix not in SLACK_FILE_EXTENSIONS:
+        raise SlackApiError(
+            f"Unsupported Slack file type for {filename}. "
+            "Supported: Markdown, text, YAML, JSON, CSV, PDF, DOCX, PPTX"
+        )
+    declared_size = int(file_data.get("size") or 0)
+    if declared_size > MAX_SLACK_FILE_BYTES:
+        raise SlackApiError(f"{filename} exceeds the 10 MB Slack file limit")
+
+    download_url = (
+        file_data.get("url_private_download")
+        or file_data.get("url_private")
+    )
+    if not download_url:
+        raise SlackApiError(f"Slack did not provide a download URL for {filename}")
+
+    async with httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=60,
+        follow_redirects=True,
+    ) as client:
+        response = await client.get(str(download_url))
+    if response.status_code != 200:
+        raise SlackApiError(
+            f"Slack could not download {filename} (HTTP {response.status_code})"
+        )
+    content = response.content
+    if len(content) > MAX_SLACK_FILE_BYTES:
+        raise SlackApiError(f"{filename} exceeds the 10 MB Slack file limit")
+    return filename, content
+
+
+async def assemble_thread_items(
+    channel: str,
+    thread_ts: str,
+    org_id: str,
+    *,
+    access_token: Optional[str] = None,
+    channel_name: Optional[str] = None,
+    department_id: Optional[str] = None,
+) -> List[SourceItem]:
+    """Assemble a Slack thread plus each supported attached document."""
     token = (access_token or SLACK_BOT_TOKEN).strip()
     if not token:
-        return None
+        return []
 
     async with httpx.AsyncClient(headers=_headers(token), timeout=30) as client:
         # Fetch thread messages
@@ -288,7 +403,7 @@ async def assemble_thread(
         messages = data.get("messages", [])
 
         if not messages:
-            return None
+            return []
 
         # Resolve user names
         user_cache = {}
@@ -316,8 +431,17 @@ async def assemble_thread(
             user_id = msg.get("user", "unknown")
             text = msg.get("text", "")
             user_name = await get_user_name(user_id)
-
-            thread_lines.append(f"{user_name}: {text}")
+            attached_names = [
+                str(file_data.get("name") or "attachment")
+                for file_data in msg.get("files", [])
+                if file_data.get("id")
+            ]
+            attachment_note = (
+                f" [Attached: {', '.join(attached_names)}]"
+                if attached_names
+                else ""
+            )
+            thread_lines.append(f"{user_name}: {text}{attachment_note}")
 
         # Top-level message as title
         first_message = messages[0]
@@ -339,7 +463,7 @@ async def assemble_thread(
         # Source date
         source_date = datetime.utcfromtimestamp(float(thread_ts))
 
-        return SourceItem(
+        items = [SourceItem(
             org_id=org_id,
             source=SourceType.SLACK,
             kind="thread",
@@ -350,7 +474,41 @@ async def assemble_thread(
             reference=reference,
             source_date=source_date,
             department_id=department_id,
-        )
+        )]
+
+        seen_files: set[str] = set()
+        for message in messages:
+            for file_data in message.get("files", []):
+                file_id = str(file_data.get("id") or "")
+                if not file_id or file_id in seen_files:
+                    continue
+                seen_files.add(file_id)
+                filename = str(file_data.get("name") or f"{file_id}.txt")
+                suffix = os.path.splitext(filename)[1].lower()
+                if suffix not in SLACK_FILE_EXTENSIONS:
+                    continue
+                downloaded_name, content = await _download_slack_file(token, file_data)
+                text = _extract_slack_file_text(content, downloaded_name)
+                uploader_id = str(file_data.get("user") or message.get("user") or "")
+                created = file_data.get("timestamp") or file_data.get("created")
+                try:
+                    file_date = datetime.utcfromtimestamp(float(created))
+                except (TypeError, ValueError, OSError):
+                    file_date = source_date
+                items.append(SourceItem(
+                    org_id=org_id,
+                    source=SourceType.SLACK,
+                    kind="file",
+                    title=downloaded_name,
+                    body=text,
+                    author=await get_user_name(uploader_id),
+                    url=str(file_data.get("permalink") or permalink),
+                    reference=f"slack-file:{file_id}",
+                    source_date=file_date,
+                    department_id=department_id,
+                ))
+
+        return items
 
 
 async def process_slack_events():
@@ -419,7 +577,7 @@ async def process_slack_events():
                     continue
 
                 channel_names = config.get("channel_names") or {}
-                source_item = await assemble_thread(
+                source_items = await assemble_thread_items(
                     channel,
                     thread_ts,
                     org_id,
@@ -428,9 +586,9 @@ async def process_slack_events():
                     department_id=source.get("departmentId"),
                 )
 
-                if source_item:
+                for source_item in source_items:
                     await extract_from_source(source_item)
-                    print(f"[Slack] Assembled thread: {source_item.title}")
+                    print(f"[Slack] Assembled source: {source_item.title}")
 
                 # Mark all events in thread as processed
                 for event in thread_events:
@@ -463,6 +621,7 @@ async def fetch_slack_threads(
     names = channel_names or {}
     source_items: list[SourceItem] = []
     seen_threads: set[tuple[str, str]] = set()
+    assembled_threads = 0
 
     async with httpx.AsyncClient(
         headers=_headers(access_token),
@@ -470,7 +629,7 @@ async def fetch_slack_threads(
     ) as client:
         for channel in channel_ids:
             cursor: Optional[str] = None
-            while len(source_items) < max_threads:
+            while assembled_threads < max_threads:
                 params: dict[str, Any] = {
                     "channel": channel,
                     "oldest": str(oldest_ts),
@@ -486,7 +645,8 @@ async def fetch_slack_threads(
                     if not thread_ts or identity in seen_threads:
                         continue
                     seen_threads.add(identity)
-                    source_item = await assemble_thread(
+                    assembled_threads += 1
+                    thread_items = await assemble_thread_items(
                         channel,
                         thread_ts,
                         org_id,
@@ -494,9 +654,10 @@ async def fetch_slack_threads(
                         channel_name=names.get(channel),
                         department_id=department_id,
                     )
-                    if source_item and source_item.body.strip():
-                        source_items.append(source_item)
-                    if len(source_items) >= max_threads:
+                    source_items.extend(
+                        item for item in thread_items if item.body.strip()
+                    )
+                    if assembled_threads >= max_threads:
                         break
 
                 cursor = (

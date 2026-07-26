@@ -102,7 +102,7 @@ type SyncNotice = {
 
 const SOURCE_COPY: Record<Source['type'], { label: string; description: string }> = {
   notion: { label: 'Notion', description: 'Pages and databases shared with Komponist' },
-  slack: { label: 'Slack', description: 'Channel conversations, threads, and decisions' },
+  slack: { label: 'Slack', description: 'Channel threads and supported document attachments' },
   google: { label: 'Google Drive', description: 'Docs, Sheets, and workspace files' },
   local: { label: 'Local documents', description: 'Files mounted from your own infrastructure' },
   upload: { label: 'Document uploads', description: 'Files uploaded directly through the browser' },

@@ -34,7 +34,7 @@ const SOURCE_OPTIONS: Array<{
 }> = [
   { type: 'upload', title: 'Upload documents', description: 'Upload files from this device and send extracted company context through review.', meta: 'Markdown · text · YAML', badge: 'Fastest start' },
   { type: 'notion', title: 'Notion', description: 'Sync only the pages you explicitly share with a Komponist integration.', meta: 'Shared pages · nested blocks', badge: 'Internal integration' },
-  { type: 'slack', title: 'Slack', description: 'Select channels and turn complete threads into reviewed company context.', meta: 'Selected channels · complete threads', badge: 'OAuth + channel scope' },
+  { type: 'slack', title: 'Slack', description: 'Turn selected channels, complete threads, and attached documents into reviewed company context.', meta: 'Threads · PDF · DOCX · PPTX · text', badge: 'OAuth + channel scope' },
 ]
 
 const SOURCE_TITLES: Record<SourceType, string> = {
@@ -359,14 +359,14 @@ function OnboardContent() {
                 <h2 className="text-h3">Slack Integration</h2>
               </div>
 
-              <p className="text-muted mb-6">Connect your workspace, choose explicit channels, then sync complete threads into the review queue.</p>
+              <p className="text-muted mb-6">Connect your workspace, choose explicit channels, then sync complete threads and supported file attachments into the review queue.</p>
 
               <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
                 <p className="text-small font-medium mb-2">What happens next</p>
                 <ol className="space-y-2 text-small text-muted">
                   <li>1. Authorize the Komponist Slack app.</li>
                   <li>2. Invite it to the channels you want to use.</li>
-                  <li>3. Select those channels in Sources and run the first sync.</li>
+                  <li>3. Select those channels in Sources and sync threads plus PDF, DOCX, PPTX, Markdown, text, YAML, JSON, or CSV attachments.</li>
                 </ol>
               </div>
 
