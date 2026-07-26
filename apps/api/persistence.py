@@ -679,6 +679,22 @@ async def update_connected_source(
         return _source_dict(row)
 
 
+async def update_connected_source_config(
+    org_id: str,
+    source_id: str,
+    config: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Replace one connector's encrypted configuration."""
+    async with async_session() as session:
+        row = await session.get(ConnectedSource, source_id)
+        if row is None or row.org_id != org_id:
+            return None
+        row.config_ciphertext = _encrypt_config(config)
+        row.updated_at = datetime.utcnow()
+        await session.commit()
+        return _source_dict(row)
+
+
 async def set_connected_source_department(
     org_id: str, source_id: str, department_id: Optional[str]
 ) -> Optional[dict[str, Any]]:

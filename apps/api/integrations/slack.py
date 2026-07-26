@@ -29,7 +29,41 @@ SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET", "")
 SLACK_REDIRECT_URI = os.getenv("SLACK_REDIRECT_URI", "http://localhost:8000/auth/slack/callback")
 
 # Watched channels (configured per org)
-WATCHED_CHANNELS = os.getenv("SLACK_WATCHED_CHANNELS", "").split(",")
+WATCHED_CHANNELS = [
+    channel.strip()
+    for channel in os.getenv("SLACK_WATCHED_CHANNELS", "").split(",")
+    if channel.strip()
+]
+
+
+class SlackApiError(RuntimeError):
+    """A safe, user-facing Slack API failure."""
+
+
+def _headers(access_token: str) -> dict[str, str]:
+    token = access_token.strip()
+    if not token:
+        raise SlackApiError("Slack access token is missing")
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+
+async def _get(
+    client: httpx.AsyncClient,
+    method: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    response = await client.get(f"https://slack.com/api/{method}", params=params)
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise SlackApiError("Slack returned an unreadable response") from error
+    if response.status_code != 200 or not payload.get("ok"):
+        reason = str(payload.get("error") or f"HTTP {response.status_code}")
+        raise SlackApiError(f"Slack API error: {reason}")
+    return payload
 
 
 def get_oauth_url(state: str) -> str:
@@ -42,7 +76,13 @@ def get_oauth_url(state: str) -> str:
     Returns:
         OAuth authorization URL
     """
-    scopes = "channels:history,channels:read,users:read"
+    scopes = ",".join([
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "groups:read",
+        "users:read",
+    ])
     params = {
         "client_id": SLACK_CLIENT_ID,
         "redirect_uri": SLACK_REDIRECT_URI,
@@ -52,6 +92,36 @@ def get_oauth_url(state: str) -> str:
     from urllib.parse import urlencode
     query = urlencode(params)
     return f"https://slack.com/oauth/v2/authorize?{query}"
+
+
+async def list_channels(access_token: str) -> List[Dict[str, Any]]:
+    """Return channels the installed bot can currently read."""
+    channels: list[dict[str, Any]] = []
+    cursor: Optional[str] = None
+    async with httpx.AsyncClient(headers=_headers(access_token), timeout=30) as client:
+        while True:
+            params: dict[str, Any] = {
+                "types": "public_channel,private_channel",
+                "exclude_archived": "true",
+                "limit": 200,
+            }
+            if cursor:
+                params["cursor"] = cursor
+            payload = await _get(client, "conversations.list", params)
+            channels.extend(
+                {
+                    "id": channel["id"],
+                    "name": channel.get("name") or channel["id"],
+                    "is_private": bool(channel.get("is_private")),
+                    "is_member": bool(channel.get("is_member")),
+                }
+                for channel in payload.get("channels", [])
+                if channel.get("id")
+            )
+            cursor = payload.get("response_metadata", {}).get("next_cursor") or None
+            if not cursor:
+                break
+    return sorted(channels, key=lambda channel: channel["name"].casefold())
 
 
 async def exchange_code(code: str) -> Dict[str, Any]:
@@ -141,6 +211,27 @@ async def handle_slack_webhook(request: Request, org_id: str) -> Dict[str, Any]:
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from error
 
+    # A valid signature proves the request came from the configured Slack app,
+    # but not which Komponist organization owns the workspace. Bind the signed
+    # team id to the encrypted connector config before accepting any event.
+    from persistence import list_connected_sources
+
+    sources = await list_connected_sources(org_id, include_config=True)
+    source = next((item for item in sources if item["type"] == "slack"), None)
+    configured_team_id = (
+        source.get("config", {}).get("team_id")
+        if source
+        else None
+    )
+    if (
+        not configured_team_id
+        or payload.get("team_id") != configured_team_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Slack workspace does not match this organization",
+        )
+
     # Handle URL verification challenge
     if payload.get("type") == "url_verification":
         return {"challenge": payload.get("challenge")}
@@ -162,7 +253,15 @@ async def handle_slack_webhook(request: Request, org_id: str) -> Dict[str, Any]:
     return {"status": "received", "event_type": event_type}
 
 
-async def assemble_thread(channel: str, thread_ts: str, org_id: str) -> Optional[SourceItem]:
+async def assemble_thread(
+    channel: str,
+    thread_ts: str,
+    org_id: str,
+    *,
+    access_token: Optional[str] = None,
+    channel_name: Optional[str] = None,
+    department_id: Optional[str] = None,
+) -> Optional[SourceItem]:
     """
     Assemble a complete Slack thread into a SourceItem.
 
@@ -174,28 +273,17 @@ async def assemble_thread(channel: str, thread_ts: str, org_id: str) -> Optional
     Returns:
         SourceItem with full thread content
     """
-    if not SLACK_BOT_TOKEN:
+    token = (access_token or SLACK_BOT_TOKEN).strip()
+    if not token:
         return None
 
-    headers = {
-        "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    async with httpx.AsyncClient(headers=headers) as client:
+    async with httpx.AsyncClient(headers=_headers(token), timeout=30) as client:
         # Fetch thread messages
-        response = await client.get(
-            "https://slack.com/api/conversations.replies",
-            params={"channel": channel, "ts": thread_ts}
+        data = await _get(
+            client,
+            "conversations.replies",
+            {"channel": channel, "ts": thread_ts, "limit": 200},
         )
-
-        if response.status_code != 200:
-            return None
-
-        data = response.json()
-
-        if not data.get("ok"):
-            return None
 
         messages = data.get("messages", [])
 
@@ -209,19 +297,17 @@ async def assemble_thread(channel: str, thread_ts: str, org_id: str) -> Optional
             if user_id in user_cache:
                 return user_cache[user_id]
 
-            resp = await client.get(
-                "https://slack.com/api/users.info",
-                params={"user": user_id}
+            try:
+                user_data = await _get(client, "users.info", {"user": user_id})
+            except SlackApiError:
+                return user_id
+            name = (
+                user_data.get("user", {}).get("profile", {}).get("display_name")
+                or user_data.get("user", {}).get("real_name")
+                or user_id
             )
-
-            if resp.status_code == 200:
-                user_data = resp.json()
-                if user_data.get("ok"):
-                    name = user_data.get("user", {}).get("real_name", user_id)
-                    user_cache[user_id] = name
-                    return name
-
-            return user_id
+            user_cache[user_id] = name
+            return name
 
         # Build thread body
         thread_lines = []
@@ -235,7 +321,12 @@ async def assemble_thread(channel: str, thread_ts: str, org_id: str) -> Optional
 
         # Top-level message as title
         first_message = messages[0]
-        title = first_message.get("text", "")[:100]
+        message_title = first_message.get("text", "").strip()[:100] or "Slack thread"
+        title = (
+            f"#{channel_name} — {message_title}"
+            if channel_name
+            else message_title
+        )
 
         body = "\n\n".join(thread_lines)
 
@@ -246,7 +337,7 @@ async def assemble_thread(channel: str, thread_ts: str, org_id: str) -> Optional
         reference = f"slack:{channel}/{thread_ts}"
 
         # Source date
-        source_date = datetime.fromtimestamp(float(thread_ts))
+        source_date = datetime.utcfromtimestamp(float(thread_ts))
 
         return SourceItem(
             org_id=org_id,
@@ -257,7 +348,8 @@ async def assemble_thread(channel: str, thread_ts: str, org_id: str) -> Optional
             author=await get_user_name(first_message.get("user", "")),
             url=permalink,
             reference=reference,
-            source_date=source_date
+            source_date=source_date,
+            department_id=department_id,
         )
 
 
@@ -280,7 +372,8 @@ async def process_slack_events():
         )
         events = result.scalars().all()
 
-        # Group by thread
+        # Group by organization and thread because each organization owns a
+        # distinct encrypted Slack token and channel allowlist.
         threads = defaultdict(list)
 
         for event in events:
@@ -290,24 +383,18 @@ async def process_slack_events():
             channel = event_data.get("channel")
             thread_ts = event_data.get("thread_ts") or event_data.get("ts")
 
-            # Only process watched channels
-            if channel not in WATCHED_CHANNELS:
-                event.processed_at = datetime.utcnow()
-                await session.commit()
-                continue
-
-            threads[(channel, thread_ts)].append(event)
+            threads[(event.org_id, channel, thread_ts)].append(event)
 
         # Check which threads are ready (no messages in last 30 minutes)
         current_time = datetime.utcnow()
 
-        for (channel, thread_ts), thread_events in threads.items():
+        for (org_id, channel, thread_ts), thread_events in threads.items():
             # Get latest message timestamp
             latest_ts = max(
                 float(e.payload.get("event", {}).get("ts", 0))
                 for e in thread_events
             )
-            latest_dt = datetime.fromtimestamp(latest_ts)
+            latest_dt = datetime.utcfromtimestamp(latest_ts)
 
             # Wait 30 minutes for thread to be quiet
             if (current_time - latest_dt) < timedelta(minutes=30):
@@ -315,10 +402,34 @@ async def process_slack_events():
 
             # Thread is ready - assemble and extract
             try:
-                source_item = await assemble_thread(channel, thread_ts, thread_events[0].org_id)
+                from persistence import list_connected_sources
+                from pipelines.extract import extract_from_source
+
+                sources = await list_connected_sources(org_id, include_config=True)
+                source = next(
+                    (item for item in sources if item["type"] == "slack"),
+                    None,
+                )
+                config = source.get("config", {}) if source else {}
+                watched_channels = config.get("watched_channels") or WATCHED_CHANNELS
+                if not source or channel not in watched_channels:
+                    for event in thread_events:
+                        event.processed_at = datetime.utcnow()
+                    await session.commit()
+                    continue
+
+                channel_names = config.get("channel_names") or {}
+                source_item = await assemble_thread(
+                    channel,
+                    thread_ts,
+                    org_id,
+                    access_token=config.get("token"),
+                    channel_name=channel_names.get(channel),
+                    department_id=source.get("departmentId"),
+                )
 
                 if source_item:
-                    # TODO: Route to extraction pipeline (Step 6)
+                    await extract_from_source(source_item)
                     print(f"[Slack] Assembled thread: {source_item.title}")
 
                 # Mark all events in thread as processed
@@ -334,7 +445,81 @@ async def process_slack_events():
                 print(f"[Slack] Error assembling thread: {e}")
 
 
-async def backfill_slack(org_id: str, days: int = 90):
+async def fetch_slack_threads(
+    org_id: str,
+    *,
+    access_token: str,
+    channel_ids: List[str],
+    channel_names: Optional[Dict[str, str]] = None,
+    department_id: Optional[str] = None,
+    days: int = 90,
+    max_threads: int = 500,
+) -> List[SourceItem]:
+    """Fetch readable top-level messages and assemble their complete threads."""
+    if not channel_ids:
+        raise SlackApiError("Choose at least one Slack channel before syncing")
+
+    oldest_ts = (datetime.utcnow() - timedelta(days=days)).timestamp()
+    names = channel_names or {}
+    source_items: list[SourceItem] = []
+    seen_threads: set[tuple[str, str]] = set()
+
+    async with httpx.AsyncClient(
+        headers=_headers(access_token),
+        timeout=30,
+    ) as client:
+        for channel in channel_ids:
+            cursor: Optional[str] = None
+            while len(source_items) < max_threads:
+                params: dict[str, Any] = {
+                    "channel": channel,
+                    "oldest": str(oldest_ts),
+                    "limit": 100,
+                }
+                if cursor:
+                    params["cursor"] = cursor
+                payload = await _get(client, "conversations.history", params)
+
+                for message in payload.get("messages", []):
+                    thread_ts = str(message.get("thread_ts") or message.get("ts") or "")
+                    identity = (channel, thread_ts)
+                    if not thread_ts or identity in seen_threads:
+                        continue
+                    seen_threads.add(identity)
+                    source_item = await assemble_thread(
+                        channel,
+                        thread_ts,
+                        org_id,
+                        access_token=access_token,
+                        channel_name=names.get(channel),
+                        department_id=department_id,
+                    )
+                    if source_item and source_item.body.strip():
+                        source_items.append(source_item)
+                    if len(source_items) >= max_threads:
+                        break
+
+                cursor = (
+                    payload.get("response_metadata", {}).get("next_cursor")
+                    or None
+                )
+                if not cursor:
+                    break
+
+    return sorted(
+        source_items,
+        key=lambda item: item.source_date or datetime.min,
+        reverse=True,
+    )
+
+
+async def backfill_slack(
+    org_id: str,
+    days: int = 90,
+    *,
+    access_token: Optional[str] = None,
+    channel_ids: Optional[List[str]] = None,
+):
     """
     Backfill Slack history.
 
@@ -344,80 +529,14 @@ async def backfill_slack(org_id: str, days: int = 90):
         org_id: Organization ID
         days: Days to backfill
     """
-    if not SLACK_BOT_TOKEN:
-        raise ValueError("SLACK_BOT_TOKEN not set")
-
-    headers = {
-        "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    # Calculate oldest timestamp
-    oldest_dt = datetime.utcnow() - timedelta(days=days)
-    oldest_ts = oldest_dt.timestamp()
-
-    async with httpx.AsyncClient(headers=headers) as client:
-        for channel in WATCHED_CHANNELS:
-            if not channel:
-                continue
-
-            print(f"Backfilling Slack channel: {channel}")
-
-            cursor = None
-            messages_count = 0
-
-            while True:
-                params = {
-                    "channel": channel,
-                    "oldest": str(oldest_ts),
-                    "limit": 100
-                }
-
-                if cursor:
-                    params["cursor"] = cursor
-
-                response = await client.get(
-                    "https://slack.com/api/conversations.history",
-                    params=params
-                )
-
-                if response.status_code != 200:
-                    break
-
-                data = response.json()
-
-                if not data.get("ok"):
-                    print(f"  Error: {data.get('error')}")
-                    break
-
-                messages = data.get("messages", [])
-                messages_count += len(messages)
-
-                # Process messages (group by thread)
-                threads = defaultdict(list)
-
-                for msg in messages:
-                    thread_ts = msg.get("thread_ts") or msg.get("ts")
-                    threads[thread_ts].append(msg)
-
-                # Assemble each thread
-                for thread_ts, thread_msgs in threads.items():
-                    try:
-                        source_item = await assemble_thread(channel, thread_ts, org_id)
-                        if source_item:
-                            # TODO: Route to extraction pipeline
-                            print(f"  Thread: {source_item.title[:60]}")
-                    except Exception as e:
-                        print(f"  Error assembling thread {thread_ts}: {e}")
-
-                # Pagination
-                cursor = data.get("response_metadata", {}).get("next_cursor")
-                if not cursor:
-                    break
-
-            print(f"  Processed {messages_count} messages")
-
-    print(f"Slack backfill complete for org: {org_id}")
+    source_items = await fetch_slack_threads(
+        org_id,
+        access_token=access_token or SLACK_BOT_TOKEN,
+        channel_ids=channel_ids or WATCHED_CHANNELS,
+        days=days,
+    )
+    print(f"Slack backfill complete for org {org_id}: {len(source_items)} threads")
+    return source_items
 
 
 if __name__ == "__main__":

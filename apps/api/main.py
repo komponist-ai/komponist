@@ -70,6 +70,7 @@ from persistence import (
     rename_chat_conversation,
     set_connected_source_department,
     update_connected_source,
+    update_connected_source_config,
     upsert_single_source_type,
 )
 from artifacts import (
@@ -1031,6 +1032,10 @@ class NotionTokenRequest(BaseModel):
     token: str = Field(min_length=10, max_length=512)
 
 
+class SlackChannelSelection(BaseModel):
+    channel_ids: List[str] = Field(min_length=1, max_length=100)
+
+
 def _set_session_cookie(response: Response, raw_token: str) -> None:
     import auth
 
@@ -1601,9 +1606,19 @@ async def notion_auth_callback(code: str, state: str):
 @app.get("/auth/slack")
 async def slack_auth_start(org: str, request: Request):
     """Start Slack OAuth flow."""
-    from integrations.slack import get_oauth_url
+    from integrations.slack import (
+        SLACK_CLIENT_ID,
+        SLACK_CLIENT_SECRET,
+        get_oauth_url,
+    )
     org = _validated_oauth_org(org)
     await _authorized_org_user(request, org, manage=True)
+    if not SLACK_CLIENT_ID or not SLACK_CLIENT_SECRET:
+        return {
+            "error": (
+                "Slack OAuth is not configured on this Komponist deployment"
+            ),
+        }
     url = get_oauth_url(state=await _connector_oauth_state(org))
     return {"auth_url": url}
 
@@ -1626,6 +1641,8 @@ async def slack_auth_callback(code: str, state: str):
                 "team_id": team.get("id"),
                 "bot_user_id": tokens.get("bot_user_id"),
                 "scope": tokens.get("scope"),
+                "watched_channels": [],
+                "channel_names": {},
                 "oauth": True,
             },
         )
@@ -1633,6 +1650,99 @@ async def slack_auth_callback(code: str, state: str):
     except Exception as error:
         print(f"[Slack OAuth] Callback failed for org {org_id}: {type(error).__name__}")
         return _oauth_redirect("slack", org_id, "error")
+
+
+async def _slack_source(
+    request: Request,
+    org_id: str,
+    source_id: str,
+) -> dict:
+    await _authorized_org_user(request, org_id, manage=True)
+    source = await get_connected_source(org_id, source_id, include_config=True)
+    if source is None or source.get("type") != "slack":
+        raise HTTPException(status_code=404, detail="Slack source not found")
+    if not source.get("config", {}).get("token"):
+        raise HTTPException(status_code=409, detail="Reconnect Slack to refresh access")
+    return source
+
+
+@app.get("/sources/{source_id}/slack/channels")
+async def slack_source_channels(
+    source_id: str,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """List readable Slack channels and the connector's explicit allowlist."""
+    from integrations.slack import SlackApiError, list_channels
+
+    source = await _slack_source(request, org_id, source_id)
+    config = source["config"]
+    try:
+        channels = await list_channels(config["token"])
+    except SlackApiError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {
+        "channels": channels,
+        "selected_channel_ids": config.get("watched_channels") or [],
+    }
+
+
+@app.put("/sources/{source_id}/slack/channels")
+async def update_slack_source_channels(
+    source_id: str,
+    payload: SlackChannelSelection,
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Persist a verified, organization-scoped Slack channel allowlist."""
+    from integrations.slack import SlackApiError, list_channels
+
+    source = await _slack_source(request, org_id, source_id)
+    config = source["config"]
+    try:
+        available = await list_channels(config["token"])
+    except SlackApiError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    available_by_id = {channel["id"]: channel for channel in available}
+    selected_ids = list(dict.fromkeys(payload.channel_ids))
+    unknown = [channel_id for channel_id in selected_ids if channel_id not in available_by_id]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail="One or more Slack channels are no longer available",
+        )
+    not_joined = [
+        available_by_id[channel_id]["name"]
+        for channel_id in selected_ids
+        if not available_by_id[channel_id].get("is_member")
+    ]
+    if not_joined:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invite the Komponist Slack app to these channels first: "
+                + ", ".join(f"#{name}" for name in not_joined)
+            ),
+        )
+
+    config["watched_channels"] = selected_ids
+    config["channel_names"] = {
+        channel_id: available_by_id[channel_id]["name"]
+        for channel_id in selected_ids
+    }
+    updated = await update_connected_source_config(
+        org_id,
+        source_id,
+        config,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Slack source not found")
+    return {
+        "status": "configured",
+        "selected_channel_ids": selected_ids,
+        "channels": [available_by_id[channel_id] for channel_id in selected_ids],
+    }
 
 
 @app.get("/auth/google")
@@ -2415,6 +2525,8 @@ async def sync_source(
     try:
         if source["type"] == "notion":
             result = await sync_notion_source(org_id, source)
+        elif source["type"] == "slack":
+            result = await sync_slack_source(org_id, source)
         elif source["type"] == "local":
             result = await sync_local_source(org_id, source)
         else:
@@ -2521,6 +2633,69 @@ async def sync_notion_source(org_id: str, source: dict) -> dict:
         "items_processed": pages_processed,
         "entities_created": total_entities,
         "relationships_created": total_relationships
+    }
+
+
+async def sync_slack_source(org_id: str, source: dict) -> dict:
+    """Sync explicitly selected Slack channels through the extraction pipeline."""
+    from integrations.slack import SlackApiError, fetch_slack_threads
+
+    config = source.get("config", {})
+    token = str(config.get("token") or "")
+    channel_ids = config.get("watched_channels") or []
+    if not token:
+        raise ValueError("Reconnect Slack to refresh its access token")
+    if not channel_ids:
+        raise ValueError("Choose at least one Slack channel before syncing")
+
+    try:
+        source_items = await fetch_slack_threads(
+            org_id,
+            access_token=token,
+            channel_ids=channel_ids,
+            channel_names=config.get("channel_names") or {},
+            department_id=source.get("departmentId"),
+        )
+    except SlackApiError as error:
+        raise ValueError(str(error)) from error
+
+    settings = await get_org_settings(org_id)
+    auto_confirm = settings.get("auto_confirm", True)
+    batch_size = settings.get("parallel_batch_size", 5)
+    total_entities = 0
+    total_relationships = 0
+    items_processed = 0
+    errors: list[str] = []
+
+    async def process_thread(source_item):
+        try:
+            result = await run_extraction(
+                source_item,
+                auto_confirm=auto_confirm,
+            )
+            return result, None
+        except Exception as error:  # keep one bad thread from aborting the sync
+            return None, f"{source_item.title}: {error}"
+
+    for index in range(0, len(source_items), batch_size):
+        batch = source_items[index:index + batch_size]
+        results = await asyncio.gather(
+            *(process_thread(source_item) for source_item in batch)
+        )
+        for result, error in results:
+            if error:
+                errors.append(error)
+                continue
+            items_processed += 1
+            total_entities += result.get("entities_created", 0)
+            total_relationships += result.get("relationships_created", 0)
+
+    return {
+        "status": "complete" if not errors else "partial",
+        "items_processed": items_processed,
+        "entities_created": total_entities,
+        "relationships_created": total_relationships,
+        "errors": errors[:10],
     }
 
 

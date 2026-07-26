@@ -159,8 +159,11 @@ docker compose --env-file .env -f docker/docker-compose.yml down
 
 ### Still unverified or missing
 
-- Real Notion, Slack, and Google connector OAuth/token-refresh lifecycles
-- Real GitHub, Linear, Slack, and Google webhook delivery
+- A live Slack workspace installation; OAuth, channel discovery, selected-channel
+  thread sync, and extraction handoff are covered by provider-free contracts
+- Real-time Slack event delivery and signed interaction callbacks
+- Notion, Google Drive, GitHub, and Linear are not exposed as product connectors
+  until their provider flows meet the same end-to-end bar
 - Google user sign-in with production credentials
 - Live OpenAI extraction; live grounded chat and offline OpenAI request contracts
   have been tested separately
@@ -291,12 +294,7 @@ human review.
 | Source | Interface | Validation status |
 | --- | --- | --- |
 | Browser upload | Markdown, text, YAML, and YML | Locally verified |
-| Mounted local folder | Configurable scan path and extensions | Locally verified |
-| Notion | Integration token/OAuth, page sync, document inspection | Implemented; real provider flow unverified |
-| Slack | OAuth and signed webhook ingestion | Implemented; real provider flow unverified |
-| Google Drive | OAuth and protected webhook ingestion | Implemented; real provider flow unverified |
-| GitHub | Signed webhook ingestion | Backend implemented; no Studio connector yet |
-| Linear | Signed webhook ingestion | Backend implemented; no Studio connector yet |
+| Slack | OAuth, explicit channel allowlist, complete thread sync, document inspection | Provider-free contracts passing; live workspace installation pending |
 
 Synced documents can be inspected, moved between department scopes, or deleted
 from Komponist without deleting the original item on its provider. Connected
@@ -327,7 +325,7 @@ newly inaccessible context.
 
 ```mermaid
 flowchart LR
-    sources["Uploads · Local docs · Notion · Slack · Drive"]
+    sources["Browser uploads · Selected Slack channels"]
     extract["Extract Decisions, Goals, Constraints, Projects"]
     review["Human review queue"]
     brain["Neo4j company brain"]

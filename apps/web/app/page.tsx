@@ -28,7 +28,7 @@ const features = [
     icon: Upload,
     number: '01',
     title: 'Ingest the useful stuff',
-    copy: 'Upload documents or connect Notion. Komponist extracts decisions, goals, constraints, and projects — not another pile of chunks.',
+    copy: 'Upload documents or connect selected Slack channels. Komponist extracts decisions, goals, constraints, and projects — not another pile of chunks.',
     tag: 'Sources → facts',
   },
   {
@@ -79,7 +79,7 @@ const platformLayers = [
     eyebrow: '01 · Connect',
     icon: Upload,
     title: 'Bring your company sources',
-    copy: 'Documents, Notion, Slack, and Drive flow into one organization-scoped workspace.',
+    copy: 'Documents and selected Slack channels flow into one organization-scoped workspace.',
     detail: 'Connectors · uploads · sync',
     tone: 'bg-warning-soft',
   },

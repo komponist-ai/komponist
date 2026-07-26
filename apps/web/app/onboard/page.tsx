@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 import { useAuth } from '../../components/AuthProvider'
 
-type SourceType = 'notion' | 'slack' | 'google' | 'upload'
+type SourceType = 'slack' | 'upload'
 type ConnectorStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 type UploadResult = {
@@ -33,15 +33,11 @@ const SOURCE_OPTIONS: Array<{
   badge: string
 }> = [
   { type: 'upload', title: 'Upload documents', description: 'Upload files from this device and send extracted company context through review.', meta: 'Markdown · text · YAML', badge: 'Fastest start' },
-  { type: 'notion', title: 'Notion', description: 'Turn shared pages and databases into reviewed company context.', meta: 'Pages · databases · docs', badge: 'Integration token' },
-  { type: 'slack', title: 'Slack', description: 'Capture durable decisions and context from the channels you choose.', meta: 'Channels · threads · decisions', badge: 'OAuth' },
-  { type: 'google', title: 'Google Drive', description: 'Sync the Docs and workspace files your agents should understand.', meta: 'Docs · Sheets · Drive', badge: 'OAuth' },
+  { type: 'slack', title: 'Slack', description: 'Select channels and turn complete threads into reviewed company context.', meta: 'Selected channels · complete threads', badge: 'OAuth + channel scope' },
 ]
 
 const SOURCE_TITLES: Record<SourceType, string> = {
-  notion: 'Notion',
   slack: 'Slack',
-  google: 'Google Drive',
   upload: 'Document uploads',
 }
 
@@ -55,7 +51,6 @@ function OnboardContent() {
   const [error, setError] = useState<string | null>(null)
 
   // Form fields
-  const [notionToken, setNotionToken] = useState('')
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([])
 
@@ -93,45 +88,14 @@ function OnboardContent() {
     const source = searchParams.get('source')
     const callbackStatus = searchParams.get('status')
 
-    if (source && callbackStatus === 'connected') {
-      // OAuth callback succeeded
-      router.push('/sources')
+    if (source === 'slack' && callbackStatus === 'connected') {
+      router.push('/sources?configure=slack')
+    } else if (source === 'slack' && callbackStatus === 'error') {
+      setSelectedSource('slack')
+      setStatus('error')
+      setError('Slack could not be connected. Check the app credentials and redirect URL.')
     }
   }, [searchParams, router])
-
-  const handleConnectNotion = async () => {
-    if (!notionToken.trim()) {
-      setError('Please enter your Notion integration token')
-      return
-    }
-
-    setStatus('connecting')
-    setError(null)
-
-    try {
-      const response = await apiFetch(
-        `${API_URL}/auth/notion/token?org_id=${orgId}${departmentQuery}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: notionToken }),
-        }
-      )
-      const data = await response.json()
-
-      if (response.ok && data.status === 'connected') {
-        setStatus('connected')
-        // Redirect to sources page after short delay
-        setTimeout(() => router.push('/sources'), 1000)
-      } else {
-        throw new Error(data.detail || data.error || 'Failed to validate token')
-      }
-    } catch (err: any) {
-      console.error('Notion connection error:', err)
-      setError(err.message || 'Failed to connect. Check your token.')
-      setStatus('error')
-    }
-  }
 
   const handleConnectSlack = async () => {
     setStatus('connecting')
@@ -147,26 +111,7 @@ function OnboardContent() {
         throw new Error(data.error)
       }
     } catch (err: any) {
-      setError('Slack OAuth not configured. Add SLACK_CLIENT_ID to .env')
-      setStatus('error')
-    }
-  }
-
-  const handleConnectGoogle = async () => {
-    setStatus('connecting')
-    setError(null)
-
-    try {
-      const response = await apiFetch(`${API_URL}/auth/google?org=${orgId}`)
-      const data = await response.json()
-
-      if (data.auth_url) {
-        window.location.href = data.auth_url
-      } else if (data.error) {
-        throw new Error(data.error)
-      }
-    } catch (err: any) {
-      setError('Google OAuth not configured. Add GOOGLE_CLIENT_ID to .env')
+      setError(err.message || 'Slack OAuth is not configured for this deployment')
       setStatus('error')
     }
   }
@@ -224,7 +169,7 @@ function OnboardContent() {
               </div>
             </div>
 
-            <section className="mt-9 grid gap-4 md:grid-cols-2 lg:grid-cols-3" aria-label="Available source connectors">
+            <section className="mt-9 grid gap-4 md:grid-cols-2" aria-label="Available source connectors">
               {SOURCE_OPTIONS.map((source, index) => (
                 <motion.button
                   key={source.type}
@@ -234,7 +179,7 @@ function OnboardContent() {
                   transition={{ delay: index * 0.04 }}
                   whileHover={{ y: -3 }}
                   onClick={() => setSelectedSource(source.type)}
-                  className={`group min-h-[190px] rounded-xl border-2 border-ink bg-white p-5 text-left shadow-[4px_4px_0_#d9cfc0] transition hover:bg-[#fffaf0] hover:shadow-[6px_6px_0_#201c15] ${source.type === 'upload' ? 'md:col-span-2 lg:col-span-3' : ''}`}
+                  className="group min-h-[190px] rounded-xl border-2 border-ink bg-white p-5 text-left shadow-[4px_4px_0_#d9cfc0] transition hover:bg-[#fffaf0] hover:shadow-[6px_6px_0_#201c15]"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <SourceLogo type={source.type} />
@@ -262,10 +207,7 @@ function OnboardContent() {
     <AppLayout>
       <StudioTopbar
         section="Sources"
-        title={`Connect ${selectedSource === 'notion' ? 'Notion' :
-          selectedSource === 'slack' ? 'Slack' :
-          selectedSource === 'google' ? 'Google Workspace' :
-          'Upload Documents'}`}
+        title={`Connect ${selectedSource === 'slack' ? 'Slack' : 'Upload Documents'}`}
         description="Configure the connection, then sync company knowledge"
         icon={PlugZap}
         actions={
@@ -316,7 +258,7 @@ function OnboardContent() {
             </div>
           )}
 
-          {(['notion', 'upload'] as SourceType[]).includes(selectedSource) && (
+          {selectedSource === 'upload' && (
             <div className="card mb-6">
               <div className="flex items-start gap-3">
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink bg-warning-soft"><LockKeyhole className="size-4" /></span>
@@ -333,59 +275,6 @@ function OnboardContent() {
             </div>
           )}
 
-          {/* Notion form */}
-          {selectedSource === 'notion' && (
-            <div className="card">
-              <div className="flex items-center gap-3 mb-4">
-                <SourceLogo type="notion" className="size-9 rounded-lg shadow-none" />
-                <h2 className="text-h3">Notion Integration</h2>
-              </div>
-
-              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
-                <p className="text-small font-medium mb-2">Quick setup (2 minutes):</p>
-                <ol className="text-small text-muted space-y-2">
-                  <li>1. Go to <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener" className="text-teal underline">notion.so/my-integrations</a></li>
-                  <li>2. Click &quot;New integration&quot; → name it &quot;Komponist&quot;</li>
-                  <li>3. Copy the &quot;Internal Integration Secret&quot;</li>
-                  <li>4. Paste it below</li>
-                </ol>
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-small font-medium mb-2">
-                  Integration Token
-                </label>
-                <input
-                  type="password"
-                  value={notionToken}
-                  onChange={(e) => setNotionToken(e.target.value)}
-                  placeholder="secret_..."
-                  className="input font-mono"
-                  disabled={status === 'connecting'}
-                />
-                <p className="text-caption text-faint mt-2">
-                  Starts with &quot;secret_&quot; or &quot;ntn_&quot;
-                </p>
-              </div>
-
-              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
-                <p className="text-small font-medium mb-2">After connecting:</p>
-                <p className="text-small text-muted">
-                  Share pages with your integration by clicking ••• → Connections → Komponist on each page you want to sync.
-                </p>
-              </div>
-
-              <button
-                onClick={handleConnectNotion}
-                className="btn btn-primary"
-                disabled={status === 'connecting' || status === 'connected'}
-              >
-                {status === 'connecting' ? 'Connecting...' :
-                 status === 'connected' ? 'Connected ✓' : 'Connect Notion'}
-              </button>
-            </div>
-          )}
-
           {/* Slack form */}
           {selectedSource === 'slack' && (
             <div className="card">
@@ -394,16 +283,15 @@ function OnboardContent() {
                 <h2 className="text-h3">Slack Integration</h2>
               </div>
 
-              <p className="text-muted mb-6">
-                Connect your Slack workspace to extract decisions and context from channels.
-              </p>
+              <p className="text-muted mb-6">Connect your workspace, choose explicit channels, then sync complete threads into the review queue.</p>
 
               <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
-                <p className="text-small font-medium mb-2">Requirements:</p>
-                <p className="text-small text-muted">
-                  Slack OAuth requires SLACK_CLIENT_ID and SLACK_CLIENT_SECRET in your .env file.
-                  Create an app at <a href="https://api.slack.com/apps" target="_blank" rel="noopener" className="text-teal underline">api.slack.com/apps</a>
-                </p>
+                <p className="text-small font-medium mb-2">What happens next</p>
+                <ol className="space-y-2 text-small text-muted">
+                  <li>1. Authorize the Komponist Slack app.</li>
+                  <li>2. Invite it to the channels you want to use.</li>
+                  <li>3. Select those channels in Sources and run the first sync.</li>
+                </ol>
               </div>
 
               <button
@@ -412,36 +300,6 @@ function OnboardContent() {
                 disabled={status === 'connecting'}
               >
                 {status === 'connecting' ? 'Redirecting...' : 'Connect Slack'}
-              </button>
-            </div>
-          )}
-
-          {/* Google form */}
-          {selectedSource === 'google' && (
-            <div className="card">
-              <div className="flex items-center gap-3 mb-4">
-                <SourceLogo type="google" className="size-9 rounded-lg shadow-none" />
-                <h2 className="text-h3">Google Workspace</h2>
-              </div>
-
-              <p className="text-muted mb-6">
-                Connect Google Drive to sync Docs, Sheets, and other files.
-              </p>
-
-              <div className="bg-paper-2 rounded-md p-4 mb-6 border border-line">
-                <p className="text-small font-medium mb-2">Requirements:</p>
-                <p className="text-small text-muted">
-                  Google OAuth requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file.
-                  Create credentials at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-teal underline">Google Cloud Console</a>
-                </p>
-              </div>
-
-              <button
-                onClick={handleConnectGoogle}
-                className="btn btn-primary"
-                disabled={status === 'connecting'}
-              >
-                {status === 'connecting' ? 'Redirecting...' : 'Connect Google'}
               </button>
             </div>
           )}

@@ -11,11 +11,13 @@ import {
   Database,
   ExternalLink,
   FileText,
+  Hash,
   Loader2,
   Layers3,
   Plus,
   Quote,
   RefreshCw,
+  Save,
   ShieldCheck,
   Trash2,
   Unplug,
@@ -40,6 +42,13 @@ interface Source {
 }
 
 interface Department { id: string; name: string; color: string }
+
+interface SlackChannel {
+  id: string
+  name: string
+  is_private: boolean
+  is_member: boolean
+}
 
 interface SyncedDocument {
   id: string
@@ -93,6 +102,8 @@ const SOURCE_COPY: Record<Source['type'], { label: string; description: string }
   upload: { label: 'Document uploads', description: 'Files uploaded directly through the browser' },
 }
 
+const SUPPORTED_SOURCE_TYPES = new Set<Source['type']>(['slack', 'upload'])
+
 function formatDate(value?: string | null) {
   if (!value) return 'Never'
   const date = new Date(value)
@@ -123,6 +134,10 @@ export default function SourcesPage() {
   const [evidenceId, setEvidenceId] = useState<string | null>(null)
   const [passage, setPassage] = useState<EvidencePassage | null>(null)
   const [passageLoading, setPassageLoading] = useState(false)
+  const [slackChannels, setSlackChannels] = useState<Record<string, SlackChannel[]>>({})
+  const [selectedSlackChannels, setSelectedSlackChannels] = useState<Record<string, string[]>>({})
+  const [slackChannelsLoading, setSlackChannelsLoading] = useState<string | null>(null)
+  const [slackChannelsSaving, setSlackChannelsSaving] = useState<string | null>(null)
 
   const canManage = user?.role === 'owner' || user?.role === 'admin'
 
@@ -193,10 +208,16 @@ export default function SourcesPage() {
       const [payload, departmentPayload] = await Promise.all([response.json(), departmentResponse.json()])
       if (!response.ok) throw new Error(payload.detail || 'Could not load sources')
       if (!departmentResponse.ok) throw new Error(departmentPayload.detail || 'Could not load departments')
-      const nextSources: Source[] = payload.sources ?? []
+      const nextSources: Source[] = (payload.sources ?? []).filter(
+        (source: Source) => SUPPORTED_SOURCE_TYPES.has(source.type),
+      )
       setSources(nextSources)
       setDepartments(departmentPayload.departments ?? [])
-      setExpanded((current) => current ?? nextSources[0]?.id ?? null)
+      const configureSlack = new URLSearchParams(window.location.search).get('configure') === 'slack'
+      const preferredSource = configureSlack
+        ? nextSources.find((source) => source.type === 'slack')
+        : null
+      setExpanded((current) => current ?? preferredSource?.id ?? nextSources[0]?.id ?? null)
       await Promise.all(nextSources.map((source) => fetchDocuments(source.id)))
     } catch (loadError) {
       console.error('Failed to fetch sources:', loadError)
@@ -208,6 +229,70 @@ export default function SourcesPage() {
   }, [fetchDocuments, orgId])
 
   useEffect(() => { void fetchSources() }, [fetchSources])
+
+  const fetchSlackChannels = useCallback(async (sourceId: string) => {
+    if (!orgId) return
+    setSlackChannelsLoading(sourceId)
+    try {
+      const response = await apiFetch(
+        `${API_URL}/sources/${sourceId}/slack/channels?org_id=${encodeURIComponent(orgId)}`,
+      )
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Could not load Slack channels')
+      setSlackChannels(current => ({ ...current, [sourceId]: payload.channels ?? [] }))
+      setSelectedSlackChannels(current => ({
+        ...current,
+        [sourceId]: payload.selected_channel_ids ?? [],
+      }))
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load Slack channels')
+    } finally {
+      setSlackChannelsLoading(null)
+    }
+  }, [orgId])
+
+  useEffect(() => {
+    const source = sources.find(item => item.id === expanded)
+    if (source?.type === 'slack' && slackChannels[source.id] === undefined) {
+      void fetchSlackChannels(source.id)
+    }
+  }, [expanded, fetchSlackChannels, slackChannels, sources])
+
+  const saveSlackChannels = async (sourceId: string) => {
+    setSlackChannelsSaving(sourceId)
+    setError(null)
+    try {
+      const response = await apiFetch(
+        `${API_URL}/sources/${sourceId}/slack/channels?org_id=${encodeURIComponent(orgId)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel_ids: selectedSlackChannels[sourceId] ?? [],
+          }),
+        },
+      )
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Could not save Slack channels')
+      setSelectedSlackChannels(current => ({
+        ...current,
+        [sourceId]: payload.selected_channel_ids ?? [],
+      }))
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save Slack channels')
+    } finally {
+      setSlackChannelsSaving(null)
+    }
+  }
+
+  const toggleSlackChannel = (sourceId: string, channelId: string) => {
+    setSelectedSlackChannels(current => {
+      const selected = new Set(current[sourceId] ?? [])
+      if (selected.has(channelId)) selected.delete(channelId)
+      else selected.add(channelId)
+      return { ...current, [sourceId]: [...selected] }
+    })
+  }
 
   useEffect(() => {
     if (!passage || !sources.length) return
@@ -433,7 +518,7 @@ export default function SourcesPage() {
               <div>
                 <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-warning-soft text-orange-dark shadow-[4px_4px_0_#201c15]"><Database className="size-7" /></span>
                 <h2 className="mt-6 text-3xl">Bring in your first source.</h2>
-                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">Upload documents from this device or connect Notion, Slack, and Google Drive.</p>
+                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">Upload documents from this device or connect selected Slack channels.</p>
                 <Button asChild className="mt-6"><Link href="/onboard"><Plus /> Add source</Link></Button>
               </div>
             </div>
@@ -493,6 +578,51 @@ export default function SourcesPage() {
                     <AnimatePresence initial={false}>
                       {isExpanded && (
                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t-2 border-ink bg-paper-2">
+                          {source.type === 'slack' && (
+                            <section className="border-b-2 border-ink bg-white p-5">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <p className="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-orange-dark">Channel scope</p>
+                                  <h4 className="mt-1 text-lg font-black">Choose what Komponist may read</h4>
+                                  <p className="mt-1 text-xs leading-5 text-muted">Only selected channels are synced. Invite the Komponist app to a channel before selecting it.</p>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  onClick={() => void saveSlackChannels(source.id)}
+                                  disabled={slackChannelsSaving === source.id || (selectedSlackChannels[source.id] ?? []).length === 0}
+                                >
+                                  {slackChannelsSaving === source.id ? <Loader2 className="animate-spin" /> : <Save />}
+                                  Save channels
+                                </Button>
+                              </div>
+                              {slackChannelsLoading === source.id ? (
+                                <div className="mt-4 flex items-center gap-2 text-xs text-muted"><Loader2 className="size-4 animate-spin" /> Loading Slack channels…</div>
+                              ) : (
+                                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                  {(slackChannels[source.id] ?? []).map(channel => {
+                                    const selected = (selectedSlackChannels[source.id] ?? []).includes(channel.id)
+                                    return (
+                                      <label
+                                        key={channel.id}
+                                        className={`flex items-center gap-3 rounded-lg border p-3 text-xs font-semibold ${channel.is_member ? 'cursor-pointer border-line bg-paper-2 hover:border-ink' : 'cursor-not-allowed border-line bg-paper text-faint'}`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={selected}
+                                          disabled={!channel.is_member}
+                                          onChange={() => toggleSlackChannel(source.id, channel.id)}
+                                          className="size-4 accent-orange"
+                                        />
+                                        <Hash className="size-3.5 shrink-0" />
+                                        <span className="min-w-0 truncate">{channel.name}</span>
+                                        {!channel.is_member && <span className="ml-auto font-mono text-[8px] uppercase">Invite app</span>}
+                                      </label>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </section>
+                          )}
                           <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
                             <span>Synced documents</span>
                             <span>{sourceDocuments.length} in Komponist</span>
