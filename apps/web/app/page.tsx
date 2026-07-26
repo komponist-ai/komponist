@@ -36,6 +36,7 @@ import {
 import BrandMark from '@/components/BrandMark'
 import GitHubMark from '@/components/GitHubMark'
 import GitHubStars from '@/components/GitHubStars'
+import SourceLogo from '@/components/SourceLogo'
 import ThemeToggle from '@/components/ThemeToggle'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -294,8 +295,8 @@ export default function LandingPage() {
                       <p className="mb-3 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">The instruments</p>
                       <div className="grid grid-cols-3 gap-2 md:grid-cols-1">
                         <SourceChip icon={FileText} label="Documents" count="14" tone="bg-warning-soft" delay={0} />
-                        <SourceChip icon={BookOpenCheck} label="Notion" count="8" tone="bg-white" delay={0.08} />
-                        <SourceChip icon={MessageSquareText} label="Slack" count="3 ch." tone="bg-success-soft" delay={0.16} />
+                        <SourceChip sourceType="notion" label="Notion" count="8" tone="bg-white" delay={0.08} />
+                        <SourceChip sourceType="slack" label="Slack" count="3 ch." tone="bg-success-soft" delay={0.16} />
                       </div>
                     </div>
 
@@ -613,12 +614,14 @@ export default function LandingPage() {
 
 function SourceChip({
   icon: Icon,
+  sourceType,
   label,
   count,
   tone,
   delay,
 }: {
-  icon: typeof FileText
+  icon?: typeof FileText
+  sourceType?: 'notion' | 'slack'
   label: string
   count: string
   tone: string
@@ -631,7 +634,11 @@ function SourceChip({
       transition={{ delay: 0.3 + delay }}
       className={`flex min-w-0 items-center gap-2 rounded-lg border-2 border-ink p-2.5 shadow-[2px_2px_0_#201c15] ${tone}`}
     >
-      <span className="grid size-8 shrink-0 place-items-center rounded-md border border-ink bg-white"><Icon className="size-3.5" /></span>
+      {sourceType ? (
+        <SourceLogo type={sourceType} className="!size-8 !rounded-md !border !shadow-none" />
+      ) : Icon ? (
+        <span className="grid size-8 shrink-0 place-items-center rounded-md border border-ink bg-white"><Icon className="size-3.5" /></span>
+      ) : null}
       <span className="min-w-0">
         <strong className="block truncate text-[10px] sm:text-xs">{label}</strong>
         <span className="font-mono text-[8px] text-muted">{count}</span>
