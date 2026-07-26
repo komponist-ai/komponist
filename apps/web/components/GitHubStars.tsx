@@ -6,6 +6,7 @@ import { cn } from '../lib/utils'
 
 export default function GitHubStars({ className }: { className?: string }) {
   const [stars, setStars] = useState<number | null>(null)
+  const [available, setAvailable] = useState(true)
 
   useEffect(() => {
     let active = true
@@ -16,11 +17,13 @@ export default function GitHubStars({ className }: { className?: string }) {
         if (active && typeof payload.stars === 'number') setStars(payload.stars)
       })
       .catch(() => {
-        if (active) setStars(0)
+        if (active) setAvailable(false)
       })
 
     return () => { active = false }
   }, [])
+
+  if (!available) return null
 
   const value = stars === null ? '…' : new Intl.NumberFormat('en', { notation: 'compact' }).format(stars)
 
