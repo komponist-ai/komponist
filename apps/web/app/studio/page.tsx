@@ -17,6 +17,7 @@ import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 
 interface Message {
+  id?: string
   role: 'user' | 'assistant'
   content: string
   sources?: any[]
@@ -46,6 +47,12 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState<ChatConversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false)
+  const [historyOffset, setHistoryOffset] = useState(0)
+  const [historyHasMore, setHistoryHasMore] = useState(false)
+  const [messageHistoryLoading, setMessageHistoryLoading] = useState(false)
+  const [messageHistoryHasMore, setMessageHistoryHasMore] = useState(false)
+  const [messageHistoryCursor, setMessageHistoryCursor] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -60,18 +67,30 @@ export default function ChatPage() {
     scrollToBottom()
   }, [isLoading, latestMessageContent, messages.length])
 
-  const loadConversations = useCallback(async (showLoader = false) => {
+  const loadConversations = useCallback(async (
+    showLoader = false,
+    offset = 0,
+    append = false,
+  ) => {
     if (showLoader) setHistoryLoading(true)
+    if (append) setHistoryLoadingMore(true)
     try {
       const orgId = getActiveOrgId()
-      const response = await apiFetch(`${API_URL}/chat/conversations?org_id=${encodeURIComponent(orgId)}`)
+      const response = await apiFetch(
+        `${API_URL}/chat/conversations?org_id=${encodeURIComponent(orgId)}&limit=30&offset=${offset}`,
+      )
       if (!response.ok) throw new Error('Could not load chat history')
       const payload = await response.json()
-      setConversations(payload.conversations || [])
+      setConversations(current => append
+        ? [...current, ...(payload.conversations || [])]
+        : (payload.conversations || []))
+      setHistoryOffset(offset)
+      setHistoryHasMore(Boolean(payload.has_more))
     } catch (loadError: any) {
       setError(loadError.message || 'Could not load chat history')
     } finally {
       setHistoryLoading(false)
+      setHistoryLoadingMore(false)
     }
   }, [])
 
@@ -103,6 +122,8 @@ export default function ChatPage() {
     if (isLoading) return
     setActiveConversationId(null)
     setMessages([])
+    setMessageHistoryHasMore(false)
+    setMessageHistoryCursor(null)
     setError(null)
   }
 
@@ -111,17 +132,46 @@ export default function ChatPage() {
     setError(null)
     try {
       const orgId = getActiveOrgId()
-      const response = await apiFetch(`${API_URL}/chat/conversations/${conversationId}?org_id=${encodeURIComponent(orgId)}`)
+      const response = await apiFetch(`${API_URL}/chat/conversations/${conversationId}?org_id=${encodeURIComponent(orgId)}&limit=100`)
       if (!response.ok) throw new Error('Could not open this conversation')
       const payload = await response.json()
       setActiveConversationId(conversationId)
       setMessages((payload.messages || []).map((message: Message) => ({
+        id: message.id,
         role: message.role,
         content: message.content,
         sources: message.sources || [],
       })))
+      setMessageHistoryHasMore(Boolean(payload.has_more))
+      setMessageHistoryCursor(payload.next_before || null)
     } catch (openError: any) {
       setError(openError.message || 'Could not open this conversation')
+    }
+  }
+
+  const loadOlderMessages = async () => {
+    if (!activeConversationId || !messageHistoryCursor || messageHistoryLoading) return
+    setMessageHistoryLoading(true)
+    try {
+      const orgId = getActiveOrgId()
+      const response = await apiFetch(
+        `${API_URL}/chat/conversations/${activeConversationId}?org_id=${encodeURIComponent(orgId)}&limit=100&before=${encodeURIComponent(messageHistoryCursor)}`,
+      )
+      if (!response.ok) throw new Error('Could not load older messages')
+      const payload = await response.json()
+      const older = (payload.messages || []).map((message: Message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        sources: message.sources || [],
+      }))
+      setMessages(current => [...older, ...current])
+      setMessageHistoryHasMore(Boolean(payload.has_more))
+      setMessageHistoryCursor(payload.next_before || null)
+    } catch (historyError: any) {
+      setError(historyError.message || 'Could not load older messages')
+    } finally {
+      setMessageHistoryLoading(false)
     }
   }
 
@@ -298,11 +348,14 @@ export default function ChatPage() {
             loading={historyLoading}
             disabled={isLoading}
             mobileOpen={historyOpen}
+            hasMore={historyHasMore}
+            loadingMore={historyLoadingMore}
             onMobileClose={() => setHistoryOpen(false)}
             onNew={handleNewConversation}
             onSelect={(conversationId) => { void handleSelectConversation(conversationId) }}
             onRename={handleRenameConversation}
             onDelete={handleDeleteConversation}
+            onLoadMore={() => void loadConversations(false, historyOffset + 30, true)}
           />
           <div className="flex min-w-0 flex-1 flex-col">
           {error && (
@@ -379,9 +432,22 @@ export default function ChatPage() {
               </section>
             ) : (
               <div className="mx-auto flex w-[calc(100%-2rem)] max-w-[880px] flex-col gap-8 py-10 pb-20">
+                {messageHistoryHasMore && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="self-center"
+                    disabled={messageHistoryLoading}
+                    onClick={() => void loadOlderMessages()}
+                  >
+                    {messageHistoryLoading ? <LoaderCircle className="animate-spin" /> : <History />}
+                    Load older messages
+                  </Button>
+                )}
                 {messages.map((msg, idx) => (
                   <ChatMessage
-                    key={idx}
+                    key={msg.id ?? idx}
                     role={msg.role}
                     content={msg.content}
                     sources={msg.sources}

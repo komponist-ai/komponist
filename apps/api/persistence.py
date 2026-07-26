@@ -10,7 +10,8 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import delete, select
+from sqlalchemy import and_, cast, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 
 from database import (
     ApprovalRequest,
@@ -41,6 +42,20 @@ def _artifact_dict(row: GeneratedArtifact) -> dict[str, Any]:
         "sources": row.sources or [],
         "source_entity_ids": row.source_entity_ids or [],
         "department_ids": row.department_ids or [],
+        "created_at": f"{row.created_at.isoformat()}Z",
+        "updated_at": f"{row.updated_at.isoformat()}Z",
+    }
+
+
+def _artifact_summary_dict(row: GeneratedArtifact) -> dict[str, Any]:
+    """Small list representation; full content is loaded only when opened."""
+    return {
+        "id": row.id,
+        "artifact_type": row.artifact_type,
+        "title": row.title,
+        "topic": row.topic,
+        "audience": row.audience,
+        "language": row.language,
         "created_at": f"{row.created_at.isoformat()}Z",
         "updated_at": f"{row.updated_at.isoformat()}Z",
     }
@@ -95,23 +110,48 @@ async def list_generated_artifacts(
     user_id: str,
     department_ids: list[str],
     access_all: bool,
-) -> list[dict[str, Any]]:
+    *,
+    query: str = "",
+    limit: int = 24,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
     async with async_session() as session:
+        filters = [
+            GeneratedArtifact.org_id == org_id,
+            GeneratedArtifact.user_id == user_id,
+        ]
+        if not access_all:
+            filters.append(
+                cast(GeneratedArtifact.department_ids, JSONB).contained_by(
+                    cast(department_ids, JSONB)
+                )
+            )
+        if query:
+            pattern = f"%{query}%"
+            filters.append(or_(
+                GeneratedArtifact.title.ilike(pattern),
+                GeneratedArtifact.topic.ilike(pattern),
+            ))
+        total = int((
+            await session.execute(
+                select(func.count())
+                .select_from(GeneratedArtifact)
+                .where(*filters)
+            )
+        ).scalar_one())
         rows = (
             await session.execute(
                 select(GeneratedArtifact)
-                .where(
-                    GeneratedArtifact.org_id == org_id,
-                    GeneratedArtifact.user_id == user_id,
+                .where(*filters)
+                .order_by(
+                    GeneratedArtifact.updated_at.desc(),
+                    GeneratedArtifact.id,
                 )
-                .order_by(GeneratedArtifact.updated_at.desc())
+                .offset(offset)
+                .limit(limit)
             )
         ).scalars().all()
-        return [
-            _artifact_dict(row)
-            for row in rows
-            if _artifact_in_scope(row, department_ids, access_all)
-        ]
+        return [_artifact_summary_dict(row) for row in rows], total
 
 
 async def get_generated_artifact(
@@ -224,60 +264,97 @@ def _chat_message_dict(row: ChatMessageRecord) -> dict[str, Any]:
 def _chat_conversation_dict(
     row: ChatConversation,
     messages: Optional[list[ChatMessageRecord]] = None,
+    *,
+    message_count: Optional[int] = None,
+    preview: Optional[str] = None,
 ) -> dict[str, Any]:
     messages = messages or []
-    last_message = messages[-1].content if messages else ""
+    last_message = preview if preview is not None else (
+        messages[-1].content if messages else ""
+    )
     preview = " ".join(last_message.split())
     return {
         "id": row.id,
         "title": row.title,
         "created_at": f"{row.created_at.isoformat()}Z",
         "updated_at": f"{row.updated_at.isoformat()}Z",
-        "message_count": len(messages),
+        "message_count": message_count if message_count is not None else len(messages),
         "preview": preview[:140],
     }
 
 
 async def list_chat_conversations(
-    org_id: str, user_id: str
-) -> list[dict[str, Any]]:
+    org_id: str,
+    user_id: str,
+    *,
+    query: str = "",
+    limit: int = 30,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
     """List a user's conversations, most recently active first."""
     async with async_session() as session:
-        conversations = (
-            await session.execute(
-                select(ChatConversation)
-                .where(
-                    ChatConversation.org_id == org_id,
-                    ChatConversation.user_id == user_id,
-                )
-                .order_by(ChatConversation.updated_at.desc())
-            )
-        ).scalars().all()
-        if not conversations:
-            return []
-
-        conversation_ids = [row.id for row in conversations]
-        messages = (
-            await session.execute(
-                select(ChatMessageRecord)
-                .where(ChatMessageRecord.conversation_id.in_(conversation_ids))
-                .order_by(ChatMessageRecord.created_at.asc())
-            )
-        ).scalars().all()
-        grouped: dict[str, list[ChatMessageRecord]] = {
-            conversation_id: [] for conversation_id in conversation_ids
-        }
-        for message in messages:
-            grouped[message.conversation_id].append(message)
-        return [
-            _chat_conversation_dict(row, grouped[row.id]) for row in conversations
+        filters = [
+            ChatConversation.org_id == org_id,
+            ChatConversation.user_id == user_id,
         ]
+        if query:
+            filters.append(ChatConversation.title.ilike(f"%{query}%"))
+        total = int((
+            await session.execute(
+                select(func.count())
+                .select_from(ChatConversation)
+                .where(*filters)
+            )
+        ).scalar_one())
+        message_count = (
+            select(func.count(ChatMessageRecord.id))
+            .where(ChatMessageRecord.conversation_id == ChatConversation.id)
+            .correlate(ChatConversation)
+            .scalar_subquery()
+        )
+        latest_message = (
+            select(ChatMessageRecord.content)
+            .where(ChatMessageRecord.conversation_id == ChatConversation.id)
+            .order_by(
+                ChatMessageRecord.created_at.desc(),
+                ChatMessageRecord.id.desc(),
+            )
+            .limit(1)
+            .correlate(ChatConversation)
+            .scalar_subquery()
+        )
+        rows = (
+            await session.execute(
+                select(
+                    ChatConversation,
+                    message_count.label("message_count"),
+                    latest_message.label("preview"),
+                )
+                .where(*filters)
+                .order_by(ChatConversation.updated_at.desc(), ChatConversation.id)
+                .offset(offset)
+                .limit(limit)
+            )
+        ).all()
+        return [
+            _chat_conversation_dict(
+                row,
+                message_count=int(count or 0),
+                preview=preview or "",
+            )
+            for row, count, preview in rows
+        ], total
 
 
 async def get_chat_conversation(
-    org_id: str, user_id: str, conversation_id: str
+    org_id: str,
+    user_id: str,
+    conversation_id: str,
+    *,
+    before_id: Optional[str] = None,
+    message_limit: int = 100,
 ) -> Optional[dict[str, Any]]:
-    """Load one scoped conversation with every persisted message."""
+    """Load a bounded page of a scoped conversation, newest page first."""
     async with async_session() as session:
         conversation = (
             await session.execute(
@@ -290,19 +367,61 @@ async def get_chat_conversation(
         ).scalar_one_or_none()
         if conversation is None:
             return None
-        messages = (
+        filters = [
+            ChatMessageRecord.conversation_id == conversation_id,
+            ChatMessageRecord.org_id == org_id,
+        ]
+        if before_id:
+            anchor = (
+                await session.execute(
+                    select(ChatMessageRecord).where(
+                        ChatMessageRecord.id == before_id,
+                        ChatMessageRecord.conversation_id == conversation_id,
+                        ChatMessageRecord.org_id == org_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if anchor is None:
+                return None
+            filters.append(or_(
+                ChatMessageRecord.created_at < anchor.created_at,
+                and_(
+                    ChatMessageRecord.created_at == anchor.created_at,
+                    ChatMessageRecord.id < anchor.id,
+                ),
+            ))
+        page = (
             await session.execute(
                 select(ChatMessageRecord)
+                .where(*filters)
+                .order_by(
+                    ChatMessageRecord.created_at.desc(),
+                    ChatMessageRecord.id.desc(),
+                )
+                .limit(message_limit + 1)
+            )
+        ).scalars().all()
+        has_more = len(page) > message_limit
+        messages = list(reversed(page[:message_limit]))
+        total = int((
+            await session.execute(
+                select(func.count())
+                .select_from(ChatMessageRecord)
                 .where(
                     ChatMessageRecord.conversation_id == conversation_id,
                     ChatMessageRecord.org_id == org_id,
                 )
-                .order_by(ChatMessageRecord.created_at.asc())
             )
-        ).scalars().all()
+        ).scalar_one())
         return {
-            "conversation": _chat_conversation_dict(conversation, messages),
+            "conversation": _chat_conversation_dict(
+                conversation,
+                messages,
+                message_count=total,
+            ),
             "messages": [_chat_message_dict(message) for message in messages],
+            "has_more": has_more,
+            "next_before": messages[0].id if has_more and messages else None,
         }
 
 
@@ -342,17 +461,35 @@ async def rename_chat_conversation(
         conversation.title = title
         conversation.updated_at = datetime.utcnow()
         await session.commit()
-        messages = (
+        message_count = int((
             await session.execute(
-                select(ChatMessageRecord)
+                select(func.count())
+                .select_from(ChatMessageRecord)
                 .where(
                     ChatMessageRecord.conversation_id == conversation_id,
                     ChatMessageRecord.org_id == org_id,
                 )
-                .order_by(ChatMessageRecord.created_at.asc())
             )
-        ).scalars().all()
-        return _chat_conversation_dict(conversation, messages)
+        ).scalar_one())
+        preview = (
+            await session.execute(
+                select(ChatMessageRecord.content)
+                .where(
+                    ChatMessageRecord.conversation_id == conversation_id,
+                    ChatMessageRecord.org_id == org_id,
+                )
+                .order_by(
+                    ChatMessageRecord.created_at.desc(),
+                    ChatMessageRecord.id.desc(),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return _chat_conversation_dict(
+            conversation,
+            message_count=message_count,
+            preview=preview or "",
+        )
 
 
 async def delete_chat_conversation(

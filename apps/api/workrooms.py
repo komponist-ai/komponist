@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
 
-from sqlalchemy import func, select, update as sql_update
+from sqlalchemy import and_, cast, func, or_, select, update as sql_update
+from sqlalchemy.dialects.postgresql import JSONB
 
 from database import (
     OrganizationMembership,
@@ -431,70 +432,125 @@ async def list_rooms(
     user_id: str,
     org_role: str = "member",
     include_archived: bool = False,
-) -> list[dict[str, Any]]:
+    limit: int = 24,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
     async with async_session() as session:
-        rooms = (
-            await session.execute(
-                select(Workroom)
-                .where(Workroom.org_id == org_id)
-                .order_by(Workroom.updated_at.desc())
-            )
-        ).scalars().all()
-        memberships = {
-            member.workroom_id: member
-            for member in (
-                await session.execute(
-                    select(WorkroomMember).where(
-                        WorkroomMember.org_id == org_id,
-                        WorkroomMember.user_id == user_id,
-                    )
-                )
-            ).scalars().all()
-        }
+        membership_join = and_(
+            WorkroomMember.workroom_id == Workroom.id,
+            WorkroomMember.org_id == org_id,
+            WorkroomMember.user_id == user_id,
+        )
+        visibility_filters = [
+            Workroom.visibility == "organization",
+            Workroom.visibility.is_(None),
+            and_(
+                WorkroomMember.id.is_not(None),
+                WorkroomMember.status == "active",
+            ),
+        ]
+        if access_all:
+            visibility_filters.append(Workroom.visibility == "departments")
+        else:
+            visibility_filters.append(and_(
+                Workroom.visibility == "departments",
+                cast(Workroom.department_ids, JSONB).contained_by(
+                    cast(department_ids, JSONB)
+                ),
+            ))
+        filters = [
+            Workroom.org_id == org_id,
+            or_(*visibility_filters),
+        ]
+        if not include_archived:
+            filters.append(Workroom.status != "archived")
 
-        visible: list[tuple[Workroom, str]] = []
-        for room in rooms:
-            if room.status == "archived" and not include_archived:
-                continue
+        total = int((
+            await session.execute(
+                select(func.count())
+                .select_from(Workroom)
+                .outerjoin(WorkroomMember, membership_join)
+                .where(*filters)
+            )
+        ).scalar_one())
+        page_rows = (
+            await session.execute(
+                select(Workroom, WorkroomMember)
+                .outerjoin(WorkroomMember, membership_join)
+                .where(*filters)
+                .order_by(Workroom.updated_at.desc(), Workroom.id)
+                .offset(offset)
+                .limit(limit)
+            )
+        ).all()
+        page = []
+        for room, membership in page_rows:
             role = effective_room_role(
                 room,
-                memberships.get(room.id),
+                membership,
                 department_ids=department_ids,
                 access_all=access_all,
                 org_role=org_role,
             )
             if role is not None:
-                visible.append((room, role))
+                page.append((room, role))
+        room_ids = [room.id for room, _ in page]
+        if not room_ids:
+            return [], total
 
-        result: list[dict[str, Any]] = []
-        for room, role in visible:
-            tasks = (
+        tasks = (
+            await session.execute(
+                select(WorkroomTask).where(
+                    WorkroomTask.workroom_id.in_(room_ids),
+                    WorkroomTask.archived_at.is_(None),
+                )
+            )
+        ).scalars().all()
+        tasks_by_room: dict[str, list[WorkroomTask]] = {
+            room_id: [] for room_id in room_ids
+        }
+        for task in tasks:
+            tasks_by_room[task.workroom_id].append(task)
+
+        runs = (
+            await session.execute(
+                select(WorkroomRun)
+                .where(WorkroomRun.workroom_id.in_(room_ids))
+                .order_by(WorkroomRun.created_at.desc())
+            )
+        ).scalars().all()
+        latest_runs: dict[str, WorkroomRun] = {}
+        for run in runs:
+            latest_runs.setdefault(run.workroom_id, run)
+
+        creator_ids = {room.created_by_user_id for room, _ in page}
+        creators = {
+            creator.id: creator
+            for creator in (
                 await session.execute(
-                    select(WorkroomTask).where(
-                        WorkroomTask.workroom_id == room.id,
-                        WorkroomTask.archived_at.is_(None),
-                    )
+                    select(User).where(User.id.in_(creator_ids))
                 )
             ).scalars().all()
-            runs = (
+        }
+        member_counts = {
+            room_id: int(count)
+            for room_id, count in (
                 await session.execute(
-                    select(WorkroomRun)
-                    .where(WorkroomRun.workroom_id == room.id)
-                    .order_by(WorkroomRun.created_at.desc())
-                    .limit(1)
-                )
-            ).scalars().all()
-            creator = await session.get(User, room.created_by_user_id)
-            member_count = int((
-                await session.execute(
-                    select(func.count())
-                    .select_from(WorkroomMember)
+                    select(WorkroomMember.workroom_id, func.count())
                     .where(
-                        WorkroomMember.workroom_id == room.id,
+                        WorkroomMember.workroom_id.in_(room_ids),
                         WorkroomMember.status == "active",
                     )
+                    .group_by(WorkroomMember.workroom_id)
                 )
-            ).scalar_one())
+            ).all()
+        }
+
+        result: list[dict[str, Any]] = []
+        for room, role in page:
+            room_tasks = tasks_by_room.get(room.id, [])
+            creator = creators.get(room.created_by_user_id)
+            latest_run = latest_runs.get(room.id)
             result.append({
                 **room_dict(room),
                 "room_role": role,
@@ -502,12 +558,14 @@ async def list_rooms(
                     "id": room.created_by_user_id,
                     "name": creator.name if creator else "Team member",
                 },
-                "member_count": member_count,
-                "task_count": len(tasks),
-                "completed_task_count": sum(task.status == "completed" for task in tasks),
-                "latest_run": run_dict(runs[0]) if runs else None,
+                "member_count": member_counts.get(room.id, 0),
+                "task_count": len(room_tasks),
+                "completed_task_count": sum(
+                    task.status == "completed" for task in room_tasks
+                ),
+                "latest_run": run_dict(latest_run) if latest_run else None,
             })
-        return result
+        return result, total
 
 
 async def get_room(
@@ -555,6 +613,7 @@ async def get_room(
                 select(WorkroomRun)
                 .where(WorkroomRun.workroom_id == room_id)
                 .order_by(WorkroomRun.created_at.desc())
+                .limit(100)
             )
         ).scalars().all()
         events = (

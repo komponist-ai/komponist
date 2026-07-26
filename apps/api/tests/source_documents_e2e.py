@@ -117,6 +117,9 @@ async def run() -> None:
                 params={"org_id": user.org_id},
             )
             assert inventory.status_code == 200, inventory.text
+            assert inventory.json()["total"] == 1, inventory.text
+            assert inventory.json()["has_more"] is False, inventory.text
+            assert inventory.json()["limit"] == 25, inventory.text
             document = inventory.json()["documents"][0]
             assert document["title"] == "source-inventory.md", document
             assert document["entity_count"] == 2, document

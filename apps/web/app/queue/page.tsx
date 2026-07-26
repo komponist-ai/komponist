@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
 import FactCard from '../../components/FactCard'
+import PaginationBar from '../../components/PaginationBar'
 import StudioTopbar from '../../components/StudioTopbar'
 import { Button } from '../../components/ui/button'
 import { confirmEntity, fetchQueue, mergeEntity, rejectEntity } from '../../lib/api'
@@ -55,8 +56,14 @@ interface QueueItem {
 interface QueueResponse {
   items: QueueItem[]
   total: number
+  pending_total: number
+  limit: number
+  offset: number
+  has_more: boolean
+  counts_by_type: Record<string, number>
 }
 
+const PAGE_SIZE = 24
 const TYPE_ORDER: QueueFilter[] = ['Decision', 'Goal', 'Constraint', 'Project']
 
 const TYPE_META: Record<Exclude<QueueFilter, 'all'>, {
@@ -118,34 +125,31 @@ function QueueSkeleton() {
 export default function QueuePage() {
   const [filter, setFilter] = useState<QueueFilter>('all')
   const [query, setQuery] = useState('')
+  const [offset, setOffset] = useState(0)
   const [actionError, setActionError] = useState<string | null>(null)
+  const deferredQuery = useDeferredValue(query.trim())
 
-  const { data, error, isLoading, mutate } = useSWR<QueueResponse>('/queue', fetchQueue, {
+  const { data, error, isLoading, mutate } = useSWR<QueueResponse>(
+    ['queue', filter, deferredQuery, offset],
+    () => fetchQueue({
+      entityType: filter === 'all' ? undefined : filter,
+      query: deferredQuery,
+      limit: PAGE_SIZE,
+      offset,
+    }),
+    {
     refreshInterval: 5000,
     keepPreviousData: true,
-  })
+    },
+  )
 
   const items = useMemo(() => data?.items ?? [], [data?.items])
+  const countsByType = useMemo(() => data?.counts_by_type ?? {}, [data?.counts_by_type])
+  const pendingTotal = data?.pending_total ?? 0
 
-  const countsByType = useMemo(() => items.reduce<Record<string, number>>((counts, item) => {
-    counts[item.entity_type] = (counts[item.entity_type] ?? 0) + 1
-    return counts
-  }, {}), [items])
-
-  const filteredItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase()
-    return items.filter((item) => {
-      const matchesType = filter === 'all' || item.entity_type === filter
-      const searchable = [
-        item.statement,
-        item.detail,
-        item.entity_type,
-        ...(item.evidence ?? []).map((evidence) => evidence.reference),
-      ]
-      const matchesQuery = !normalizedQuery || searchable.some((value) => value?.toLocaleLowerCase().includes(normalizedQuery))
-      return matchesType && matchesQuery
-    })
-  }, [filter, items, query])
+  useEffect(() => {
+    setOffset(0)
+  }, [deferredQuery, filter])
 
   const withEvidence = items.filter((item) => (item.evidence?.length ?? 0) > 0).length
   const possibleDuplicates = items.filter((item) => (item.related_to?.length ?? 0) > 0).length
@@ -158,7 +162,11 @@ export default function QueuePage() {
     setActionError(null)
     try {
       await action()
-      await mutate()
+      if (items.length === 1 && offset > 0) {
+        setOffset(Math.max(0, offset - PAGE_SIZE))
+      } else {
+        await mutate()
+      }
     } catch (actionFailure) {
       console.error(message, actionFailure)
       setActionError(message)
@@ -183,6 +191,7 @@ export default function QueuePage() {
   const clearFilters = () => {
     setFilter('all')
     setQuery('')
+    setOffset(0)
   }
 
   return (
@@ -196,7 +205,7 @@ export default function QueuePage() {
           actions={
             <>
               <div className="hidden rounded-lg border-2 border-ink bg-paper-2 px-3 py-1.5 shadow-[2px_2px_0_#201c15] sm:block">
-                <span className="font-display text-lg font-bold">{isLoading ? '—' : data?.total ?? items.length}</span>
+                <span className="font-display text-lg font-bold">{isLoading ? '—' : pendingTotal}</span>
                 <span className="ml-2 font-mono text-[9px] uppercase tracking-wider text-muted">Pending</span>
               </div>
               <Button asChild size="sm"><Link href="/onboard">Add source <ArrowUpRight /></Link></Button>
@@ -232,10 +241,10 @@ export default function QueuePage() {
               </div>
               <div className="relative">
                 <div className="font-display text-[76px] font-black leading-none tracking-[-0.08em] text-orange">
-                  {isLoading ? '—' : data?.total ?? items.length}
+                  {isLoading ? '—' : pendingTotal}
                 </div>
                 <p className="mt-3 max-w-[230px] text-sm leading-5 text-white/65">
-                  {items.length === 0 && !isLoading ? 'The queue is clear. Your reviewed brain is up to date.' : 'Review one fact at a time. Each decision improves the context your agents receive.'}
+                  {pendingTotal === 0 && !isLoading ? 'The queue is clear. Your reviewed brain is up to date.' : 'Review one fact at a time. Each decision improves the context your agents receive.'}
                 </p>
               </div>
             </div>
@@ -255,7 +264,7 @@ export default function QueuePage() {
             </div>
           )}
 
-          {items.length > 0 && (
+          {pendingTotal > 0 && (
             <section aria-label="Pending facts by type" className="mb-7 grid overflow-hidden rounded-xl border-2 border-ink bg-ink sm:grid-cols-2 xl:grid-cols-4">
               {TYPE_ORDER.map((type, index) => {
                 const meta = TYPE_META[type as Exclude<QueueFilter, 'all'>]
@@ -287,7 +296,7 @@ export default function QueuePage() {
             </section>
           )}
 
-          {items.length > 0 && (
+          {pendingTotal > 0 && (
             <section className="mb-7 grid gap-3 rounded-xl border-2 border-ink bg-paper-2 p-3 shadow-[4px_4px_0_#d9cfc0] lg:grid-cols-[minmax(260px,1fr)_auto] lg:items-center">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
@@ -304,7 +313,7 @@ export default function QueuePage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => setFilter('all')} className={`rounded-full border-2 px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-wider transition ${filter === 'all' ? 'border-ink bg-ink text-white' : 'border-line bg-white text-muted hover:border-ink'}`}>
-                  All <span className="ml-1 opacity-65">{items.length}</span>
+                  All <span className="ml-1 opacity-65">{Object.values(countsByType).reduce((sum, count) => sum + count, 0)}</span>
                 </button>
                 {TYPE_ORDER.map((type) => {
                   const count = countsByType[type] ?? 0
@@ -324,14 +333,14 @@ export default function QueuePage() {
             <section aria-label="Facts awaiting review" className="min-w-0">
               {items.length > 0 && (
                 <div className="mb-4 flex items-center justify-between gap-4 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-muted" aria-live="polite">
-                  <span>{filteredItems.length} of {items.length} pending</span>
+                  <span>{items.length} shown · {data?.total ?? 0} matching</span>
                   <span>Newest first</span>
                 </div>
               )}
 
               {isLoading && items.length === 0 ? (
                 <QueueSkeleton />
-              ) : items.length === 0 ? (
+              ) : items.length === 0 && !deferredQuery && filter === 'all' ? (
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid min-h-[460px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[5px_5px_0_#d9cfc0]">
                   <div>
                     <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-success-soft text-teal shadow-[4px_4px_0_#201c15]"><CheckCircle2 className="size-7" /></span>
@@ -341,7 +350,7 @@ export default function QueuePage() {
                     <Button asChild className="mt-6"><Link href="/onboard">Add a source <ArrowUpRight /></Link></Button>
                   </div>
                 </motion.div>
-              ) : filteredItems.length === 0 ? (
+              ) : items.length === 0 ? (
                 <div className="grid min-h-[360px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[4px_4px_0_#d9cfc0]">
                   <div>
                     <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-paper-2"><Search className="size-5" /></span>
@@ -353,12 +362,12 @@ export default function QueuePage() {
               ) : (
                 <div className="space-y-4">
                   <AnimatePresence initial={false} mode="popLayout">
-                    {filteredItems.map((item, index) => (
+                    {items.map((item, index) => (
                       <FactCard
                         key={item.id}
                         id={item.id}
-                        position={index + 1}
-                        total={filteredItems.length}
+                        position={offset + index + 1}
+                        total={data?.total ?? items.length}
                         type={item.entity_type}
                         statement={item.statement}
                         detail={item.detail}
@@ -372,18 +381,28 @@ export default function QueuePage() {
                       />
                     ))}
                   </AnimatePresence>
+                  <div className="mt-4 overflow-hidden rounded-xl border-2 border-ink">
+                    <PaginationBar
+                      offset={offset}
+                      limit={PAGE_SIZE}
+                      total={data?.total ?? 0}
+                      disabled={isLoading}
+                      itemLabel="facts"
+                      onOffsetChange={setOffset}
+                    />
+                  </div>
                 </div>
               )}
             </section>
 
-            {items.length > 0 && (
+            {pendingTotal > 0 && (
               <aside className="space-y-4 xl:sticky xl:top-6">
                 <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
                   <div className="border-b-2 border-ink bg-ink px-4 py-3 text-white">
                     <div className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em]"><Sparkles className="size-3.5 text-orange" /> Queue health</div>
                   </div>
                   <div className="divide-y divide-line">
-                    <div className="flex items-center justify-between px-4 py-4"><span className="text-xs text-muted">With evidence</span><strong className="font-display text-xl">{withEvidence}/{items.length}</strong></div>
+                    <div className="flex items-center justify-between px-4 py-4"><span className="text-xs text-muted">With evidence · page</span><strong className="font-display text-xl">{withEvidence}/{items.length}</strong></div>
                     <div className="flex items-center justify-between px-4 py-4"><span className="text-xs text-muted">High confidence</span><strong className="font-display text-xl">{highConfidence}</strong></div>
                     <div className="flex items-center justify-between px-4 py-4"><span className="text-xs text-muted">Possible duplicates</span><strong className={`font-display text-xl ${possibleDuplicates > 0 ? 'text-orange-dark' : 'text-teal'}`}>{possibleDuplicates}</strong></div>
                   </div>

@@ -513,12 +513,30 @@ async def _get_entity_lifecycle(entity_id: str, org_id: str, user: dict) -> dict
 
 
 @app.get("/queue")
-async def get_queue(request: Request, org_id: str = Query(...)):
+async def get_queue(
+    request: Request,
+    org_id: str = Query(...),
+    entity_type: Optional[str] = Query(None),
+    query: str = Query("", max_length=200),
+    limit: int = Query(24, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
     """Get review queue (proposed entities)."""
     user = await _authorized_org_user(request, org_id)
-    query = f"""
+    normalized_query = " ".join(query.casefold().split())
+    cypher = f"""
     MATCH (e:Entity {{org_id: $org_id, status: 'proposed'}})
     WHERE {_knowledge_scope('e')}
+      AND ($entity_type IS NULL OR e.entity_type = $entity_type)
+      AND (
+        $query = ''
+        OR toLower(coalesce(e.statement, '')) CONTAINS $query
+        OR toLower(coalesce(e.detail, '')) CONTAINS $query
+      )
+    WITH e
+    ORDER BY e.created_at DESC, e.id
+    SKIP $offset
+    LIMIT $limit
     OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
     WHERE {_evidence_scope('ev')}
     OPTIONAL MATCH (e)-[r:RELATES_TO]->(related:Entity)
@@ -541,14 +559,71 @@ async def get_queue(request: Request, org_id: str = Query(...)):
     ORDER BY created_at DESC
     """
 
-    results = await GraphClient.run_query(query, _scoped_params(org_id, user))
+    params = _scoped_params(
+        org_id,
+        user,
+        entity_type=entity_type,
+        query=normalized_query,
+        limit=limit,
+        offset=offset,
+    )
+    results = await GraphClient.run_query(cypher, params)
+    totals = await GraphClient.run_query(
+        f"""
+        MATCH (e:Entity {{org_id: $org_id, status: 'proposed'}})
+        WHERE {_knowledge_scope('e')}
+          AND ($entity_type IS NULL OR e.entity_type = $entity_type)
+          AND (
+            $query = ''
+            OR toLower(coalesce(e.statement, '')) CONTAINS $query
+            OR toLower(coalesce(e.detail, '')) CONTAINS $query
+          )
+        RETURN count(e) AS total
+        """,
+        params,
+    )
+    type_counts = await GraphClient.run_query(
+        f"""
+        MATCH (e:Entity {{org_id: $org_id, status: 'proposed'}})
+        WHERE {_knowledge_scope('e')}
+          AND (
+            $query = ''
+            OR toLower(coalesce(e.statement, '')) CONTAINS $query
+            OR toLower(coalesce(e.detail, '')) CONTAINS $query
+          )
+        RETURN e.entity_type AS entity_type, count(e) AS count
+        ORDER BY entity_type
+        """,
+        params,
+    )
+    pending_totals = await GraphClient.run_query(
+        f"""
+        MATCH (e:Entity {{org_id: $org_id, status: 'proposed'}})
+        WHERE {_knowledge_scope('e')}
+        RETURN count(e) AS total
+        """,
+        params,
+    )
 
     # Filter out null evidence/related_to
     for r in results:
         r["evidence"] = [e for e in r.get("evidence", []) if e.get("id")]
         r["related_to"] = [rel for rel in r.get("related_to", []) if rel.get("id")]
 
-    return {"items": results, "total": len(results)}
+    total = int(totals[0]["total"]) if totals else 0
+    return {
+        "items": results,
+        "total": total,
+        "pending_total": int(pending_totals[0]["total"]) if pending_totals else 0,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(results) < total,
+        "counts_by_type": {
+            row["entity_type"]: row["count"]
+            for row in type_counts
+            if row.get("entity_type")
+        },
+    }
 
 
 @app.get("/entities")
@@ -557,7 +632,9 @@ async def list_entities(
     org_id: str = Query(...),
     status: str = "confirmed",
     entity_type: Optional[str] = None,
-    limit: int = Query(100, ge=1, le=500),
+    query: str = Query("", max_length=200),
+    limit: int = Query(24, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     """List brain entities."""
     user = await _authorized_org_user(request, org_id)
@@ -568,11 +645,21 @@ async def list_entities(
             detail=f"status must be one of {sorted(allowed_statuses)}",
         )
 
-    query = f"""
+    normalized_query = " ".join(query.casefold().split())
+    cypher = f"""
     MATCH (e:Entity {{org_id: $org_id}})
     WHERE ($status = 'all' OR e.status = $status)
       AND ($entity_type IS NULL OR e.entity_type = $entity_type)
+      AND (
+        $query = ''
+        OR toLower(coalesce(e.statement, '')) CONTAINS $query
+        OR toLower(coalesce(e.detail, '')) CONTAINS $query
+      )
       AND {_knowledge_scope('e')}
+    WITH e
+    ORDER BY e.confirmed_at DESC, e.created_at DESC, e.id
+    SKIP $offset
+    LIMIT $limit
     OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
     WHERE {_evidence_scope('ev')}
     RETURN
@@ -586,7 +673,6 @@ async def list_entities(
         toString(e.created_at) as created_at,
         collect(ev{{.id, .source, .reference, .url}}) as evidence
     ORDER BY confirmed_at DESC, created_at DESC
-    LIMIT $limit
     """
 
     params = _scoped_params(
@@ -594,15 +680,21 @@ async def list_entities(
         user,
         status=status,
         entity_type=entity_type,
+        query=normalized_query,
         limit=limit,
+        offset=offset,
     )
 
-    results = await GraphClient.run_query(query, params)
+    results = await GraphClient.run_query(cypher, params)
     type_counts = await GraphClient.run_query(
         f"""
         MATCH (e:Entity {{org_id: $org_id}})
         WHERE ($status = 'all' OR e.status = $status)
-          AND ($entity_type IS NULL OR e.entity_type = $entity_type)
+          AND (
+            $query = ''
+            OR toLower(coalesce(e.statement, '')) CONTAINS $query
+            OR toLower(coalesce(e.detail, '')) CONTAINS $query
+          )
           AND {_knowledge_scope('e')}
         RETURN e.entity_type AS entity_type, count(e) AS count
         ORDER BY entity_type
@@ -613,6 +705,11 @@ async def list_entities(
         f"""
         MATCH (e:Entity {{org_id: $org_id}})
         WHERE ($entity_type IS NULL OR e.entity_type = $entity_type)
+          AND (
+            $query = ''
+            OR toLower(coalesce(e.statement, '')) CONTAINS $query
+            OR toLower(coalesce(e.detail, '')) CONTAINS $query
+          )
           AND {_knowledge_scope('e')}
         RETURN e.status AS status, count(e) AS count
         ORDER BY status
@@ -634,10 +731,18 @@ async def list_entities(
         for row in status_counts
         if row.get("status")
     }
+    total = (
+        counts_by_type.get(entity_type, 0)
+        if entity_type
+        else sum(counts_by_type.values())
+    )
 
     return {
         "entities": results,
-        "total": sum(counts_by_type.values()),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(results) < total,
         "counts_by_type": counts_by_type,
         "counts_by_status": counts_by_status,
     }
@@ -2082,6 +2187,9 @@ async def list_source_documents(
     request: Request,
     source_id: str,
     org_id: str = Query(...),
+    query: str = Query("", max_length=200),
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     """List document-level evidence stored by Komponist for one connector."""
     user = await _authorized_org_user(request, org_id)
@@ -2089,11 +2197,25 @@ async def list_source_documents(
     if not source or not _source_visible_to_user(source, user):
         raise HTTPException(status_code=404, detail="Source not found")
 
+    normalized_query = " ".join(query.casefold().split())
+    params = _scoped_params(
+        org_id,
+        user,
+        source_types=_source_evidence_types(source["type"]),
+        query=normalized_query,
+        limit=limit,
+        offset=offset,
+    )
     rows = await GraphClient.run_query(
         f"""
         MATCH (ev:Evidence {{org_id: $org_id}})
         WHERE toLower(ev.source) IN $source_types
           AND {_evidence_scope('ev')}
+          AND (
+            $query = ''
+            OR toLower(coalesce(ev.title, '')) CONTAINS $query
+            OR toLower(coalesce(ev.reference, '')) CONTAINS $query
+          )
         OPTIONAL MATCH (entity:Entity {{org_id: $org_id}})-[:CITED_BY]->(ev)
         WHERE entity IS NULL OR {_knowledge_scope('entity')}
         RETURN
@@ -2106,12 +2228,24 @@ async def list_source_documents(
             collect(DISTINCT entity.status) AS entity_statuses,
             head(collect(DISTINCT ev.department_id)) AS department_id
         ORDER BY synced_at DESC, reference
+        SKIP $offset
+        LIMIT $limit
         """,
-        _scoped_params(
-            org_id,
-            user,
-            source_types=_source_evidence_types(source["type"]),
-        ),
+        params,
+    )
+    totals = await GraphClient.run_query(
+        f"""
+        MATCH (ev:Evidence {{org_id: $org_id}})
+        WHERE toLower(ev.source) IN $source_types
+          AND {_evidence_scope('ev')}
+          AND (
+            $query = ''
+            OR toLower(coalesce(ev.title, '')) CONTAINS $query
+            OR toLower(coalesce(ev.reference, '')) CONTAINS $query
+          )
+        RETURN count(DISTINCT ev.reference) AS total
+        """,
+        params,
     )
 
     documents = []
@@ -2142,7 +2276,14 @@ async def list_source_documents(
             "department_id": row.get("department_id"),
         })
 
-    return {"documents": documents, "total": len(documents)}
+    total = int(totals[0]["total"]) if totals else 0
+    return {
+        "documents": documents,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(documents) < total,
+    }
 
 
 @app.get("/versions")
@@ -2150,6 +2291,10 @@ async def list_document_versions(
     request: Request,
     org_id: str = Query(...),
     include_demo: bool = Query(True),
+    scope: str = Query("all"),
+    query: str = Query("", max_length=200),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
 ):
     """Build cross-source document families and semantic claim diffs.
 
@@ -2158,6 +2303,11 @@ async def list_document_versions(
     useful by deriving a legacy version identity from its reference.
     """
     user = await _authorized_org_user(request, org_id)
+    if scope not in {"all", "workspace", "example"}:
+        raise HTTPException(
+            status_code=400,
+            detail="scope must be one of all, workspace, example",
+        )
     rows = await GraphClient.run_query(
         f"""
         MATCH (evidence:Evidence {{org_id: $org_id}})
@@ -2225,13 +2375,36 @@ async def list_document_versions(
         build_document_families(demo_document_versions()) if include_demo else []
     )
     families = demo_families + workspace_families
+    normalized_query = " ".join(query.casefold().split())
+    matching_families = [
+        family
+        for family in families
+        if (scope == "all"
+            or (scope == "example" and family["is_demo"])
+            or (scope == "workspace" and not family["is_demo"]))
+        and (
+            not normalized_query
+            or any(
+                normalized_query in str(value).casefold()
+                for value in [
+                    family.get("title", ""),
+                    *(family.get("contributors") or []),
+                    *(family.get("sources") or []),
+                ]
+            )
+        )
+    ]
+    page = matching_families[offset:offset + limit]
     conflicts = sum(
         family["diff"]["counts"]["conflicts"]
         for family in workspace_families
     )
     return {
-        "families": families,
-        "total": len(families),
+        "families": page,
+        "total": len(matching_families),
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(page) < len(matching_families),
         "stats": {
             "workspace_families": len(workspace_families),
             "workspace_versions": len(documents),
@@ -2987,12 +3160,29 @@ async def get_graph(
         nodes_query,
         _scoped_params(org_id, user, limit=limit, entity_types=types),
     )
+    total_rows = await GraphClient.run_query(
+        f"""
+        MATCH (e:Entity {{org_id: $org_id}})
+        WHERE e.status IN ['proposed', 'confirmed']
+          AND (size($entity_types) = 0 OR e.entity_type IN $entity_types)
+          AND {_knowledge_scope('e')}
+        RETURN count(e) AS total
+        """,
+        _scoped_params(org_id, user, entity_types=types),
+    )
+    total = int(total_rows[0]["total"]) if total_rows else 0
 
     # Get all node IDs for edge filtering
     node_ids = [n["id"] for n in nodes]
 
     if not node_ids:
-        return {"nodes": [], "edges": []}
+        return {
+            "nodes": [],
+            "edges": [],
+            "total": total,
+            "limit": limit,
+            "truncated": False,
+        }
 
     # Get edges between these nodes
     edges_query = """
@@ -3013,7 +3203,10 @@ async def get_graph(
 
     return {
         "nodes": nodes,
-        "edges": edges
+        "edges": edges,
+        "total": total,
+        "limit": limit,
+        "truncated": total > len(nodes),
     }
 
 
@@ -4165,18 +4358,45 @@ def _chat_title(message: str) -> str:
 
 @app.get("/chat/conversations")
 async def get_chat_conversations(
-    request: Request, org_id: str = Query(...)
+    request: Request,
+    org_id: str = Query(...),
+    query: str = Query("", max_length=120),
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     user = await _authorized_org_user(request, org_id)
-    return {"conversations": await list_chat_conversations(org_id, user["id"])}
+    conversations, total = await list_chat_conversations(
+        org_id,
+        user["id"],
+        query=" ".join(query.split()),
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "conversations": conversations,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(conversations) < total,
+    }
 
 
 @app.get("/chat/conversations/{conversation_id}")
 async def get_chat_conversation_history(
-    conversation_id: str, request: Request, org_id: str = Query(...)
+    conversation_id: str,
+    request: Request,
+    org_id: str = Query(...),
+    before: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=200),
 ):
     user = await _authorized_org_user(request, org_id)
-    conversation = await get_chat_conversation(org_id, user["id"], conversation_id)
+    conversation = await get_chat_conversation(
+        org_id,
+        user["id"],
+        conversation_id,
+        before_id=before,
+        message_limit=limit,
+    )
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
@@ -4412,13 +4632,31 @@ async def generate_artifact(
 
 
 @app.get("/artifacts")
-async def get_artifacts(request: Request, org_id: str = Query(...)):
+async def get_artifacts(
+    request: Request,
+    org_id: str = Query(...),
+    query: str = Query("", max_length=160),
+    limit: int = Query(24, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
     user = await _authorized_org_user(request, org_id)
     department_ids, access_all = _artifact_scope(user)
-    artifacts = await list_generated_artifacts(
-        org_id, user["id"], department_ids, access_all
+    artifacts, total = await list_generated_artifacts(
+        org_id,
+        user["id"],
+        department_ids,
+        access_all,
+        query=" ".join(query.split()),
+        limit=limit,
+        offset=offset,
     )
-    return {"artifacts": artifacts, "total": len(artifacts)}
+    return {
+        "artifacts": artifacts,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(artifacts) < total,
+    }
 
 
 async def _readable_artifact(
@@ -4587,17 +4825,27 @@ async def get_workrooms(
     request: Request,
     org_id: str = Query(...),
     include_archived: bool = Query(False),
+    limit: int = Query(24, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     user = await _authorized_org_user(request, org_id)
-    rooms = await load_workrooms(
+    rooms, total = await load_workrooms(
         org_id,
         user.get("department_ids") or [],
         bool(user.get("access_all_departments")),
         user_id=user["id"],
         org_role=user.get("role", "member"),
         include_archived=include_archived,
+        limit=limit,
+        offset=offset,
     )
-    return {"workrooms": rooms, "total": len(rooms)}
+    return {
+        "workrooms": rooms,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(rooms) < total,
+    }
 
 
 @app.post("/workrooms", status_code=201)
@@ -4971,10 +5219,17 @@ async def get_workroom_messages(
     request: Request,
     org_id: str = Query(...),
     after: Optional[str] = Query(None),
+    before: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=200),
 ):
     await _authorized_workroom(request, org_id, room_id)
-    messages = await list_workroom_messages(org_id, room_id, after_id=after)
-    return {"messages": messages, "total": len(messages)}
+    return await list_workroom_messages(
+        org_id,
+        room_id,
+        after_id=after,
+        before_id=before,
+        limit=limit,
+    )
 
 
 @app.post("/workrooms/{room_id}/messages", status_code=201)
@@ -5906,7 +6161,10 @@ async def chat_with_brain(payload: ChatRequest, http_request: Request):
         stored_history: List[ChatMessage] = []
         if payload.conversation_id:
             stored = await get_chat_conversation(
-                payload.org_id, user["id"], payload.conversation_id
+                payload.org_id,
+                user["id"],
+                payload.conversation_id,
+                message_limit=40,
             )
             if stored is None:
                 raise HTTPException(status_code=404, detail="Conversation not found")

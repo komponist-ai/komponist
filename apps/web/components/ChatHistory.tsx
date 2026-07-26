@@ -24,6 +24,9 @@ type ChatHistoryProps = {
   loading: boolean
   disabled: boolean
   mobileOpen: boolean
+  hasMore: boolean
+  loadingMore: boolean
+  onLoadMore: () => void
   onMobileClose: () => void
   onNew: () => void
   onSelect: (id: string) => void
@@ -43,7 +46,7 @@ function relativeDate(value: string) {
 
 function HistoryContent({
   conversations, activeId, loading, disabled, onNew, onSelect,
-  onRename, onDelete, onMobileClose,
+  onRename, onDelete, onMobileClose, hasMore, loadingMore, onLoadMore,
 }: Omit<ChatHistoryProps, 'mobileOpen'>) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [title, setTitle] = useState('')
@@ -190,6 +193,19 @@ function HistoryContent({
                 </motion.div>
               )
             })}
+            {hasMore && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={loadingMore || disabled}
+                onClick={onLoadMore}
+              >
+                {loadingMore ? <LoaderCircle className="animate-spin" /> : <History />}
+                Load older chats
+              </Button>
+            )}
           </div>
         )}
       </div>

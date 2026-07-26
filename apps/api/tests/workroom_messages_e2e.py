@@ -256,6 +256,23 @@ async def run() -> None:
             assert listing.status_code == 200, listing.text
             bodies = [message["body"] for message in listing.json()["messages"]]
             assert any("September" in body for body in bodies), bodies
+            latest_page = await member_c.get(
+                f"/workrooms/{room_id}/messages",
+                params={"org_id": org_id, "limit": 2},
+            )
+            latest_payload = latest_page.json()
+            assert latest_payload["has_more"] is True, latest_payload
+            assert latest_payload["total"] == 3, latest_payload
+            older_page = await member_c.get(
+                f"/workrooms/{room_id}/messages",
+                params={
+                    "org_id": org_id,
+                    "limit": 2,
+                    "before": latest_payload["next_before"],
+                },
+            )
+            assert older_page.status_code == 200, older_page.text
+            assert len(older_page.json()["messages"]) == 1, older_page.text
 
             detail = await member_c.get(
                 f"/workrooms/{room_id}", params={"org_id": org_id}

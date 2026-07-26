@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
 import {
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
 import EvidenceChip from '../../components/EvidenceChip'
+import PaginationBar from '../../components/PaginationBar'
 import StudioTopbar from '../../components/StudioTopbar'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -49,6 +50,9 @@ interface Entity {
 interface EntitiesResponse {
   entities: Entity[]
   total: number
+  limit: number
+  offset: number
+  has_more: boolean
   counts_by_type: Record<string, number>
   counts_by_status: Record<string, number>
 }
@@ -96,6 +100,7 @@ const TYPE_META: Record<string, {
 }
 
 const PRIMARY_TYPES = ['Decision', 'Goal', 'Constraint', 'Project']
+const PAGE_SIZE = 24
 
 const STATUS_OPTIONS: Array<{ value: EntityStatus; label: string }> = [
   { value: 'confirmed', label: 'Confirmed' },
@@ -122,10 +127,19 @@ export default function EntitiesPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<EntityStatus>('confirmed')
   const [query, setQuery] = useState('')
+  const [offset, setOffset] = useState(0)
+  const deferredQuery = useDeferredValue(query.trim())
 
   const { data, error, isLoading } = useSWR<EntitiesResponse>(
-    ['entities', statusFilter],
-    () => fetchEntities(statusFilter),
+    ['entities', statusFilter, typeFilter, deferredQuery, offset],
+    () => fetchEntities({
+      status: statusFilter,
+      entityType: typeFilter === 'all' ? undefined : typeFilter,
+      query: deferredQuery,
+      limit: PAGE_SIZE,
+      offset,
+    }),
+    { keepPreviousData: true },
   )
 
   const entities = useMemo(() => data?.entities ?? [], [data?.entities])
@@ -138,19 +152,9 @@ export default function EntitiesPage() {
     return [...PRIMARY_TYPES, ...extraTypes]
   }, [countsByType])
 
-  const filtered = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase()
-    return entities.filter((entity) => {
-      const matchesType = typeFilter === 'all' || entity.entity_type === typeFilter
-      const matchesQuery = !normalizedQuery || [
-        entity.statement,
-        entity.detail,
-        entity.entity_type,
-        ...(entity.evidence ?? []).map((evidence) => evidence.reference),
-      ].some((value) => value?.toLocaleLowerCase().includes(normalizedQuery))
-      return matchesType && matchesQuery
-    })
-  }, [entities, query, typeFilter])
+  useEffect(() => {
+    setOffset(0)
+  }, [deferredQuery, statusFilter, typeFilter])
 
   const selectedStatusLabel = STATUS_OPTIONS.find((option) => option.value === statusFilter)?.label ?? 'All'
 
@@ -230,7 +234,7 @@ export default function EntitiesPage() {
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search statements, details, or sources…"
+                  placeholder="Search statements or details…"
                   aria-label="Search entities"
                   className="h-11 w-full rounded-lg border-2 border-ink bg-white pl-10 pr-10 text-sm outline-none shadow-[2px_2px_0_#201c15] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_#e8641b]"
                 />
@@ -276,7 +280,7 @@ export default function EntitiesPage() {
             </div>
 
             <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-3 font-mono text-[10px] uppercase tracking-wider text-muted">
-              <span>{filtered.length} shown · {data?.total ?? 0} total</span>
+              <span>{entities.length} shown · {data?.total ?? 0} matching</span>
               <span>Newest first</span>
             </div>
 
@@ -284,18 +288,22 @@ export default function EntitiesPage() {
               <div className="grid gap-px bg-line sm:grid-cols-2">
                 {[0, 1, 2, 3].map((index) => <div key={index} className="h-56 animate-pulse bg-white p-5"><div className="h-4 w-24 rounded bg-paper-3" /><div className="mt-8 h-5 w-4/5 rounded bg-paper-2" /><div className="mt-3 h-4 w-2/3 rounded bg-paper-2" /></div>)}
               </div>
-            ) : filtered.length === 0 ? (
+            ) : entities.length === 0 ? (
               <div className="grid min-h-[360px] place-items-center p-8 text-center">
                 <div>
                   <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-paper-2 shadow-[3px_3px_0_#201c15]"><Search className="size-5" /></span>
                   <h3 className="mt-5">No entities found</h3>
-                  <p className="mt-2 max-w-md text-sm text-muted">{entities.length === 0 ? 'Connect a source and confirm extracted knowledge to start building the library.' : 'Try another search term or clear one of the filters.'}</p>
+                  <p className="mt-2 max-w-md text-sm text-muted">
+                    {query || typeFilter !== 'all'
+                      ? 'Try another search term or clear one of the filters.'
+                      : 'Connect a source and confirm extracted knowledge to start building the library.'}
+                  </p>
                   {(query || typeFilter !== 'all') && <Button variant="outline" size="sm" className="mt-5" onClick={() => { setQuery(''); setTypeFilter('all') }}>Clear filters</Button>}
                 </div>
               </div>
             ) : (
               <div className="grid gap-px bg-line sm:grid-cols-2">
-                {filtered.map((entity, index) => {
+                {entities.map((entity, index) => {
                   const meta = TYPE_META[entity.entity_type]
                   const Icon = meta?.icon ?? Layers3
                   const date = entity.confirmed_at ?? entity.created_at
@@ -339,6 +347,14 @@ export default function EntitiesPage() {
                 })}
               </div>
             )}
+            <PaginationBar
+              offset={offset}
+              limit={PAGE_SIZE}
+              total={data?.total ?? 0}
+              disabled={isLoading}
+              itemLabel="entities"
+              onOffsetChange={setOffset}
+            />
           </section>
         </div>
       </div>

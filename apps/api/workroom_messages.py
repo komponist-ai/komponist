@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 
 from database import (
     DepartmentMembership,
@@ -145,24 +145,95 @@ async def resolve_mentions(
 
 
 async def list_messages(
-    org_id: str, room_id: str, *, after_id: Optional[str] = None, limit: int = 200
-) -> list[dict[str, Any]]:
+    org_id: str,
+    room_id: str,
+    *,
+    after_id: Optional[str] = None,
+    before_id: Optional[str] = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Return a bounded keyset page.
+
+    Initial and ``before`` requests read backwards from the newest messages,
+    while ``after`` remains an ascending incremental-update cursor.
+    """
     async with async_session() as session:
-        query = (
-            select(WorkroomMessage)
-            .where(
-                WorkroomMessage.org_id == org_id,
-                WorkroomMessage.workroom_id == room_id,
-            )
-            .order_by(WorkroomMessage.created_at, WorkroomMessage.id)
-            .limit(limit)
-        )
+        filters = [
+            WorkroomMessage.org_id == org_id,
+            WorkroomMessage.workroom_id == room_id,
+        ]
+        anchor = None
         if after_id:
             anchor = await session.get(WorkroomMessage, after_id)
-            if anchor is not None:
-                query = query.where(WorkroomMessage.created_at > anchor.created_at)
-        messages = (await session.execute(query)).scalars().all()
-        return [message_dict(message) for message in messages]
+        elif before_id:
+            anchor = await session.get(WorkroomMessage, before_id)
+        if anchor is not None and (
+            anchor.org_id != org_id or anchor.workroom_id != room_id
+        ):
+            anchor = None
+
+        if after_id and anchor is not None:
+            filters.append(or_(
+                WorkroomMessage.created_at > anchor.created_at,
+                and_(
+                    WorkroomMessage.created_at == anchor.created_at,
+                    WorkroomMessage.id > anchor.id,
+                ),
+            ))
+            rows = (
+                await session.execute(
+                    select(WorkroomMessage)
+                    .where(*filters)
+                    .order_by(WorkroomMessage.created_at, WorkroomMessage.id)
+                    .limit(limit + 1)
+                )
+            ).scalars().all()
+            has_more = len(rows) > limit
+            messages = rows[:limit]
+            next_after = messages[-1].id if has_more and messages else None
+            next_before = None
+        else:
+            if before_id and anchor is not None:
+                filters.append(or_(
+                    WorkroomMessage.created_at < anchor.created_at,
+                    and_(
+                        WorkroomMessage.created_at == anchor.created_at,
+                        WorkroomMessage.id < anchor.id,
+                    ),
+                ))
+            rows = (
+                await session.execute(
+                    select(WorkroomMessage)
+                    .where(*filters)
+                    .order_by(
+                        WorkroomMessage.created_at.desc(),
+                        WorkroomMessage.id.desc(),
+                    )
+                    .limit(limit + 1)
+                )
+            ).scalars().all()
+            has_more = len(rows) > limit
+            messages = list(reversed(rows[:limit]))
+            next_before = messages[0].id if has_more and messages else None
+            next_after = None
+
+        total = int((
+            await session.execute(
+                select(func.count())
+                .select_from(WorkroomMessage)
+                .where(
+                    WorkroomMessage.org_id == org_id,
+                    WorkroomMessage.workroom_id == room_id,
+                )
+            )
+        ).scalar_one())
+        return {
+            "messages": [message_dict(message) for message in messages],
+            "total": total,
+            "has_more": has_more,
+            "next_before": next_before,
+            "next_after": next_after,
+        }
 
 
 async def create_message(

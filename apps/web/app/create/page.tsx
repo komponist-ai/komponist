@@ -65,6 +65,11 @@ type Artifact = {
   updated_at: string
 }
 
+type ArtifactSummary = Pick<
+  Artifact,
+  'id' | 'artifact_type' | 'title' | 'topic' | 'audience' | 'language' | 'created_at' | 'updated_at'
+>
+
 const formats: Array<{
   value: ArtifactType
   label: string
@@ -135,23 +140,22 @@ function sourceLocation(source: ArtifactSource) {
 }
 
 export default function CreatePage() {
-  const [artifacts, setArtifacts] = useState<Artifact[]>([])
+  const [artifacts, setArtifacts] = useState<ArtifactSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Artifact | null>(null)
   const [artifactType, setArtifactType] = useState<ArtifactType>('presentation')
   const [topic, setTopic] = useState('Company overview')
   const [audience, setAudience] = useState('Leadership team')
   const [language, setLanguage] = useState<Language>('english')
   const [instructions, setInstructions] = useState('')
   const [loading, setLoading] = useState(true)
+  const [artifactLoading, setArtifactLoading] = useState(false)
+  const [artifactOffset, setArtifactOffset] = useState(0)
+  const [artifactsHaveMore, setArtifactsHaveMore] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadFormat, setDownloadFormat] = useState<DownloadFormat>('pdf')
   const [error, setError] = useState<string | null>(null)
-
-  const selected = useMemo(
-    () => artifacts.find((artifact) => artifact.id === selectedId) ?? null,
-    [artifacts, selectedId],
-  )
 
   const downloadOptions = useMemo<Array<{ value: DownloadFormat; label: string }>>(
     () => selected?.artifact_type === 'presentation'
@@ -171,21 +175,24 @@ export default function CreatePage() {
     setDownloadFormat('pdf')
   }, [selected?.id])
 
-  const loadArtifacts = useCallback(async () => {
-    setLoading(true)
+  const loadArtifacts = useCallback(async (offset = 0, append = false) => {
+    if (!append) setLoading(true)
     try {
       const orgId = getActiveOrgId()
-      const response = await apiFetch(`${API_URL}/artifacts?org_id=${encodeURIComponent(orgId)}`)
+      const response = await apiFetch(
+        `${API_URL}/artifacts?org_id=${encodeURIComponent(orgId)}&limit=24&offset=${offset}`,
+      )
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'Could not load deliverables')
-      setArtifacts(payload.artifacts)
+      const summaries: ArtifactSummary[] = payload.artifacts ?? []
+      setArtifacts(current => append ? [...current, ...summaries] : summaries)
+      setArtifactOffset(offset)
+      setArtifactsHaveMore(Boolean(payload.has_more))
       const requestedId = typeof window === 'undefined'
         ? null
         : new URLSearchParams(window.location.search).get('artifact')
       setSelectedId((current) => (
-        requestedId && payload.artifacts.some((artifact: Artifact) => artifact.id === requestedId)
-          ? requestedId
-          : current ?? payload.artifacts[0]?.id ?? null
+        requestedId || current || summaries[0]?.id || null
       ))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load deliverables')
@@ -197,6 +204,35 @@ export default function CreatePage() {
   useEffect(() => {
     void loadArtifacts()
   }, [loadArtifacts])
+
+  useEffect(() => {
+    if (!selectedId) {
+      setSelected(null)
+      return
+    }
+    let cancelled = false
+    setArtifactLoading(true)
+    const loadSelected = async () => {
+      try {
+        const orgId = getActiveOrgId()
+        const response = await apiFetch(
+          `${API_URL}/artifacts/${selectedId}?org_id=${encodeURIComponent(orgId)}`,
+        )
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.detail || 'Could not open deliverable')
+        if (!cancelled) setSelected(payload)
+      } catch (loadError) {
+        if (!cancelled) {
+          setSelected(null)
+          setError(loadError instanceof Error ? loadError.message : 'Could not open deliverable')
+        }
+      } finally {
+        if (!cancelled) setArtifactLoading(false)
+      }
+    }
+    void loadSelected()
+    return () => { cancelled = true }
+  }, [selectedId])
 
   const generate = async () => {
     if (topic.trim().length < 3 || generating) return
@@ -220,7 +256,9 @@ export default function CreatePage() {
       )
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'Could not create deliverable')
-      setArtifacts((current) => [payload, ...current.filter((item) => item.id !== payload.id)])
+      const summary: ArtifactSummary = payload
+      setArtifacts((current) => [summary, ...current.filter((item) => item.id !== payload.id)])
+      setSelected(payload)
       setSelectedId(payload.id)
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : 'Could not create deliverable')
@@ -261,7 +299,7 @@ export default function CreatePage() {
     }
   }
 
-  const remove = async (artifact: Artifact) => {
+  const remove = async (artifact: ArtifactSummary) => {
     if (!window.confirm(`Delete “${artifact.title}”?`)) return
     setError(null)
     try {
@@ -274,6 +312,7 @@ export default function CreatePage() {
       setArtifacts((current) => {
         const next = current.filter((item) => item.id !== artifact.id)
         setSelectedId((currentId) => currentId === artifact.id ? next[0]?.id ?? null : currentId)
+        if (selected?.id === artifact.id) setSelected(null)
         return next
       })
     } catch (removeError) {
@@ -434,6 +473,17 @@ export default function CreatePage() {
                     </span>
                   </button>
                 ))}
+                {artifactsHaveMore && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => void loadArtifacts(artifactOffset + 24, true)}
+                  >
+                    Load older deliverables
+                  </Button>
+                )}
               </div>
             </section>
           </aside>
@@ -442,6 +492,10 @@ export default function CreatePage() {
             <AnimatePresence mode="wait">
               {generating ? (
                 <GeneratingState type={artifactType} />
+              ) : artifactLoading ? (
+                <div className="grid min-h-[680px] place-items-center rounded-2xl border-2 border-ink bg-white">
+                  <LoaderCircle className="size-6 animate-spin text-orange-dark" />
+                </div>
               ) : selected ? (
                 <ArtifactPreview
                   key={selected.id}

@@ -38,6 +38,8 @@ interface GraphEdge {
 interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  total?: number
+  truncated?: boolean
 }
 
 interface GraphStats {
@@ -110,7 +112,9 @@ export default function GraphPage() {
           ...e,
           source: e.source,
           target: e.target
-        }))
+        })),
+        total: graph.total ?? graph.nodes?.length ?? 0,
+        truncated: Boolean(graph.truncated),
       })
 
       setStats(statsData)
@@ -265,6 +269,13 @@ export default function GraphPage() {
                   </div>
                 ))}
               </div>
+              {graphData.truncated && (
+                <p className="mt-3 text-xs text-muted">
+                  Showing the newest {graphData.nodes.length.toLocaleString()} of{' '}
+                  {(graphData.total ?? graphData.nodes.length).toLocaleString()} visible entities.
+                  Search the entity library for the complete collection.
+                </p>
+              )}
             </div>
 
             {/* Side panel */}

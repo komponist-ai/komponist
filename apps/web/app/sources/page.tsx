@@ -18,12 +18,14 @@ import {
   Quote,
   RefreshCw,
   Save,
+  Search,
   ShieldCheck,
   Trash2,
   Unplug,
   X,
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
+import PaginationBar from '../../components/PaginationBar'
 import SourceLogo from '../../components/SourceLogo'
 import StudioTopbar from '../../components/StudioTopbar'
 import { Badge } from '../../components/ui/badge'
@@ -61,6 +63,14 @@ interface SyncedDocument {
   review_status: 'proposed' | 'confirmed' | 'mixed' | 'empty'
   department_id?: string | null
 }
+
+interface DocumentPage {
+  total: number
+  offset: number
+  limit: number
+}
+
+const DOCUMENT_PAGE_SIZE = 25
 
 interface EvidencePassage {
   id: string
@@ -126,6 +136,8 @@ export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [documents, setDocuments] = useState<Record<string, SyncedDocument[]>>({})
+  const [documentPages, setDocumentPages] = useState<Record<string, DocumentPage>>({})
+  const [documentQueries, setDocumentQueries] = useState<Record<string, string>>({})
   const [documentsLoading, setDocumentsLoading] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -188,14 +200,33 @@ export default function SourcesPage() {
       .finally(() => setPassageLoading(false))
   }, [evidenceId, orgId])
 
-  const fetchDocuments = useCallback(async (sourceId: string) => {
+  const fetchDocuments = useCallback(async (
+    sourceId: string,
+    offset = 0,
+    searchOverride?: string,
+  ) => {
     if (!orgId) return
     setDocumentsLoading((current) => ({ ...current, [sourceId]: true }))
     try {
-      const response = await apiFetch(`${API_URL}/sources/${sourceId}/documents?org_id=${orgId}`)
+      const search = searchOverride ?? ''
+      const params = new URLSearchParams({
+        org_id: orgId,
+        limit: String(DOCUMENT_PAGE_SIZE),
+        offset: String(offset),
+      })
+      if (search.trim()) params.set('query', search.trim())
+      const response = await apiFetch(`${API_URL}/sources/${sourceId}/documents?${params}`)
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'Could not load synced documents')
       setDocuments((current) => ({ ...current, [sourceId]: payload.documents ?? [] }))
+      setDocumentPages((current) => ({
+        ...current,
+        [sourceId]: {
+          total: Number(payload.total ?? 0),
+          offset: Number(payload.offset ?? offset),
+          limit: Number(payload.limit ?? DOCUMENT_PAGE_SIZE),
+        },
+      }))
     } catch (loadError) {
       console.error('Failed to fetch source documents:', loadError)
       setDocuments((current) => ({ ...current, [sourceId]: [] }))
@@ -225,7 +256,6 @@ export default function SourcesPage() {
         ? nextSources.find((source) => source.type === configureSource)
         : null
       setExpanded((current) => current ?? preferredSource?.id ?? nextSources[0]?.id ?? null)
-      await Promise.all(nextSources.map((source) => fetchDocuments(source.id)))
     } catch (loadError) {
       console.error('Failed to fetch sources:', loadError)
       setError(loadError instanceof Error ? loadError.message : 'Could not connect to API')
@@ -233,7 +263,7 @@ export default function SourcesPage() {
     } finally {
       setLoading(false)
     }
-  }, [fetchDocuments, orgId])
+  }, [orgId])
 
   useEffect(() => { void fetchSources() }, [fetchSources])
 
@@ -260,10 +290,13 @@ export default function SourcesPage() {
 
   useEffect(() => {
     const source = sources.find(item => item.id === expanded)
+    if (source && documents[source.id] === undefined) {
+      void fetchDocuments(source.id)
+    }
     if (source?.type === 'slack' && slackChannels[source.id] === undefined) {
       void fetchSlackChannels(source.id)
     }
-  }, [expanded, fetchSlackChannels, slackChannels, sources])
+  }, [documents, expanded, fetchDocuments, fetchSlackChannels, slackChannels, sources])
 
   const saveSlackChannels = async (sourceId: string) => {
     setSlackChannelsSaving(sourceId)
@@ -309,6 +342,13 @@ export default function SourcesPage() {
     )) ?? sources.find(item => item.type === passage.source_type)
     if (!source) return
     setExpanded(source.id)
+    if (!(documents[source.id] ?? []).some(item => item.reference === passage.reference)) {
+      if (documentQueries[source.id] !== passage.reference) {
+        setDocumentQueries(current => ({ ...current, [source.id]: passage.reference }))
+        void fetchDocuments(source.id, 0, passage.reference)
+      }
+      return
+    }
     const targetDocument = (documents[source.id] ?? []).find(
       item => item.reference === passage.reference,
     )
@@ -319,7 +359,7 @@ export default function SourcesPage() {
           : `source-connection-${source.id}`,
       )?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }, 220)
-  }, [documents, passage, sources])
+  }, [documentQueries, documents, fetchDocuments, passage, sources])
 
   const closePassage = () => {
     setEvidenceId(null)
@@ -343,7 +383,10 @@ export default function SourcesPage() {
         itemsProcessed: Number(payload.items_processed || 0),
         itemsFailed: Number(payload.items_failed || 0),
       })
-      await fetchSources()
+      await Promise.all([
+        fetchSources(),
+        fetchDocuments(source.id, 0, documentQueries[source.id]),
+      ])
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : 'Failed to sync source')
     } finally {
@@ -381,8 +424,12 @@ export default function SourcesPage() {
       )
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'Could not remove document')
+      const sourceId = deleteModal.source.id
       setDeleteModal(null)
-      await fetchSources()
+      await Promise.all([
+        fetchSources(),
+        fetchDocuments(sourceId, 0, documentQueries[sourceId]),
+      ])
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not remove document')
     } finally {
@@ -401,7 +448,7 @@ export default function SourcesPage() {
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'Could not move document')
-      await fetchDocuments(source.id)
+      await fetchDocuments(source.id, documentPages[source.id]?.offset ?? 0, documentQueries[source.id])
     } catch (moveError) {
       setError(moveError instanceof Error ? moveError.message : 'Could not move document')
     } finally {
@@ -429,8 +476,8 @@ export default function SourcesPage() {
   }
 
   const totalDocuments = useMemo(
-    () => Object.values(documents).reduce((total, sourceDocuments) => total + sourceDocuments.length, 0),
-    [documents],
+    () => Object.values(documentPages).reduce((total, page) => total + page.total, 0),
+    [documentPages],
   )
   const totalEntities = useMemo(
     () => Object.values(documents).flat().reduce((total, document) => total + document.entity_count, 0),
@@ -517,8 +564,8 @@ export default function SourcesPage() {
           <section className="mb-7 grid overflow-hidden rounded-xl border-2 border-ink bg-ink sm:grid-cols-3">
             {[
               ['Connections', sources.length, 'Active data sources'],
-              ['Documents', totalDocuments, 'Visible inside Komponist'],
-              ['Extracted facts', totalEntities, 'Linked to these documents'],
+              ['Documents loaded', totalDocuments, 'Across opened connections'],
+              ['Visible facts', totalEntities, 'On the loaded document pages'],
             ].map(([label, value, copy], index) => (
               <div key={String(label)} className="border-b-2 border-ink bg-white p-5 last:border-b-0 sm:border-b-0 sm:border-r-2 sm:last:border-r-0">
                 <div className="flex items-start justify-between"><span className="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">{label}</span><span className="font-mono text-[9px] text-faint">0{index + 1}</span></div>
@@ -555,6 +602,11 @@ export default function SourcesPage() {
               {sources.map((source, sourceIndex) => {
                 const copy = SOURCE_COPY[source.type]
                 const sourceDocuments = documents[source.id] ?? []
+                const documentPage = documentPages[source.id] ?? {
+                  total: sourceDocuments.length,
+                  offset: 0,
+                  limit: DOCUMENT_PAGE_SIZE,
+                }
                 const isExpanded = expanded === source.id
                 const isSyncing = syncing === source.id
                 return (
@@ -651,9 +703,26 @@ export default function SourcesPage() {
                               )}
                             </section>
                           )}
-                          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
-                            <span>Synced documents</span>
-                            <span>{sourceDocuments.length} in Komponist</span>
+                          <div className="grid gap-3 border-b border-line px-5 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                            <div className="relative">
+                              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
+                              <input
+                                value={documentQueries[source.id] ?? ''}
+                                onChange={event => setDocumentQueries(current => ({ ...current, [source.id]: event.target.value }))}
+                                onKeyDown={event => {
+                                  if (event.key === 'Enter') void fetchDocuments(source.id, 0, documentQueries[source.id])
+                                }}
+                                placeholder="Search synced documents…"
+                                aria-label={`Search documents from ${source.name}`}
+                                className="h-9 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-xs outline-none focus:border-ink"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-3 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                              <Button variant="outline" size="sm" onClick={() => void fetchDocuments(source.id, 0, documentQueries[source.id])} disabled={documentsLoading[source.id]}>
+                                Search
+                              </Button>
+                              <span>{documentPage.total} in Komponist</span>
+                            </div>
                           </div>
                           {documentsLoading[source.id] ? (
                             <div className="flex items-center gap-2 px-5 py-8 text-sm text-muted"><Loader2 className="size-4 animate-spin" /> Loading documents…</div>
@@ -708,6 +777,14 @@ export default function SourcesPage() {
                                   </div>
                                 </div>
                               )})}
+                              <PaginationBar
+                                offset={documentPage.offset}
+                                limit={documentPage.limit}
+                                total={documentPage.total}
+                                disabled={documentsLoading[source.id]}
+                                itemLabel="documents"
+                                onOffsetChange={nextOffset => void fetchDocuments(source.id, nextOffset, documentQueries[source.id])}
+                              />
                             </div>
                           )}
                         </motion.div>

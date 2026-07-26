@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, AlertTriangle, Archive, ArchiveRestore, Bot, Check, CheckCircle2,
@@ -175,6 +175,8 @@ type Workroom = Omit<
 type WorkerHealth = { workers_online: number; queued: number; status: string }
 
 type TabKey = 'overview' | 'plan' | 'conversation' | 'context' | 'deliverables' | 'activity'
+const ROOM_PAGE_SIZE = 24
+const MESSAGE_PAGE_SIZE = 100
 
 // ------------------------------------------------------------ constants ----
 
@@ -321,6 +323,14 @@ export default function WorkroomsPage() {
   const [showArchived, setShowArchived] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [showRoomPicker, setShowRoomPicker] = useState(false)
+  const [roomOffset, setRoomOffset] = useState(0)
+  const [roomsHaveMore, setRoomsHaveMore] = useState(false)
+  const [roomPageLoading, setRoomPageLoading] = useState(false)
+  const [messageHistoryLoading, setMessageHistoryLoading] = useState(false)
+  const [messageHistoryHasMore, setMessageHistoryHasMore] = useState(false)
+  const [messageHistoryCursor, setMessageHistoryCursor] = useState<string | null>(null)
+  const eventCursorRef = useRef(0)
+  const eventRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [newTitle, setNewTitle] = useState('')
   const [newObjective, setNewObjective] = useState('')
@@ -332,14 +342,26 @@ export default function WorkroomsPage() {
 
   const orgId = () => getActiveOrgId()
 
-  const loadRooms = useCallback(async (archived: boolean) => {
-    const response = await apiFetch(
-      `${API_URL}/workrooms?org_id=${encodeURIComponent(orgId())}&include_archived=${archived}`,
-    )
-    const payload = await response.json()
-    if (!response.ok) throw new Error(payload.detail || 'Could not load Workrooms')
-    setRooms(payload.workrooms)
-    setSelectedId((current) => current ?? payload.workrooms[0]?.id ?? null)
+  const loadRooms = useCallback(async (
+    archived: boolean,
+    offset = 0,
+    append = false,
+  ) => {
+    setRoomPageLoading(true)
+    try {
+      const response = await apiFetch(
+        `${API_URL}/workrooms?org_id=${encodeURIComponent(orgId())}&include_archived=${archived}`
+          + `&limit=${ROOM_PAGE_SIZE}&offset=${offset}`,
+      )
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Could not load Workrooms')
+      setRooms((current) => append ? [...current, ...payload.workrooms] : payload.workrooms)
+      setRoomOffset(offset)
+      setRoomsHaveMore(Boolean(payload.has_more))
+      setSelectedId((current) => current ?? payload.workrooms[0]?.id ?? null)
+    } finally {
+      setRoomPageLoading(false)
+    }
   }, [])
 
   const loadRoom = useCallback(async (roomId: string, quiet = false) => {
@@ -350,14 +372,25 @@ export default function WorkroomsPage() {
         await Promise.all([
           apiFetch(`${API_URL}/workrooms/${roomId}?org_id=${org}`),
           apiFetch(`${API_URL}/workrooms/${roomId}/plans?org_id=${org}`),
-          apiFetch(`${API_URL}/workrooms/${roomId}/messages?org_id=${org}`),
+          apiFetch(
+            `${API_URL}/workrooms/${roomId}/messages?org_id=${org}&limit=${MESSAGE_PAGE_SIZE}`,
+          ),
           apiFetch(`${API_URL}/workrooms/${roomId}/deliverables?org_id=${org}`),
         ])
       const payload = await roomResponse.json()
       if (!roomResponse.ok) throw new Error(payload.detail || 'Could not load Workroom')
+      eventCursorRef.current = Math.max(
+        eventCursorRef.current,
+        ...(payload.events ?? []).map((event: WorkroomEvent) => event.id),
+      )
       setRoom(payload)
       if (plansResponse.ok) setPlans(await plansResponse.json())
-      if (messagesResponse.ok) setMessages((await messagesResponse.json()).messages)
+      if (messagesResponse.ok) {
+        const messagePayload = await messagesResponse.json()
+        setMessages(messagePayload.messages)
+        setMessageHistoryHasMore(Boolean(messagePayload.has_more))
+        setMessageHistoryCursor(messagePayload.next_before ?? null)
+      }
       if (deliverablesResponse.ok) {
         setDeliverables((await deliverablesResponse.json()).deliverables)
       }
@@ -404,6 +437,9 @@ export default function WorkroomsPage() {
   useEffect(() => {
     if (!selectedId) {
       setRoom(null)
+      setMessages([])
+      setMessageHistoryHasMore(false)
+      setMessageHistoryCursor(null)
       return
     }
     void loadRoom(selectedId).catch((loadError) => {
@@ -418,15 +454,33 @@ export default function WorkroomsPage() {
   // Live updates: the persisted event stream resumes from its own cursor, so a
   // dropped connection never duplicates the timeline.
   useEffect(() => {
-    if (!selectedId) return
+    if (!selectedId || room?.id !== selectedId) return
     const source = new EventSource(
-      `${API_URL}/workrooms/${selectedId}/events?org_id=${encodeURIComponent(orgId())}`,
+      `${API_URL}/workrooms/${selectedId}/events?org_id=${encodeURIComponent(orgId())}`
+        + `&after=${eventCursorRef.current}`,
       { withCredentials: true },
     )
-    source.onmessage = () => { void loadRoom(selectedId, true) }
+    source.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as WorkroomEvent
+        eventCursorRef.current = Math.max(eventCursorRef.current, event.id)
+      } catch {
+        // The persisted room state remains authoritative if an event is malformed.
+      }
+      if (eventRefreshTimerRef.current) clearTimeout(eventRefreshTimerRef.current)
+      eventRefreshTimerRef.current = setTimeout(() => {
+        void loadRoom(selectedId, true)
+      }, 250)
+    }
     source.onerror = () => source.close()
-    return () => source.close()
-  }, [selectedId, loadRoom])
+    return () => {
+      source.close()
+      if (eventRefreshTimerRef.current) {
+        clearTimeout(eventRefreshTimerRef.current)
+        eventRefreshTimerRef.current = null
+      }
+    }
+  }, [selectedId, room?.id, loadRoom])
 
   const activeRun = useMemo(
     () => room?.runs.find((run) => activeRunStatuses.includes(run.status))
@@ -591,10 +645,24 @@ export default function WorkroomsPage() {
       body: JSON.stringify({ body: draftMessage }),
     })
     setDraftMessage('')
-    const response = await apiFetch(
-      `${API_URL}/workrooms/${selectedId}/messages?org_id=${encodeURIComponent(orgId())}`,
-    )
-    if (response.ok) setMessages((await response.json()).messages)
+  }
+
+  const loadOlderMessages = async () => {
+    if (!selectedId || !messageHistoryCursor || messageHistoryLoading) return
+    setMessageHistoryLoading(true)
+    try {
+      const response = await apiFetch(
+        `${API_URL}/workrooms/${selectedId}/messages?org_id=${encodeURIComponent(orgId())}`
+          + `&limit=${MESSAGE_PAGE_SIZE}&before=${encodeURIComponent(messageHistoryCursor)}`,
+      )
+      if (!response.ok) return
+      const payload = await response.json()
+      setMessages((current) => [...payload.messages, ...current])
+      setMessageHistoryHasMore(Boolean(payload.has_more))
+      setMessageHistoryCursor(payload.next_before ?? null)
+    } finally {
+      setMessageHistoryLoading(false)
+    }
   }
 
   const toggleContextPin = async (sourceId: string, pinned: boolean) => {
@@ -670,6 +738,19 @@ export default function WorkroomsPage() {
               </li>
             ))}
           </ul>
+        )}
+        {roomsHaveMore && (
+          <Button
+            type="button"
+            variant="subtle"
+            size="sm"
+            className="mt-2 w-full"
+            disabled={roomPageLoading}
+            onClick={() => void loadRooms(showArchived, roomOffset + ROOM_PAGE_SIZE, true)}
+          >
+            {roomPageLoading ? <Loader2 className="animate-spin" /> : <ChevronDown />}
+            Load more Workrooms
+          </Button>
         )}
       </div>
     </div>
@@ -1055,8 +1136,25 @@ export default function WorkroomsPage() {
           hint="Talk through the objective here. Messages never command the agent — use Redirect for that."
         />
       ) : (
-        <ul className="space-y-3">
-          {messages.map((message) => (
+        <>
+          {messageHistoryHasMore && (
+            <div className="mb-4 flex justify-center">
+              <Button
+                type="button"
+                variant="subtle"
+                size="sm"
+                disabled={messageHistoryLoading}
+                onClick={() => void loadOlderMessages()}
+              >
+                {messageHistoryLoading
+                  ? <Loader2 className="animate-spin" />
+                  : <ChevronDown className="rotate-180" />}
+                Load older messages
+              </Button>
+            </div>
+          )}
+          <ul className="space-y-3">
+            {messages.map((message) => (
             <li key={message.id} className="flex gap-2.5">
               <span className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border ${
                 message.author_type === 'agent'
@@ -1085,8 +1183,9 @@ export default function WorkroomsPage() {
                 )}
               </div>
             </li>
-          ))}
-        </ul>
+            ))}
+          </ul>
+        </>
       )}
       {roomCan(room.room_role, 'comment') && !isArchived && (
         <div className="mt-4 flex gap-2">

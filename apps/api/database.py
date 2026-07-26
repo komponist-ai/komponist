@@ -6,7 +6,9 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, String, DateTime, Integer, Text, Boolean, text, UniqueConstraint
+from sqlalchemy import (
+    JSON, String, DateTime, Integer, Text, Boolean, Index, text, UniqueConstraint,
+)
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -308,6 +310,14 @@ class ApprovalRequest(Base):
 class ChatConversation(Base):
     """A private chat thread within an organization."""
     __tablename__ = "chat_conversations"
+    __table_args__ = (
+        Index(
+            "ix_chat_conversations_org_user_updated",
+            "org_id",
+            "user_id",
+            "updated_at",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     org_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -322,6 +332,14 @@ class ChatConversation(Base):
 class ChatMessageRecord(Base):
     """One persisted turn and its evidence in a chat conversation."""
     __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index(
+            "ix_chat_messages_conversation_created_id",
+            "conversation_id",
+            "created_at",
+            "id",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     conversation_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -335,6 +353,14 @@ class ChatMessageRecord(Base):
 class GeneratedArtifact(Base):
     """A private, cited deliverable generated from visible company knowledge."""
     __tablename__ = "generated_artifacts"
+    __table_args__ = (
+        Index(
+            "ix_generated_artifacts_org_user_updated",
+            "org_id",
+            "user_id",
+            "updated_at",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     org_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -357,6 +383,9 @@ class GeneratedArtifact(Base):
 class Workroom(Base):
     """A shared, permission-scoped workspace for people and agents."""
     __tablename__ = "workrooms"
+    __table_args__ = (
+        Index("ix_workrooms_org_status_updated", "org_id", "status", "updated_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     org_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -546,6 +575,14 @@ class WorkroomMessage(Base):
     run is a separate, explicit action.
     """
     __tablename__ = "workroom_messages"
+    __table_args__ = (
+        Index(
+            "ix_workroom_messages_room_created_id",
+            "workroom_id",
+            "created_at",
+            "id",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     workroom_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -760,6 +797,22 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS ix_connected_sources_department_id "
             "ON connected_sources (department_id)"
         ))
+        # These composite indexes match the bounded, newest-first list and
+        # keyset-history queries used by the high-volume UI. Keep them here as
+        # well as in Alembic for older self-hosted create_all installations.
+        for statement in (
+            "CREATE INDEX IF NOT EXISTS ix_chat_conversations_org_user_updated "
+            "ON chat_conversations (org_id, user_id, updated_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_chat_messages_conversation_created_id "
+            "ON chat_messages (conversation_id, created_at DESC, id DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_generated_artifacts_org_user_updated "
+            "ON generated_artifacts (org_id, user_id, updated_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_workrooms_org_status_updated "
+            "ON workrooms (org_id, status, updated_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_workroom_messages_room_created_id "
+            "ON workroom_messages (workroom_id, created_at DESC, id DESC)",
+        ):
+            await conn.execute(text(statement))
         await conn.execute(text(
             "ALTER TABLE workrooms ADD COLUMN IF NOT EXISTS visibility "
             "VARCHAR(20) NOT NULL DEFAULT 'organization'"

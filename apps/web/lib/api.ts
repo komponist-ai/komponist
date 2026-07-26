@@ -11,16 +11,42 @@ export function apiFetch(input: string, init: RequestInit = {}) {
   return fetch(input, { ...init, credentials: 'include' })
 }
 
-export async function fetchQueue() {
+export async function fetchQueue(options: {
+  entityType?: string
+  query?: string
+  limit?: number
+  offset?: number
+} = {}) {
   const orgId = getActiveOrgId()
-  const res = await apiFetch(`${API_URL}/queue?org_id=${orgId}`)
+  const params = new URLSearchParams({
+    org_id: orgId,
+    limit: String(options.limit ?? 24),
+    offset: String(options.offset ?? 0),
+  })
+  if (options.entityType) params.set('entity_type', options.entityType)
+  if (options.query) params.set('query', options.query)
+  const res = await apiFetch(`${API_URL}/queue?${params}`)
   if (!res.ok) throw new Error('Failed to fetch queue')
   return res.json()
 }
 
-export async function fetchEntities(status: string = 'confirmed') {
+export async function fetchEntities(options: {
+  status?: string
+  entityType?: string
+  query?: string
+  limit?: number
+  offset?: number
+} = {}) {
   const orgId = getActiveOrgId()
-  const res = await apiFetch(`${API_URL}/entities?org_id=${orgId}&status=${status}`)
+  const params = new URLSearchParams({
+    org_id: orgId,
+    status: options.status ?? 'confirmed',
+    limit: String(options.limit ?? 24),
+    offset: String(options.offset ?? 0),
+  })
+  if (options.entityType) params.set('entity_type', options.entityType)
+  if (options.query) params.set('query', options.query)
+  const res = await apiFetch(`${API_URL}/entities?${params}`)
   if (!res.ok) throw new Error('Failed to fetch entities')
   return res.json()
 }
@@ -74,7 +100,7 @@ export async function fetchDashboardStats() {
   const orgId = getActiveOrgId()
   const [entitiesRes, queueRes] = await Promise.all([
     apiFetch(`${API_URL}/entities?org_id=${orgId}&status=confirmed&limit=5`),
-    apiFetch(`${API_URL}/queue?org_id=${orgId}`)
+    apiFetch(`${API_URL}/queue?org_id=${orgId}&limit=1`)
   ])
 
   const entities = await entitiesRes.json()

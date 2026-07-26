@@ -155,6 +155,24 @@ async def run() -> None:
             assert [message["role"] for message in history_payload["messages"]] == [
                 "user", "assistant", "user", "assistant"
             ]
+            latest_page = await owner_client.get(
+                f"/chat/conversations/{first_id}",
+                params={"org_id": owner["org_id"], "limit": 2},
+            )
+            latest_payload = latest_page.json()
+            assert latest_payload["has_more"] is True, latest_payload
+            assert len(latest_payload["messages"]) == 2, latest_payload
+            older_page = await owner_client.get(
+                f"/chat/conversations/{first_id}",
+                params={
+                    "org_id": owner["org_id"],
+                    "limit": 2,
+                    "before": latest_payload["next_before"],
+                },
+            )
+            older_payload = older_page.json()
+            assert older_payload["has_more"] is False, older_payload
+            assert len(older_payload["messages"]) == 2, older_payload
 
             second = await owner_client.post(
                 "/chat",
@@ -176,6 +194,13 @@ async def run() -> None:
             assert len(rows) == 2, rows
             assert rows[0]["id"] == second_id
             assert rows[1]["message_count"] == 4
+            conversation_page = await owner_client.get(
+                "/chat/conversations",
+                params={"org_id": owner["org_id"], "limit": 1},
+            )
+            assert conversation_page.json()["has_more"] is True
+            assert conversation_page.json()["total"] == 2
+            assert len(conversation_page.json()["conversations"]) == 1
 
             renamed = await owner_client.patch(
                 f"/chat/conversations/{first_id}",

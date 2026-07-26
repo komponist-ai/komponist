@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, ArrowRight, Check, ChevronRight, CircleDotDashed,
@@ -11,6 +11,7 @@ import {
 import AppLayout from '../../components/AppLayout'
 import SourceLogo from '../../components/SourceLogo'
 import StudioTopbar from '../../components/StudioTopbar'
+import PaginationBar from '../../components/PaginationBar'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
@@ -87,6 +88,9 @@ type Family = {
 type VersionsResponse = {
   families: Family[]
   total: number
+  limit: number
+  offset: number
+  has_more: boolean
   stats: {
     workspace_families: number
     workspace_versions: number
@@ -152,6 +156,8 @@ export default function VersionsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'workspace' | 'example'>('all')
   const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -160,30 +166,35 @@ export default function VersionsPage() {
     setError(null)
     try {
       const orgId = getActiveOrgId()
-      const response = await apiFetch(`${API_URL}/versions?org_id=${encodeURIComponent(orgId)}&include_demo=true`)
+      const params = new URLSearchParams({
+        org_id: orgId,
+        include_demo: 'true',
+        scope: filter,
+        query: deferredQuery.trim(),
+        limit: '20',
+        offset: String(offset),
+      })
+      const response = await apiFetch(`${API_URL}/versions?${params.toString()}`)
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'Could not build document lineage')
       setData(payload)
-      setSelectedId((current) => current ?? payload.families[0]?.id ?? null)
+      setSelectedId((current) => (
+        payload.families.some((family: Family) => family.id === current)
+          ? current
+          : payload.families[0]?.id ?? null
+      ))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not build document lineage')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [deferredQuery, filter, offset])
 
   useEffect(() => { void load() }, [load])
 
-  const families = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase()
-    return (data?.families ?? []).filter((family) => {
-      if (filter === 'workspace' && family.is_demo) return false
-      if (filter === 'example' && !family.is_demo) return false
-      if (!normalized) return true
-      return [family.title, ...family.contributors, ...family.sources]
-        .some((value) => value.toLocaleLowerCase().includes(normalized))
-    })
-  }, [data?.families, filter, query])
+  useEffect(() => { setOffset(0) }, [deferredQuery, filter])
+
+  const families = useMemo(() => data?.families ?? [], [data?.families])
 
   const selected = useMemo(
     () => families.find((family) => family.id === selectedId) ?? families[0] ?? null,
@@ -252,7 +263,7 @@ export default function VersionsPage() {
                       <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-orange-dark">Repositories</p>
                       <h2 className="mt-1 text-xl">Document families</h2>
                     </div>
-                    <Badge variant="dark" className="px-2.5 py-1 text-[9px]">{families.length}</Badge>
+                    <Badge variant="dark" className="px-2.5 py-1 text-[9px]">{data?.total ?? 0}</Badge>
                   </div>
                   <label className="mt-4 flex h-10 items-center gap-2 rounded-lg border-2 border-line bg-paper-2 px-3 focus-within:border-ink">
                     <Search className="size-4 text-muted" />
@@ -291,6 +302,15 @@ export default function VersionsPage() {
                     </button>
                   ))}
                 </div>
+                {data && (
+                  <PaginationBar
+                    itemLabel="document families"
+                    total={data.total}
+                    limit={data.limit}
+                    offset={data.offset}
+                    onOffsetChange={setOffset}
+                  />
+                )}
               </div>
             </aside>
 
