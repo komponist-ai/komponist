@@ -365,6 +365,292 @@ _DEMO_STOP_WORDS = {
 }
 
 
+async def _install_demo_showcase(
+    org_id: str,
+    user: dict,
+    facts: list[dict],
+) -> dict[str, Any]:
+    """Create the stable, production-shaped objects used by product demos.
+
+    Everything is installed through the same persistence models as normal
+    product usage. Exact titles make the operation idempotent and let an
+    automated recorder find the intended state without relying on row order.
+    """
+    from canvas_examples import CAMPUSKOLLEKTIV_COMMAND_CENTER
+    from canvas_spec import validate_spec
+    from canvas_store import create_canvas
+    from database import Canvas, ChatConversation, GeneratedArtifact, Workroom
+
+    source = await upsert_single_source_type(
+        org_id=org_id,
+        source_type="upload",
+        name="CampusKollektiv demo documents",
+        config={"demo_key": "campuskollektiv"},
+    )
+    unique_documents = len({fact["source"] for fact in facts})
+    await update_connected_source(
+        org_id,
+        source["id"],
+        status="connected",
+        last_sync=datetime(2026, 10, 18, 12, 0, 0),
+        item_count=unique_documents,
+    )
+
+    evidence_by_entity: dict[str, dict[str, Any]] = {
+        fact["id"]: {
+            "id": fact["evidence_id"],
+            "entity_id": fact["id"],
+            "type": fact["type"],
+            "statement": fact["statement"],
+            "source": "upload",
+            "reference": fact["reference"],
+            "title": fact["source"],
+            "excerpt": fact["excerpt"],
+            "source_date": "2026-10-18T12:00:00Z",
+            "department_id": None,
+            "komponist_path": source_deep_link_path(org_id, fact["evidence_id"]),
+        }
+        for fact in facts
+    }
+    artifact_entities = [
+        {
+            "id": fact["id"],
+            "entity_type": fact["type"],
+            "statement": fact["statement"],
+            "detail": fact["detail"],
+            "department_ids": [],
+            "evidence": [evidence_by_entity[fact["id"]]],
+        }
+        for fact in facts
+    ]
+    artifact_sources = list(evidence_by_entity.values())
+
+    async with async_session() as session:
+        conversation_exists = (
+            await session.execute(
+                select(ChatConversation.id).where(
+                    ChatConversation.org_id == org_id,
+                    ChatConversation.user_id == user["id"],
+                    ChatConversation.title == "What could block the Campus Forum launch?",
+                )
+            )
+        ).scalar_one_or_none()
+    if conversation_exists is None:
+        conversation = await create_chat_conversation(
+            org_id,
+            user["id"],
+            "What could block the Campus Forum launch?",
+        )
+        await append_chat_message(
+            org_id,
+            user["id"],
+            conversation["id"],
+            "user",
+            "What could block the Campus Forum launch, and who owns each blocker?",
+        )
+        blocker_sources = [
+            evidence_by_entity["demo-data-import-gate"],
+            evidence_by_entity["demo-volunteer-goal"],
+            evidence_by_entity["demo-forum-budget"],
+        ]
+        await append_chat_message(
+            org_id,
+            user["id"],
+            conversation["id"],
+            "assistant",
+            (
+                "Three confirmed constraints need attention:\n"
+                "- Sponsor data cannot be imported until the data-processing "
+                "agreement is signed; the reviewed source does not yet name an "
+                "owner for that approval. [1]\n"
+                "- Events owns the goal of recruiting 24 volunteers by "
+                "5 November 2026. [2]\n"
+                "- The board-approved Campus Forum budget must stay at or below "
+                "€4,800. [3]"
+            ),
+            blocker_sources,
+        )
+
+    canvas_title = "Campus Forum Command Center"
+    async with async_session() as session:
+        canvas_exists = (
+            await session.execute(
+                select(Canvas.id).where(
+                    Canvas.org_id == org_id,
+                    Canvas.created_by_user_id == user["id"],
+                    Canvas.title == canvas_title,
+                    Canvas.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+    if canvas_exists is None:
+        spec = validate_spec(CAMPUSKOLLEKTIV_COMMAND_CENTER)
+        canvas = await create_canvas(
+            org_id=org_id,
+            user_id=user["id"],
+            title=spec.title,
+            description=spec.description,
+            spec=spec.model_dump(),
+            prompt="Show Campus Forum launch readiness, owners, deadlines, and blockers.",
+            origin="demo",
+            visibility="organization",
+            context_summary={"demo_key": "campuskollektiv"},
+        )
+        canvas_id = canvas["id"]
+    else:
+        canvas_id = canvas_exists
+
+    artifact_title = "Campus Forum Launch Decision Brief"
+    async with async_session() as session:
+        artifact_row = (
+            await session.execute(
+                select(GeneratedArtifact).where(
+                    GeneratedArtifact.org_id == org_id,
+                    GeneratedArtifact.user_id == user["id"],
+                    GeneratedArtifact.title == artifact_title,
+                )
+            )
+        ).scalar_one_or_none()
+    if artifact_row is None:
+        content = mock_artifact_content(
+            "briefing",
+            "Campus Forum launch decision",
+            "Board members",
+            "english",
+            artifact_entities,
+        )
+        content.update({
+            "title": artifact_title,
+            "subtitle": (
+                "A cited readiness brief for the CampusKollektiv board"
+            ),
+            "executive_summary": (
+                "Campus Forum Plan v2 sets a six-week delivery window ending "
+                "14 November 2026, Forum Hall as the approved venue, and a "
+                "€4,800 budget ceiling. Events must recruit 24 volunteers and "
+                "Partnerships must secure three sponsors, while sponsor-data "
+                "migration remains blocked until the data-processing agreement "
+                "is signed."
+            ),
+        })
+        artifact = await create_generated_artifact(
+            org_id=org_id,
+            user_id=user["id"],
+            artifact_type="briefing",
+            title=artifact_title,
+            topic="Campus Forum launch decision",
+            audience="Board members",
+            language="english",
+            content=content,
+            sources=artifact_sources,
+            source_entity_ids=[fact["id"] for fact in facts],
+            department_ids=[],
+        )
+    else:
+        artifact = artifact_record_dict(artifact_row)
+
+    room_title = "Campus Forum readiness room"
+    async with async_session() as session:
+        room_id = (
+            await session.execute(
+                select(Workroom.id).where(
+                    Workroom.org_id == org_id,
+                    Workroom.created_by_user_id == user["id"],
+                    Workroom.title == room_title,
+                )
+            )
+        ).scalar_one_or_none()
+    task_id: Optional[str] = None
+    run_id: Optional[str] = None
+    if room_id is None:
+        room = await create_workroom(
+            org_id=org_id,
+            user_id=user["id"],
+            user_name=user["name"],
+            title=room_title,
+            objective=(
+                "Prepare the board's Campus Forum launch decision from confirmed "
+                "plans, policies, owners, deadlines, and source evidence."
+            ),
+            department_ids=[],
+            visibility="organization",
+        )
+        room_id = room["id"]
+        initial_task = room["tasks"][0]
+        await update_workroom_task(
+            org_id,
+            initial_task["id"],
+            status="completed",
+            artifact_id=artifact["id"],
+        )
+        dpa_task = await create_workroom_task(
+            org_id=org_id,
+            room_id=room_id,
+            user_id=user["id"],
+            user_name=user["name"],
+            title="Verify the sponsor data-processing agreement",
+            description=(
+                "Confirm the signing status and identify the accountable owner "
+                "before any sponsor records are imported."
+            ),
+            assignee_type="agent",
+            assignee_name="Komponist Analyst",
+        )
+        task_id = dpa_task["id"]
+        await create_workroom_task(
+            org_id=org_id,
+            room_id=room_id,
+            user_id=user["id"],
+            user_name=user["name"],
+            title="Confirm volunteer coverage",
+            description="Check progress toward 24 volunteers by 5 November 2026.",
+            assignee_type="human",
+            assignee_name="Events",
+        )
+        await create_workroom_task(
+            org_id=org_id,
+            room_id=room_id,
+            user_id=user["id"],
+            user_name=user["name"],
+            title="Prepare the board decision",
+            description="Review the cited brief and approve the launch decision.",
+            assignee_type="human",
+            assignee_name="CampusKollektiv board",
+        )
+        run = await create_workroom_run(
+            org_id=org_id,
+            room_id=room_id,
+            task_id=task_id,
+            user_id=user["id"],
+            instruction="Find the current DPA status and its accountable owner.",
+        )
+        run_id = run["id"]
+        await update_workroom_run(
+            org_id,
+            run_id,
+            status="running",
+            current_step="checking cited policies and dependencies",
+            context_snapshot={"demo_key": "campuskollektiv"},
+        )
+    await share_artifact(
+        org_id=org_id,
+        room_id=room_id,
+        artifact_id=artifact["id"],
+        task_id=task_id,
+        run_id=run_id,
+        created_by_user_id=user["id"],
+        approved_by_user_id=user["id"],
+    )
+
+    return {
+        "documents": unique_documents,
+        "conversation": "What could block the Campus Forum launch?",
+        "canvas_id": canvas_id,
+        "workroom_id": room_id,
+        "artifact_id": artifact["id"],
+    }
+
+
 def _demo_query_terms(value: str) -> set[str]:
     return {
         term for term in re.findall(r"[a-z0-9]+", value.casefold())
@@ -428,7 +714,7 @@ async def install_demo_workspace(
     shape as uploaded sources so every product surface exercises production
     retrieval rather than a separate UI mock.
     """
-    await _authorized_org_user(request, org_id, write=True)
+    user = await _authorized_org_user(request, org_id, write=True)
     existing = await GraphClient.run_query(
         """
         MATCH (entity:Entity {org_id: $org_id, demo_key: 'campuskollektiv'})
@@ -441,7 +727,7 @@ async def install_demo_workspace(
         {
             **fact,
             "evidence_id": f"{fact['id']}-evidence",
-            "reference": f"demo:campuskollektiv:{fact['source']}",
+            "reference": f"upload:{fact['source']}:campuskollektiv-demo",
         }
         for fact in _DEMO_FACTS
     ]
@@ -462,10 +748,12 @@ async def install_demo_workspace(
             entity.confirmed_at = coalesce(entity.confirmed_at, datetime()),
             entity.updated_at = datetime()
         MERGE (evidence:Evidence {id: fact.evidence_id, org_id: $org_id})
-        SET evidence.source = 'demo',
+        SET evidence.source = 'upload',
             evidence.title = fact.source,
             evidence.reference = fact.reference,
             evidence.excerpt = fact.excerpt,
+            evidence.document_id = fact.reference,
+            evidence.kind = 'markdown',
             evidence.department_ids = [],
             evidence.demo_key = 'campuskollektiv',
             evidence.is_demo = true,
@@ -500,12 +788,14 @@ async def install_demo_workspace(
             """,
             {"org_id": org_id, "relationships": relationships},
         )
+    showcase = await _install_demo_showcase(org_id, user, facts)
     return {
         "key": "campuskollektiv",
-        "workspace": "CampusKollektiv demo workspace",
+        "workspace": "CampusKollektiv",
         "installed": existing_count == 0,
         "entities": len(facts),
         "relationships": len(_DEMO_RELATIONSHIPS),
+        **showcase,
     }
 
 
@@ -1304,6 +1594,7 @@ class EmailRegistrationRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=12, max_length=128)
+    organization_name: Optional[str] = Field(default=None, max_length=255)
 
 
 class EmailLoginRequest(BaseModel):
@@ -1351,7 +1642,10 @@ async def register_with_email(
     _check_auth_rate_limit(request)
     try:
         user = await auth.register_password_user(
-            payload.name, payload.email, payload.password
+            payload.name,
+            payload.email,
+            payload.password,
+            organization_name=payload.organization_name,
         )
     except ValueError as error:
         status = 409 if "already exists" in str(error) else 400
@@ -4571,9 +4865,22 @@ def _human_source_label(reference: str) -> str:
 
 
 def _duration_question_subject(statement: str) -> str:
+    duration_match = _DURATION_PATTERN.search(statement)
+    if duration_match:
+        prefix = statement[:duration_match.start()]
+        subject_prefix = re.sub(
+            r"\s+(?:runs?|lasts?|takes?)\s+(?:for\s+)?$",
+            "",
+            prefix,
+            flags=re.I,
+        ).strip(" .,-")
+        if subject_prefix and subject_prefix.casefold() != prefix.strip().casefold():
+            return subject_prefix[:72]
+
     cleaned = _DURATION_PATTERN.sub("", statement, count=1)
     cleaned = re.sub(r"^(run|launch|conduct|start|ship)\s+(a|an|the)?\s*", "", cleaned, flags=re.I)
     cleaned = re.split(r"\s+(?:with|including|that|which)\s+", cleaned, maxsplit=1)[0]
+    cleaned = re.split(r"\s+and\s+(?:ends?|finishes?|concludes?)\b", cleaned, maxsplit=1, flags=re.I)[0]
     cleaned = cleaned.strip(" .,-")
     return cleaned[:72] if cleaned else "this project"
 
@@ -4585,8 +4892,13 @@ def _chat_suggestion_from_entity(row: dict) -> dict:
     source_label = _human_source_label(reference)
     duration = _extract_duration(statement)
 
-    if duration:
+    # A time expression does not automatically make an entity a project.
+    # Constraints such as "submit receipts within one week" previously became
+    # malformed questions like "How long does Reimbursement requests ... run?".
+    if duration and entity_type == "Project":
         subject = _duration_question_subject(statement)
+        if subject.startswith(("The ", "A ", "An ")):
+            subject = subject[0].lower() + subject[1:]
         title = "Pilot duration" if "pilot" in subject.casefold() else "Project duration"
         prompt = f"How long does {subject} run?"
     elif entity_type == "Decision":

@@ -120,12 +120,20 @@ def _password_matches(password: str, encoded_hash: str) -> bool:
         return False
 
 
-async def register_password_user(name: str, email: str, password: str) -> User:
+async def register_password_user(
+    name: str,
+    email: str,
+    password: str,
+    organization_name: Optional[str] = None,
+) -> User:
     """Create a user, personal organization, and first-party credential."""
     normalized_email = _normalized_email(email)
     normalized_name = (name or "").strip()
     if not normalized_name or len(normalized_name) > 255:
         raise ValueError("A name between 1 and 255 characters is required")
+    normalized_organization_name = (organization_name or "").strip()
+    if len(normalized_organization_name) > 255:
+        raise ValueError("An organization name must be at most 255 characters")
     validated_password = _validated_password(password)
     encoded_hash = await asyncio.to_thread(_password_hash, validated_password)
 
@@ -143,7 +151,10 @@ async def register_password_user(name: str, email: str, password: str) -> User:
             email=normalized_email,
             name=normalized_name,
         )
-        session.add(Org(id=org_id, name=f"{normalized_name}'s workspace"))
+        session.add(Org(
+            id=org_id,
+            name=normalized_organization_name or f"{normalized_name}'s workspace",
+        ))
         session.add(user)
         await session.flush()
         session.add(

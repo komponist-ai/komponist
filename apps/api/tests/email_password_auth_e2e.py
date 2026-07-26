@@ -88,6 +88,7 @@ async def run() -> None:
                     "name": "Password Auth User",
                     "email": EMAIL.upper(),
                     "password": PASSWORD,
+                    "organization_name": "CampusKollektiv",
                 },
             )
             assert registration.status_code == 201, registration.text
@@ -96,6 +97,7 @@ async def run() -> None:
             assert registered_user["email"] == EMAIL
             assert registered_user["role"] == "owner"
             assert registered_user["avatar_url"] is None
+            assert registered_user["organization"]["name"] == "CampusKollektiv"
 
             session_response = await client.get("/auth/session")
             assert session_response.json()["authenticated"] is True
