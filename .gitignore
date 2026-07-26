@@ -27,6 +27,7 @@ build/
 # Node
 node_modules/
 .next/
+*.tsbuildinfo
 .gstack/
 out/
 .turbo/
