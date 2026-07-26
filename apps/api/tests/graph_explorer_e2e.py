@@ -153,12 +153,16 @@ async def seed_graph(org_id: str, count: int, *, private_department_id: str) -> 
     )
 
     if count > 8:
+        # Chords every third node, reaching five ahead. Both numbers are chosen
+        # to be coprime with the four-entry type cycle, so the well-connected
+        # nodes are not all the same entity type — which is what an overview
+        # ranked by degree would otherwise show.
         await GraphClient.run_query(
             """
-            UNWIND range(0, $count - 5) AS index
-            WITH index WHERE index % 4 = 0
+            UNWIND range(0, $count - 6) AS index
+            WITH index WHERE index % 3 = 0
             MATCH (source:Entity {id: 'gx-' + toString(index), org_id: $org_id})
-            MATCH (target:Entity {id: 'gx-' + toString(index + 4), org_id: $org_id})
+            MATCH (target:Entity {id: 'gx-' + toString(index + 5), org_id: $org_id})
             CALL apoc.create.relationship(
                 source, 'RELATES_TO', {description: 'Fixture chord'}, target
             ) YIELD rel

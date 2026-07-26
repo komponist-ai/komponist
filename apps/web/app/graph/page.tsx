@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -62,6 +62,27 @@ const ALL_LABELS_BELOW = 30
  */
 const FIT_DELAYS_MS = [400, 1200, 2400]
 
+/**
+ * How much of the company graph the overview draws at once.
+ *
+ * A real company brain runs to thousands of entities, and drawing them all
+ * produces a hairball that answers no question. The server already returns the
+ * best-connected matches first, so a hundred of them is a readable starting
+ * point; everything else is reached deliberately, by searching, filtering, or
+ * expanding a neighbourhood.
+ */
+const OVERVIEW_LIMIT = 100
+
+/** Typing pauses this long before the server is asked anything. */
+const SEARCH_DEBOUNCE_MS = 275
+
+/**
+ * Ceilings on progressive expansion. Without them a few enthusiastic
+ * double-taps rebuild the hairball the overview limit exists to prevent.
+ */
+const MAX_EXPANSIONS = 25
+const MAX_VISIBLE_NODES = 600
+
 export default function GraphPage() {
   const { theme } = useTheme()
   const palette = entityPalette(theme)
@@ -83,7 +104,9 @@ export default function GraphPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [searchQuery, setSearchQuery] = useState('')
-  const deferredSearch = useDeferredValue(searchQuery)
+  // What the server has actually been asked for, which lags the input box by
+  // one debounce interval.
+  const [activeSearch, setActiveSearch] = useState('')
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
   const [status, setStatus] = useState<GraphStatusFilter>('all')
 
@@ -97,6 +120,17 @@ export default function GraphPage() {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasHandle = useRef<GraphCanvasHandle | null>(null)
 
+  // Neighbourhoods are immutable for a given reader, so re-expanding a node —
+  // or coming back to one after leaving focus — costs nothing the second time.
+  const neighborCache = useRef(new Map<string, { nodes: GraphNode[]; edges: GraphEdge[] }>())
+  // Guards against a double-tap firing the same request twice.
+  const inFlight = useRef(new Set<string>())
+  const [expandedIds, setExpandedIds] = useState<string[]>([])
+  // Only the newest graph request may write to state; an earlier one that
+  // happens to land later must not overwrite it.
+  const requestSeq = useRef(0)
+  const graphRequest = useRef<AbortController | null>(null)
+
   const handleCanvasReady = useCallback((handle: GraphCanvasHandle) => {
     canvasHandle.current = handle
   }, [])
@@ -109,18 +143,40 @@ export default function GraphPage() {
     return () => query.removeEventListener('change', update)
   }, [])
 
+  // Search runs on the server, so it waits for a pause in typing rather than
+  // firing a query per keystroke.
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setActiveSearch(searchQuery.trim()),
+      SEARCH_DEBOUNCE_MS,
+    )
+    return () => window.clearTimeout(timeout)
+  }, [searchQuery])
+
   const fetchGraph = useCallback(async () => {
+    graphRequest.current?.abort()
+    const controller = new AbortController()
+    graphRequest.current = controller
+    const sequence = requestSeq.current + 1
+    requestSeq.current = sequence
+
     setLoading(true)
     setError(null)
     try {
       const orgId = getActiveOrgId()
-      const params = new URLSearchParams({ org_id: orgId, limit: '400', status })
+      const params = new URLSearchParams({
+        org_id: orgId,
+        limit: String(OVERVIEW_LIMIT),
+        status,
+      })
       if (selectedTypes.length) params.set('entity_types', selectedTypes.join(','))
-      if (deferredSearch.trim()) params.set('query', deferredSearch.trim())
+      if (activeSearch) params.set('query', activeSearch)
 
       const [graphRes, statsRes] = await Promise.all([
-        apiFetch(`${API_URL}/graph?${params.toString()}`),
-        apiFetch(`${API_URL}/graph/stats?org_id=${encodeURIComponent(orgId)}`),
+        apiFetch(`${API_URL}/graph?${params.toString()}`, { signal: controller.signal }),
+        apiFetch(`${API_URL}/graph/stats?org_id=${encodeURIComponent(orgId)}`, {
+          signal: controller.signal,
+        }),
       ])
       if (!graphRes.ok) {
         const body = await graphRes.json().catch(() => null)
@@ -128,6 +184,11 @@ export default function GraphPage() {
       }
 
       const payload = await graphRes.json()
+      const statsPayload = statsRes.ok ? await statsRes.json() : null
+
+      // A slower earlier request must never replace a newer answer.
+      if (sequence !== requestSeq.current) return
+
       const nodes = (payload.nodes ?? [])
         .map(normalizeNode)
         .filter((node: GraphNode | null): node is GraphNode => node !== null)
@@ -140,24 +201,31 @@ export default function GraphPage() {
       setTotal(payload.total ?? nodes.length)
       setTruncated(Boolean(payload.truncated))
       // Filters changed, so anything expanded under the old filters no longer
-      // belongs on screen.
+      // belongs on screen. The cache survives — the neighbourhoods themselves
+      // did not change.
       setExpandedNodes([])
       setExpandedEdges([])
+      setExpandedIds([])
       setFocusNodeId(null)
       setSelection(null)
 
-      if (statsRes.ok) setStats(await statsRes.json())
+      if (statsPayload) setStats(statsPayload)
     } catch (fetchError) {
+      // An abort means a newer request replaced this one, which is not a
+      // failure the reader should hear about.
+      if (fetchError instanceof DOMException && fetchError.name === 'AbortError') return
       console.error('Graph fetch error:', fetchError)
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load graph')
     } finally {
-      setLoading(false)
+      if (sequence === requestSeq.current) setLoading(false)
     }
-  }, [deferredSearch, selectedTypes, status])
+  }, [activeSearch, selectedTypes, status])
 
   useEffect(() => {
     void fetchGraph()
   }, [fetchGraph])
+
+  useEffect(() => () => graphRequest.current?.abort(), [])
 
   // --- The graph as it currently stands ------------------------------------
 
@@ -259,6 +327,33 @@ export default function GraphPage() {
    * it on the canvas.
    */
   const expandNode = useCallback(async (id: string) => {
+    if (inFlight.current.has(id)) return
+    selectNode(id)
+
+    const cached = neighborCache.current.get(id)
+    if (cached) {
+      setExpandedNodes(current => mergeNodes(current, cached.nodes))
+      setExpandedEdges(current => mergeEdges(current, cached.edges))
+      setExpandedIds(current => (current.includes(id) ? current : [...current, id]))
+      return
+    }
+
+    if (expandedIds.length >= MAX_EXPANSIONS) {
+      setError(
+        `That is ${MAX_EXPANSIONS} expansions in one view. Back to overview, `
+        + 'or narrow the graph with search and filters, to keep exploring.',
+      )
+      return
+    }
+    if (allNodes.length >= MAX_VISIBLE_NODES) {
+      setError(
+        `The canvas is holding ${allNodes.length.toLocaleString()} entities, which is `
+        + 'as many as stays readable. Focus a node or return to the overview to continue.',
+      )
+      return
+    }
+
+    inFlight.current.add(id)
     setExpanding(id)
     setError(null)
     try {
@@ -278,16 +373,19 @@ export default function GraphPage() {
       const edges = (payload.edges ?? [])
         .map(normalizeEdge)
         .filter((edge: GraphEdge | null): edge is GraphEdge => edge !== null)
+
+      neighborCache.current.set(id, { nodes, edges })
       setExpandedNodes(current => mergeNodes(current, nodes))
       setExpandedEdges(current => mergeEdges(current, edges))
-      selectNode(id)
+      setExpandedIds(current => (current.includes(id) ? current : [...current, id]))
     } catch (expandError) {
       console.error('Neighbour fetch error:', expandError)
       setError(expandError instanceof Error ? expandError.message : 'Failed to load neighbours')
     } finally {
+      inFlight.current.delete(id)
       setExpanding(null)
     }
-  }, [selectNode])
+  }, [allNodes.length, expandedIds.length, selectNode])
 
   const handleExpandNode = useCallback((id: string) => {
     void expandNode(id)
@@ -303,7 +401,9 @@ export default function GraphPage() {
     setFocusNodeId(null)
     setExpandedNodes([])
     setExpandedEdges([])
+    setExpandedIds([])
     setSelection(null)
+    setError(null)
   }, [])
 
   const toggleType = (type: string) => {
@@ -321,7 +421,7 @@ export default function GraphPage() {
   const exportGraph = () => {
     const payload = {
       exported_at: new Date().toISOString(),
-      filters: { query: deferredSearch, entity_types: selectedTypes, status },
+      filters: { query: activeSearch, entity_types: selectedTypes, status },
       focus: focusNodeId,
       nodes: visibleNodes,
       edges: visibleEdges,
@@ -361,7 +461,22 @@ export default function GraphPage() {
   )
 
   const activeFilterCount =
-    selectedTypes.length + (status === 'all' ? 0 : 1) + (deferredSearch ? 1 : 0)
+    selectedTypes.length + (status === 'all' ? 0 : 1) + (activeSearch ? 1 : 0)
+
+  /**
+   * What the canvas is showing against what exists. `total` is the count the
+   * current filters match; `stats.total_nodes` is everything the reader can
+   * see. Naming both when they differ is the difference between "your graph is
+   * small" and "you are looking at a slice of it".
+   */
+  const coverage = useMemo(() => {
+    const shown = view.nodes.length.toLocaleString()
+    const matching = total.toLocaleString()
+    if (activeFilterCount && stats) {
+      return `Showing ${shown} of ${matching} matching · ${stats.total_nodes.toLocaleString()} total`
+    }
+    return `Showing ${shown} of ${matching} entities`
+  }, [activeFilterCount, stats, total, view.nodes.length])
   const hoveredLabel = hovered
     ? nodesById.get(hovered)?.name
       ?? (edgesById.get(hovered) ? relationshipLabel(edgesById.get(hovered)!.data.type) : null)
@@ -550,7 +665,7 @@ export default function GraphPage() {
 
                 <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-lg border-2 border-ink bg-white/95 px-3 py-2 shadow-[2px_2px_0_#201c15] backdrop-blur">
                   <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">
-                    {view.nodes.length.toLocaleString()} / {total.toLocaleString()} entities
+                    {coverage}
                   </span>
                   <span className="h-4 w-px bg-line" />
                   {Object.entries(palette).map(([type, color]) => (
@@ -576,7 +691,7 @@ export default function GraphPage() {
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <div className="rounded-lg border-2 border-ink bg-paper p-3">
                       <strong className="block font-mono text-2xl">{(stats?.total_nodes ?? 0).toLocaleString()}</strong>
-                      <span className="text-[10px] font-semibold text-muted">Visible entities</span>
+                      <span className="text-[10px] font-semibold text-muted">Entities you can see</span>
                     </div>
                     <div className="rounded-lg border-2 border-ink bg-paper p-3">
                       <strong className="block font-mono text-2xl">{(stats?.total_edges ?? 0).toLocaleString()}</strong>
@@ -585,7 +700,18 @@ export default function GraphPage() {
                   </div>
                   {truncated && (
                     <p className="mt-3 rounded-md bg-warning-soft p-2.5 text-[10px] leading-4 text-orange-dark">
-                      The canvas shows the {serverNodes.length.toLocaleString()} most connected matches. Search narrows the full visible graph.
+                      This is the {serverNodes.length.toLocaleString()} best-connected
+                      of {total.toLocaleString()} matching entities — enough to stay readable.
+                      Search or filter to change what is drawn, or open a node and use
+                      Neighbors to pull in what it connects to.
+                    </p>
+                  )}
+                  {expandedIds.length > 0 && (
+                    <p className="mt-3 rounded-md border border-line bg-paper p-2.5 text-[10px] leading-4 text-muted">
+                      {expandedIds.length === 1
+                        ? '1 neighbourhood added to the overview.'
+                        : `${expandedIds.length} neighbourhoods added to the overview.`}
+                      {' '}Back to overview clears them.
                     </p>
                   )}
                 </div>
@@ -635,7 +761,7 @@ export default function GraphPage() {
                         disabled={expanding === selectedNode.id}
                       >
                         <Waypoints className={expanding === selectedNode.id ? 'animate-pulse' : ''} />
-                        Neighbors
+                        {expandedIds.includes(selectedNode.id) ? 'Expanded' : 'Neighbors'}
                       </Button>
                     </div>
                     <Button asChild size="sm" variant="ghost" className="mt-2 w-full">
