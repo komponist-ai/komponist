@@ -30,6 +30,9 @@ node_modules/
 *.tsbuildinfo
 .gstack/
 out/
+apps/demo-video/public/captures/*
+!apps/demo-video/public/captures/.gitkeep
+apps/demo-video/public/voiceover.mp3
 .turbo/
 .vercel/
 *.log

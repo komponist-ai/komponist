@@ -142,6 +142,12 @@ docker-compose --env-file .env -f docker/docker-compose.yml up -d --build
 > `test-data`, `docs/demo`, and built-in product examples are fictional and
 > exist only to demonstrate and test Komponist.
 
+To record the same CampusKollektiv flow as a repeatable product video, use the
+Playwright + Remotion package in
+[`apps/demo-video`](apps/demo-video/README.md). It installs a stable showcase,
+captures Sources, cited Chat, Canvas, Workrooms, and Compose from the real app,
+then renders a captioned 88-second video with an optional voice-over.
+
 Stop the stack with:
 
 ```bash

@@ -1,0 +1,28 @@
+{
+  "name": "komponist-demo-video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Repeatable YC product demo capture and branded video render",
+  "scripts": {
+    "capture": "node --import tsx capture.ts",
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts KomponistYC out/komponist-yc-demo.mp4",
+    "render:voice": "remotion render src/index.ts KomponistYC out/komponist-yc-demo.mp4 --props=voiceover-props.json",
+    "demo": "npm run capture && npm run render",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "playwright": "^1.54.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
