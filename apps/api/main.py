@@ -3322,6 +3322,19 @@ async def get_entity_neighbors(
     """Get the neighborhood of a specific entity."""
     user = await _authorized_org_user(request, org_id)
 
+    # Nodes are described exactly as `/graph` describes them so the explorer can
+    # merge an expanded neighborhood into the visible graph without a node
+    # changing shape depending on how the reader reached it. Entities carry
+    # their text in `statement`; reading `name` alone returned null for every
+    # neighbor.
+    node_fields = """
+        coalesce({alias}.name, {alias}.statement) as name,
+        {alias}.entity_type as type,
+        {alias}.detail as description,
+        {alias}.status as status,
+        {alias}.confidence as confidence
+    """
+
     # Get the entity and its neighbors up to N hops
     query = f"""
     MATCH path = (center:Entity {{id: $entity_id, org_id: $org_id}})-[*1..{depth}]-(neighbor:Entity)
@@ -3334,14 +3347,26 @@ async def get_entity_neighbors(
     UNWIND rels as r
     WITH center, neighbor, r, startNode(r) as source, endNode(r) as target
     WHERE NOT type(r) = 'CITED_BY'
+    CALL {{
+      WITH neighbor
+      OPTIONAL MATCH (neighbor)-[link]-(other:Entity {{org_id: $org_id}})
+      WHERE NOT type(link) = 'CITED_BY'
+      RETURN count(DISTINCT other) AS degree
+    }}
+    CALL {{
+      WITH neighbor
+      OPTIONAL MATCH (neighbor)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+      RETURN count(DISTINCT evidence) AS evidence_count
+    }}
     RETURN DISTINCT
         neighbor.id as id,
-        neighbor.name as name,
-        neighbor.entity_type as type,
-        neighbor.detail as description,
+        {node_fields.format(alias='neighbor')},
+        degree,
+        evidence_count,
         source.id as edge_source,
         target.id as edge_target,
-        type(r) as edge_type
+        type(r) as edge_type,
+        r.description as edge_description
     """
 
     params = _scoped_params(org_id, user, entity_id=entity_id)
@@ -3355,36 +3380,51 @@ async def get_entity_neighbors(
     center_query = f"""
     MATCH (e:Entity {{id: $entity_id, org_id: $org_id}})
     WHERE {_knowledge_scope('e')}
-    RETURN e.id as id, coalesce(e.name, e.statement) as name,
-           e.entity_type as type, e.detail as description
+    CALL {{
+      WITH e
+      OPTIONAL MATCH (e)-[link]-(other:Entity {{org_id: $org_id}})
+      WHERE NOT type(link) = 'CITED_BY'
+      RETURN count(DISTINCT other) AS degree
+    }}
+    CALL {{
+      WITH e
+      OPTIONAL MATCH (e)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+      RETURN count(DISTINCT evidence) AS evidence_count
+    }}
+    RETURN e.id as id,
+           {node_fields.format(alias='e')},
+           degree,
+           evidence_count
     """
     center = await GraphClient.run_query(center_query, params)
 
-    if center:
-        nodes[entity_id] = {
-            "id": center[0]["id"],
-            "name": center[0]["name"],
-            "type": center[0]["type"],
-            "description": center[0]["description"],
-            "isCenter": True
+    def _node(row: dict, *, is_center: bool) -> dict:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "type": row["type"],
+            "description": row["description"],
+            "status": row["status"],
+            "confidence": row["confidence"],
+            "degree": row["degree"],
+            "evidence_count": row["evidence_count"],
+            "isCenter": is_center,
         }
+
+    if center:
+        nodes[entity_id] = _node(center[0], is_center=True)
 
     for row in results:
         # Add neighbor node
         if row["id"] not in nodes:
-            nodes[row["id"]] = {
-                "id": row["id"],
-                "name": row["name"],
-                "type": row["type"],
-                "description": row["description"],
-                "isCenter": False
-            }
+            nodes[row["id"]] = _node(row, is_center=False)
 
         # Add edge
         edge = {
             "source": row["edge_source"],
             "target": row["edge_target"],
-            "type": row["edge_type"]
+            "type": row["edge_type"],
+            "description": row["edge_description"],
         }
         if edge not in edges:
             edges.append(edge)

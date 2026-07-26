@@ -21,7 +21,12 @@ export interface GraphNode {
   type: string
   description?: string | null
   status?: EntityStatus
-  confidence?: number | null
+  /**
+   * Extraction confidence. The pipeline writes a label (`high`/`medium`/`low`)
+   * but older records and fixtures carry a 0-1 score, so both survive here and
+   * the formatter decides how to read them.
+   */
+  confidence?: number | string | null
   degree?: number | null
   evidence_count?: number | null
 }
@@ -72,6 +77,12 @@ export interface GraphViewEdge {
   target: string
   label: string
   data: GraphEdge
+  /**
+   * Line thickness, which Reagraph also uses as the radius of the invisible
+   * tube it raycasts against. At the default of 1 the pickable tube is half a
+   * world unit wide and a relationship is essentially impossible to click.
+   */
+  size: number
 }
 
 export interface GraphView {
@@ -92,3 +103,15 @@ export type GraphSelection =
   | { kind: 'node'; id: string }
   | { kind: 'edge'; id: string }
   | null
+
+/**
+ * The camera actions the page drives from its own toolbar. Exposed as a plain
+ * object rather than a ref because the renderer is behind a dynamic import and
+ * `next/dynamic` does not forward refs.
+ */
+export interface GraphCanvasHandle {
+  fitView: () => void
+  zoomIn: () => void
+  zoomOut: () => void
+  centerOn: (nodeIds: string[]) => void
+}

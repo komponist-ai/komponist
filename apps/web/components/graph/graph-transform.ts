@@ -49,6 +49,20 @@ export const ENTITY_TYPES = ['Decision', 'Goal', 'Constraint', 'Project'] as con
 const MIN_NODE_SIZE = 7
 const MAX_NODE_SIZE = 16
 
+/**
+ * Entity statements are sentences, not names. Drawn in full they overlap into
+ * an unreadable mat of text, so the canvas gets a short form and the full text
+ * stays in the hover readout and the details panel.
+ */
+const MAX_LABEL_LENGTH = 24
+
+/**
+ * Edge thickness. Reagraph raycasts a tube of half this radius, so this is as
+ * much a hit-target size as a visual weight: thin enough to stay quiet behind
+ * the nodes, thick enough that a relationship can actually be clicked.
+ */
+const EDGE_SIZE = 3
+
 export function typeColor(type: string | undefined, theme: Theme): string {
   if (!type) return UNKNOWN_TYPE_COLOR[theme]
   return TYPE_COLORS[theme][type] ?? UNKNOWN_TYPE_COLOR[theme]
@@ -87,6 +101,27 @@ function normalizeText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
+/** Confidence arrives either as a 0-1 score or as a label. Keep whichever. */
+function normalizeConfidence(value: unknown): number | string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  return normalizeText(value)
+}
+
+/**
+ * Render confidence without pretending to a precision the record does not
+ * have: a score becomes a percentage, a label is shown as written, and a
+ * missing value stays missing.
+ */
+export function formatConfidence(value: number | string | null | undefined): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return `${Math.round(value * 100)}%`
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return value.charAt(0).toUpperCase() + value.slice(1)
+  }
+  return '—'
+}
+
 /**
  * Accept a raw API record without trusting its shape. A node with no usable id
  * is dropped rather than rendered as an anonymous dot.
@@ -103,7 +138,7 @@ export function normalizeNode(raw: unknown): GraphNode | null {
     type: typeof record.type === 'string' ? record.type : 'Unknown',
     description: normalizeText(record.description),
     status: normalizeStatus(record.status),
-    confidence: normalizeNumber(record.confidence),
+    confidence: normalizeConfidence(record.confidence),
     degree: normalizeNumber(record.degree),
     evidence_count: normalizeNumber(record.evidence_count),
   }
@@ -134,10 +169,16 @@ export function edgeId(edge: GraphEdge, occurrence = 0): string {
   return occurrence === 0 ? base : `${base}#${occurrence}`
 }
 
+export function truncateLabel(name: string): string {
+  const collapsed = name.trim().replace(/\s+/g, ' ')
+  if (collapsed.length <= MAX_LABEL_LENGTH) return collapsed
+  return `${collapsed.slice(0, MAX_LABEL_LENGTH - 1).trimEnd()}…`
+}
+
 export function toViewNode(node: GraphNode, theme: Theme): GraphViewNode {
   return {
     id: node.id,
-    label: node.name,
+    label: truncateLabel(node.name),
     data: node,
     fill: typeColor(node.type, theme),
     size: nodeSize(node.degree),
@@ -173,6 +214,7 @@ export function toViewEdges(edges: GraphEdge[], nodeIds: Set<string>): GraphView
       target: edge.target,
       label: relationshipLabel(edge.type),
       data: edge,
+      size: EDGE_SIZE,
     })
   }
 
