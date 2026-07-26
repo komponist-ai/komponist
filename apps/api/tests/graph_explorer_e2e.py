@@ -422,9 +422,16 @@ if __name__ == "__main__":
         count = int(sys.argv[2]) if len(sys.argv) > 2 else 40
         asyncio.run(seed(count))
     elif mode == "cleanup":
-        GraphClient.initialize()
-        asyncio.run(cleanup())
-        asyncio.run(GraphClient.close())
+        async def remove() -> None:
+            # One event loop for both: the driver binds to the loop it was
+            # opened on, and closing it from a second one raises on teardown.
+            GraphClient.initialize()
+            try:
+                await cleanup()
+            finally:
+                await GraphClient.close()
+
+        asyncio.run(remove())
         print("Fixture graph removed.")
     else:
         asyncio.run(run())
