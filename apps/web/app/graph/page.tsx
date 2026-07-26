@@ -5,9 +5,6 @@ import Link from 'next/link'
 import {
   ArrowLeft,
   ArrowUpRight,
-  Check,
-  CircleDot,
-  Download,
   Eye,
   EyeOff,
   Focus,
@@ -19,8 +16,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Sparkles,
-  Waypoints,
   X,
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
@@ -29,11 +24,11 @@ import { Button } from '../../components/ui/button'
 import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
 import { useTheme } from '../../components/ThemeProvider'
 import KnowledgeGraphCanvas from '../../components/graph/KnowledgeGraphCanvas'
+import GraphDetailsPanel from '../../components/graph/GraphDetailsPanel'
 import {
   ENTITY_TYPES,
   directNeighbors,
   entityPalette,
-  formatConfidence,
   mergeEdges,
   mergeNodes,
   neighborhoodIds,
@@ -57,8 +52,11 @@ const ALL_LABELS_BELOW = 30
 
 /**
  * The force layout keeps moving for a while after mount, so a single fit lands
- * on a graph that is still collapsing into place. Fitting a few times as it
- * settles costs nothing and avoids opening on an empty-looking canvas.
+ * on a graph that is still collapsing into place. A short burst of fits covers
+ * it. The burst stays short on purpose: each fit re-centres the graph, which
+ * re-triggers the edge springs, so late fits make the canvas flare rather than
+ * settle. Fitting also stops the moment the reader touches the camera, so the
+ * view never yanks itself out from under someone who has started exploring.
  */
 const FIT_DELAYS_MS = [400, 1200, 2400]
 
@@ -82,6 +80,18 @@ const SEARCH_DEBOUNCE_MS = 275
  */
 const MAX_EXPANSIONS = 25
 const MAX_VISIBLE_NODES = 600
+
+/**
+ * Above this many nodes the graph is drawn without animation.
+ *
+ * Reagraph animates each edge from the graph's centre to its endpoints. While
+ * the force layout is still moving, those springs keep restarting, and the
+ * canvas fills with long rays reaching out of the cluster to nothing — geometry
+ * caught mid-flight, not relationships. Small graphs settle before it shows;
+ * larger ones do not, so they skip the entrance entirely. It is also the
+ * cheaper way to draw a hundred nodes.
+ */
+const ANIMATE_BELOW = 40
 
 export default function GraphPage() {
   const { theme } = useTheme()
@@ -131,8 +141,15 @@ export default function GraphPage() {
   const requestSeq = useRef(0)
   const graphRequest = useRef<AbortController | null>(null)
 
+  // Once the reader pans or zooms, the graph is theirs; scheduled fits stop.
+  const viewAdjusted = useRef(false)
+
   const handleCanvasReady = useCallback((handle: GraphCanvasHandle) => {
     canvasHandle.current = handle
+  }, [])
+
+  const handleViewAdjusted = useCallback(() => {
+    viewAdjusted.current = true
   }, [])
 
   useEffect(() => {
@@ -287,6 +304,18 @@ export default function GraphPage() {
     [selectedNode, visibleNodes, visibleEdges],
   )
 
+  /**
+   * The relationships touching the selected node, so the panel can offer them
+   * as rows. Clicking a two-pixel line on a canvas is a poor way to reach a
+   * relationship; this is the same selection by a reliable route.
+   */
+  const incidentEdges = useMemo(() => {
+    if (!selectedNode) return []
+    return view.edges.filter(
+      edge => edge.source === selectedNode.id || edge.target === selectedNode.id,
+    )
+  }, [selectedNode, view.edges])
+
   const labelType = useMemo(() => {
     if (!showLabels) return 'none' as const
     return view.nodes.length <= ALL_LABELS_BELOW ? ('nodes' as const) : ('auto' as const)
@@ -295,9 +324,10 @@ export default function GraphPage() {
   // Refit whenever the visible set changes shape, as the layout settles.
   useEffect(() => {
     if (!view.nodes.length) return
-    const timeouts = FIT_DELAYS_MS.map(delay =>
-      window.setTimeout(() => canvasHandle.current?.fitView(), delay),
-    )
+    viewAdjusted.current = false
+    const timeouts = FIT_DELAYS_MS.map(delay => window.setTimeout(() => {
+      if (!viewAdjusted.current) canvasHandle.current?.fitView()
+    }, delay))
     return () => timeouts.forEach(window.clearTimeout)
   }, [view.nodes.length, focusNodeId])
 
@@ -393,6 +423,13 @@ export default function GraphPage() {
 
   const focusOn = useCallback((id: string) => {
     setFocusNodeId(id)
+    setSelection({ kind: 'node', id })
+    setDetailsOpen(true)
+  }, [])
+
+  /** Focus is a toggle: pressing it on the focused node returns to the overview. */
+  const toggleFocus = useCallback((id: string) => {
+    setFocusNodeId(current => (current === id ? null : id))
     setSelection({ kind: 'node', id })
     setDetailsOpen(true)
   }, [])
@@ -612,7 +649,7 @@ export default function GraphPage() {
                   actives={actives}
                   focusNodeId={focusNodeId}
                   labelType={labelType}
-                  animated={!reducedMotion}
+                  animated={!reducedMotion && view.nodes.length < ANIMATE_BELOW}
                   onSelectNode={selectNode}
                   onSelectEdge={selectEdge}
                   onClearSelection={clearSelection}
@@ -620,6 +657,7 @@ export default function GraphPage() {
                   onHoverNode={setHovered}
                   onHoverEdge={setHovered}
                   onReady={handleCanvasReady}
+                  onViewAdjusted={handleViewAdjusted}
                 />
 
                 {loading && (
@@ -682,167 +720,28 @@ export default function GraphPage() {
             </div>
 
             {detailsOpen && (
-              <aside className="graph-side-panel min-h-0 overflow-y-auto bg-white">
-                <div className="border-b-2 border-ink p-5">
-                  <div className="flex items-center justify-between">
-                    <p className="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">Graph overview</p>
-                    <button type="button" onClick={() => setDetailsOpen(false)} className="grid size-8 place-items-center rounded-md hover:bg-paper-2" aria-label="Close graph details"><X className="size-4" /></button>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <div className="rounded-lg border-2 border-ink bg-paper p-3">
-                      <strong className="block font-mono text-2xl">{(stats?.total_nodes ?? 0).toLocaleString()}</strong>
-                      <span className="text-[10px] font-semibold text-muted">Entities you can see</span>
-                    </div>
-                    <div className="rounded-lg border-2 border-ink bg-paper p-3">
-                      <strong className="block font-mono text-2xl">{(stats?.total_edges ?? 0).toLocaleString()}</strong>
-                      <span className="text-[10px] font-semibold text-muted">Relationships</span>
-                    </div>
-                  </div>
-                  {truncated && (
-                    <p className="mt-3 rounded-md bg-warning-soft p-2.5 text-[10px] leading-4 text-orange-dark">
-                      This is the {serverNodes.length.toLocaleString()} best-connected
-                      of {total.toLocaleString()} matching entities — enough to stay readable.
-                      Search or filter to change what is drawn, or open a node and use
-                      Neighbors to pull in what it connects to.
-                    </p>
-                  )}
-                  {expandedIds.length > 0 && (
-                    <p className="mt-3 rounded-md border border-line bg-paper p-2.5 text-[10px] leading-4 text-muted">
-                      {expandedIds.length === 1
-                        ? '1 neighbourhood added to the overview.'
-                        : `${expandedIds.length} neighbourhoods added to the overview.`}
-                      {' '}Back to overview clears them.
-                    </p>
-                  )}
-                </div>
-
-                {selectedNode ? (
-                  <div className="p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <span
-                        className="rounded-full border border-ink px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-white"
-                        style={{ background: typeColor(selectedNode.type, theme) }}
-                      >
-                        {selectedNode.type}
-                      </span>
-                      <span className={`flex items-center gap-1.5 text-[10px] font-bold ${selectedNode.status === 'confirmed' ? 'text-teal' : 'text-orange-dark'}`}>
-                        {selectedNode.status === 'confirmed' ? <Check className="size-3.5" /> : <CircleDot className="size-3.5" />}
-                        {selectedNode.status ?? 'unknown'}
-                      </span>
-                    </div>
-                    <h2 className="mt-4 text-2xl font-bold leading-tight">{selectedNode.name}</h2>
-                    {selectedNode.description && <p className="mt-3 text-sm leading-6 text-ink-2">{selectedNode.description}</p>}
-
-                    <div className="mt-5 grid grid-cols-3 gap-2">
-                      {[
-                        [selectedNode.degree ?? '—', 'Links'],
-                        [selectedNode.evidence_count ?? '—', 'Sources'],
-                        [formatConfidence(selectedNode.confidence), 'Confidence'],
-                      ].map(([value, label]) => (
-                        <div key={label as string} className="rounded-md border border-line bg-paper p-2 text-center">
-                          <strong className="block font-mono text-sm">{value}</strong>
-                          <span className="text-[9px] text-muted">{label}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="mt-5 grid grid-cols-2 gap-2">
-                      <Button
-                        size="sm"
-                        variant={focusNodeId === selectedNode.id ? 'default' : 'outline'}
-                        onClick={() => (focusNodeId === selectedNode.id ? backToOverview() : focusOn(selectedNode.id))}
-                      >
-                        <Focus /> {focusNodeId === selectedNode.id ? 'Focused' : 'Focus'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="subtle"
-                        onClick={() => void expandNode(selectedNode.id)}
-                        disabled={expanding === selectedNode.id}
-                      >
-                        <Waypoints className={expanding === selectedNode.id ? 'animate-pulse' : ''} />
-                        {expandedIds.includes(selectedNode.id) ? 'Expanded' : 'Neighbors'}
-                      </Button>
-                    </div>
-                    <Button asChild size="sm" variant="ghost" className="mt-2 w-full">
-                      <Link href="/entities">Browse entities <ArrowUpRight /></Link>
-                    </Button>
-
-                    {selectedNeighbors.length > 0 && (
-                      <div className="mt-7 border-t border-line pt-5">
-                        <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">Connected knowledge</p>
-                        <div className="mt-3 space-y-2">
-                          {selectedNeighbors.slice(0, 8).map(node => (
-                            <button
-                              key={node.id}
-                              type="button"
-                              onClick={() => selectAndCenter(node.id)}
-                              className="flex w-full items-center gap-3 rounded-lg border border-line bg-paper p-2.5 text-left transition hover:border-ink"
-                            >
-                              <span className="size-2.5 shrink-0 rounded-full" style={{ background: typeColor(node.type, theme) }} />
-                              <span className="min-w-0">
-                                <strong className="block truncate text-xs">{node.name}</strong>
-                                <span className="font-mono text-[8px] uppercase text-muted">{node.type}</span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : selectedEdge ? (
-                  <div className="p-5">
-                    <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-orange-dark">Relationship</p>
-                    <h2 className="mt-3 text-2xl font-bold">{selectedEdge.label}</h2>
-                    <p className="mt-3 text-sm leading-6 text-muted">
-                      {selectedEdge.data.description || 'No description was recorded for this relationship.'}
-                    </p>
-                    <div className="mt-5 space-y-2">
-                      {([['From', selectedEdge.source], ['To', selectedEdge.target]] as const).map(([role, id]) => {
-                        const node = nodesById.get(id)
-                        if (!node) return null
-                        return (
-                          <button key={id} type="button" onClick={() => selectAndCenter(node.id)} className="w-full rounded-lg border-2 border-ink bg-paper p-3 text-left">
-                            <span className="font-mono text-[8px] uppercase text-muted">{role} · {node.type}</span>
-                            <strong className="mt-1 block text-sm">{node.name}</strong>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-5">
-                    <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-info-soft">
-                      <Sparkles className="size-5" />
-                    </span>
-                    <h2 className="mt-5 text-2xl font-bold">Explore the context</h2>
-                    <p className="mt-3 text-sm leading-6 text-muted">
-                      Select a node to inspect its evidence, confidence, and direct neighbors. Select a line to inspect the relationship.
-                    </p>
-                    <div className="mt-5 space-y-2 rounded-lg border border-line bg-paper p-3 text-[11px] leading-5 text-muted">
-                      <p><strong className="text-ink">Tap</strong> a node or relationship for details.</p>
-                      <p><strong className="text-ink">Double-tap</strong> a node, or use Neighbors, to pull in what it connects to.</p>
-                      <p><strong className="text-ink">Drag and pinch</strong> to move around the canvas.</p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="border-t-2 border-ink p-5">
-                  <div className="flex items-center justify-between">
-                    <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">Relationship types</p>
-                    <button type="button" onClick={exportGraph} className="flex items-center gap-1.5 text-[10px] font-bold text-orange-dark hover:underline">
-                      <Download className="size-3.5" /> Export JSON
-                    </button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {Object.entries(stats?.edges_by_type ?? {}).slice(0, 8).map(([type, count]) => (
-                      <span key={type} className="rounded-full border border-line bg-paper px-2.5 py-1 font-mono text-[8px] font-semibold">
-                        {relationshipLabel(type)} · {count}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </aside>
+              <GraphDetailsPanel
+                theme={theme}
+                stats={stats}
+                coverage={coverage}
+                truncated={truncated}
+                overviewCount={serverNodes.length}
+                total={total}
+                expandedIds={expandedIds}
+                selectedNode={selectedNode}
+                selectedEdge={selectedEdge}
+                neighbors={selectedNeighbors}
+                incidentEdges={incidentEdges}
+                nodesById={nodesById}
+                focusNodeId={focusNodeId}
+                expandingId={expanding}
+                onClose={() => setDetailsOpen(false)}
+                onSelectNode={selectAndCenter}
+                onSelectEdge={selectEdge}
+                onFocus={toggleFocus}
+                onExpand={handleExpandNode}
+                onExport={exportGraph}
+              />
             )}
           </div>
         )}

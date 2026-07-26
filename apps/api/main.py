@@ -432,6 +432,19 @@ async def _authorized_org_user(
     return user
 
 
+def _isoformat(value: Any) -> Optional[str]:
+    """Render a Neo4j temporal as a string.
+
+    The driver returns `neo4j.time.DateTime`, which FastAPI's encoder walks
+    attribute by attribute — producing `{"_DateTime__date": {"_Date__year": …}}`
+    rather than a date any client can read. `str()` on these types already
+    yields ISO 8601, and is what the rest of the codebase relies on.
+    """
+    if value is None:
+        return None
+    return value if isinstance(value, str) else str(value)
+
+
 def _knowledge_scope_params(user: dict) -> dict:
     return {
         "access_all_departments": bool(user.get("access_all_departments")),
@@ -780,8 +793,14 @@ async def get_entity(entity_id: str, request: Request, org_id: str = Query(...))
         raise HTTPException(status_code=404, detail="Entity not found")
 
     entity = results[0]
-    entity["evidence"] = [e for e in entity.get("evidence", []) if e.get("id")]
+    entity["evidence"] = [
+        {**e, "source_date": _isoformat(e.get("source_date"))}
+        for e in entity.get("evidence", [])
+        if e.get("id")
+    ]
     entity["superseded"] = [s for s in entity.get("superseded", []) if s.get("id")]
+    for field in ("created_at", "confirmed_at"):
+        entity[field] = _isoformat(entity.get(field))
 
     return entity
 

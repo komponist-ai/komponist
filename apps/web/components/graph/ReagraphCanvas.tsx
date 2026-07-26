@@ -52,6 +52,8 @@ export interface ReagraphCanvasProps {
   onHoverNode: (id: string | null) => void
   onHoverEdge: (id: string | null) => void
   onReady: (handle: GraphCanvasHandle) => void
+  /** Fires the moment the reader takes hold of the camera themselves. */
+  onViewAdjusted: () => void
 }
 
 /**
@@ -82,6 +84,7 @@ export default function ReagraphCanvas({
   onHoverNode,
   onHoverEdge,
   onReady,
+  onViewAdjusted,
 }: ReagraphCanvasProps) {
   const canvasRef = useRef<GraphCanvasRef | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -175,15 +178,23 @@ export default function ReagraphCanvas({
   }, [onClearSelection])
 
   return (
-    <div ref={containerRef} className="absolute inset-0">
+    <div
+      ref={containerRef}
+      className="absolute inset-0"
+      onPointerDownCapture={onViewAdjusted}
+      onWheelCapture={onViewAdjusted}
+    >
       <GraphCanvas
         ref={canvasRef}
         nodes={nodes}
         edges={edges}
         theme={activeTheme}
-        // A knowledge graph has no inherent third dimension, and a rotatable
-        // camera makes a 2D layout much harder to read and to click.
-        layoutType="forceDirected2d"
+        // ForceAtlas2 over the plain force layout: on a graph with long chains
+        // of decisions it pulls the structure apart into something readable,
+        // where forceDirected2d was still a knot after several seconds. No
+        // third dimension and no rotation — a knowledge graph has neither, and
+        // an orbiting camera makes a 2D layout harder to read and to click.
+        layoutType="forceatlas2"
         cameraMode="pan"
         sizingType="default"
         defaultNodeSize={7}

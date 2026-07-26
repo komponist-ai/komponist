@@ -90,6 +90,27 @@ export interface GraphView {
   edges: GraphViewEdge[]
 }
 
+/**
+ * A source behind an entity, as `/entities/{id}` returns it. `url` and
+ * `source_date` are `unknown` rather than optional strings because they come
+ * straight out of the graph driver, and the panel checks their shape before
+ * showing them.
+ */
+export interface EvidenceRef {
+  id: string
+  source: string
+  reference: string
+  url?: unknown
+  excerpt?: string | null
+  source_date?: unknown
+}
+
+/** The parts of `/entities/{id}` the graph panel reads. */
+export interface EntityDetail {
+  id: string
+  evidence: EvidenceRef[]
+}
+
 export type GraphStatusFilter = 'all' | 'confirmed' | 'proposed'
 
 /**
