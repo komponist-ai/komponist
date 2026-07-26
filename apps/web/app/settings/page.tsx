@@ -163,9 +163,12 @@ export default function SettingsPage() {
                       aria-label="Auto-publish extracted knowledge"
                       onClick={() => setSettings(current => ({ ...current, auto_confirm: !current.auto_confirm }))}
                       disabled={!canManage}
-                      className={`relative h-8 w-14 shrink-0 rounded-full border-2 border-ink transition disabled:cursor-not-allowed disabled:opacity-45 ${settings.auto_confirm ? 'bg-orange' : 'bg-paper-3'}`}
+                      className={`relative h-8 w-14 shrink-0 rounded-full border-2 border-ink transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange/25 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45 ${settings.auto_confirm ? 'bg-orange' : 'bg-paper-3'}`}
                     >
-                      <span className={`absolute top-1 size-5 rounded-full border-2 border-ink bg-white transition-transform ${settings.auto_confirm ? 'translate-x-6' : 'translate-x-1'}`} />
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none absolute left-[3px] top-1/2 size-5 -translate-y-1/2 rounded-full border-2 border-ink bg-white shadow-[1px_1px_0_#201c15] transition-transform duration-200 ${settings.auto_confirm ? 'translate-x-7' : 'translate-x-0'}`}
+                      />
                     </button>
                   )}
                 />
