@@ -208,6 +208,17 @@ async def run() -> None:
             assert created.status_code == 201, created.text
             room_id = created.json()["id"]
             seeded_task_id = created.json()["tasks"][0]["id"]
+            manual = await owner_c.post(
+                f"/workrooms/{room_id}/tasks",
+                params={"org_id": org_id},
+                json={
+                    "title": "Keep the manually added task",
+                    "description": "This task was deliberately added by a person.",
+                    "assignee_type": "agent",
+                },
+            )
+            assert manual.status_code == 201, manual.text
+            manual_task_id = manual.json()["id"]
 
             # --- Generation produces a draft, not an active plan ----------
             generated = await owner_c.post(
@@ -230,7 +241,7 @@ async def run() -> None:
             before = await owner_c.get(
                 f"/workrooms/{room_id}", params={"org_id": org_id}
             )
-            assert len(before.json()["tasks"]) == 1, before.json()["tasks"]
+            assert len(before.json()["tasks"]) == 2, before.json()["tasks"]
             print("✓ a generated plan starts as an unapproved draft")
 
             # --- Editing a draft is held to the same rules ----------------
@@ -308,9 +319,11 @@ async def run() -> None:
                 by_key["gather-context"]["id"]
             ]
             assert by_key["brief-the-team"]["requires_approval"] is True
-            # The hand-made seeded task is untouched by plan approval.
-            assert any(task["id"] == seeded_task_id for task in tasks), tasks
-            print("✓ approval materialises tasks and preserves hand-made ones")
+            # The temporary quick-start task is replaced, while real
+            # person-authored work survives plan approval.
+            assert all(task["id"] != seeded_task_id for task in tasks), tasks
+            assert any(task["id"] == manual_task_id for task in tasks), tasks
+            print("✓ approval replaces the quick-start task and preserves manual work")
 
             # --- Approving twice is rejected ------------------------------
             again = await owner_c.post(
@@ -398,7 +411,7 @@ async def run() -> None:
             assert reordered.json()["tasks"][0]["id"] == target
 
             archived = await owner_c.delete(
-                f"/workrooms/{room_id}/tasks/{seeded_task_id}",
+                f"/workrooms/{room_id}/tasks/{manual_task_id}",
                 params={"org_id": org_id},
             )
             assert archived.status_code == 200, archived.text
@@ -406,7 +419,7 @@ async def run() -> None:
                 f"/workrooms/{room_id}", params={"org_id": org_id}
             )
             assert all(
-                task["id"] != seeded_task_id for task in remaining.json()["tasks"]
+                task["id"] != manual_task_id for task in remaining.json()["tasks"]
             ), remaining.json()["tasks"]
             print("✓ tasks can be assigned, reordered, and archived")
 

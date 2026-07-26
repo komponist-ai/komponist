@@ -52,6 +52,13 @@ SYSTEM_PROMPT = (
     "row 0, then detail, then supporting evidence last.\n"
     "- Never invent a company fact. You are describing which questions the "
     "view should ask, not answering them; the server fills in the data.\n"
+    "- For a metric about one concrete field such as date, venue, budget, "
+    "owner, or sponsor, use entity_fact. Put the shared subject in "
+    "binding.entity_name and the exact concept in binding.field.\n"
+    "- When the context gives the exact entity id a component needs, include "
+    "it in binding.entity_ids. Prefer this over a broad name match.\n"
+    "- A timeline is only for dates asserted by the facts. It never represents "
+    "upload, extraction, or review activity.\n"
     "- Use markdown_narrative sparingly, and only when you can name the "
     "confirmed facts it is based on in binding.entity_ids.\n"
     "- Never include a URL, a Markdown link, or a Markdown image anywhere.\n"
@@ -65,7 +72,7 @@ SYSTEM_PROMPT = (
 
 def _context_block(context_lines: list[str], entity_types: list[str]) -> str:
     types = ", ".join(entity_types) if entity_types else "(none yet)"
-    facts = "\n".join(f"- {line}" for line in context_lines[:20])
+    facts = "\n".join(f"- {line}" for line in context_lines[:48])
     if not facts:
         facts = "- (No confirmed company facts are visible to this user yet.)"
     return f"Entity types available: {types}\n\nSample confirmed facts:\n{facts}"

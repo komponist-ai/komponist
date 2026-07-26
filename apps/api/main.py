@@ -5225,22 +5225,60 @@ async def start_workroom_run(
     if room_bundle is None:
         raise HTTPException(status_code=404, detail="Workroom not found")
     task_id = payload.task_id
+    tasks_by_id = {task["id"]: task for task in room_bundle["tasks"]}
+    completed_ids = {
+        task["id"] for task in room_bundle["tasks"]
+        if task["status"] == "completed"
+    }
+
+    def runnable(task: dict) -> bool:
+        return (
+            task["status"] != "completed"
+            and task["assignee_type"] == "agent"
+            and all(dependency in completed_ids for dependency in task["depends_on"])
+        )
+
     if task_id is None:
         task_id = next(
             (
                 task["id"]
                 for task in room_bundle["tasks"]
-                if task["status"] != "completed"
-                and task["assignee_type"] == "agent"
+                if runnable(task)
             ),
             None,
         )
+        if room_bundle["tasks"] and task_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "No agent task is ready. Complete its dependencies or assign "
+                    "a runnable task to an agent first."
+                ),
+            )
+    selected_task = tasks_by_id.get(task_id) if task_id else None
+    if task_id and selected_task is None:
+        raise HTTPException(status_code=404, detail="Task not found in this Workroom")
+    if selected_task and selected_task["assignee_type"] != "agent":
+        raise HTTPException(
+            status_code=409, detail="This task is assigned to a person, not the agent"
+        )
+    if selected_task and selected_task["status"] == "completed":
+        raise HTTPException(status_code=409, detail="This task is already complete")
+    if selected_task and not runnable(selected_task):
+        blocked_by = [
+            tasks_by_id[dependency]["title"]
+            for dependency in selected_task["depends_on"]
+            if dependency in tasks_by_id and dependency not in completed_ids
+        ]
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Complete the dependencies first"
+                + (f": {', '.join(blocked_by)}" if blocked_by else "")
+            ),
+        )
     instruction = " ".join(payload.instruction.split()).strip()
     if not instruction:
-        selected_task = next(
-            (task for task in room_bundle["tasks"] if task["id"] == task_id),
-            None,
-        )
         instruction = (
             selected_task["description"]
             if selected_task and selected_task["description"]

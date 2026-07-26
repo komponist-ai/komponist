@@ -433,6 +433,22 @@ export default function WorkroomsPage() {
       ?? room?.runs[0] ?? null,
     [room?.runs],
   )
+  const completedTaskIds = useMemo(
+    () => new Set(
+      room?.tasks
+        .filter((task) => task.status === 'completed')
+        .map((task) => task.id) ?? [],
+    ),
+    [room?.tasks],
+  )
+  const runnableAgentTasks = useMemo(
+    () => room?.tasks.filter((task) => (
+      task.assignee_type === 'agent'
+      && task.status !== 'completed'
+      && task.depends_on.every((dependencyId) => completedTaskIds.has(dependencyId))
+    )) ?? [],
+    [completedTaskIds, room?.tasks],
+  )
   const isArchived = room?.status === 'archived'
   const canEdit = roomCan(room?.room_role, 'edit') && !isArchived
   const canApprove = roomCan(room?.room_role, 'approve') && !isArchived
@@ -743,17 +759,20 @@ export default function WorkroomsPage() {
           </Button>
         </>
       ) : (
-        <Button size="sm" onClick={() => void startAgent()} disabled={working || !canEdit}>
-          {working ? <Loader2 className="animate-spin" /> : <Play />} Start agent
+        <Button
+          size="sm"
+          onClick={() => void startAgent()}
+          disabled={working || !canEdit || runnableAgentTasks.length === 0}
+        >
+          {working ? <Loader2 className="animate-spin" /> : <Play />}
+          {runnableAgentTasks.length === 0 ? 'No agent task ready' : 'Start agent'}
         </Button>
       )}
     </div>
   )
 
-  const overviewTab = room && (
-    <div className="space-y-4">
-      {activeRun?.status === 'awaiting_approval' && (
-        <SectionCard title="Approval required" icon={ShieldCheck}>
+  const approvalPanel = room && activeRun?.status === 'awaiting_approval' && (
+    <SectionCard title="Approval required" icon={ShieldCheck}>
           <p className="text-xs leading-5 text-ink-2">{activeRun.result?.summary}</p>
           <div className="mt-3 space-y-2">
             {(activeRun.context_snapshot.sources ?? []).slice(0, 4).map((source) => (
@@ -779,9 +798,11 @@ export default function WorkroomsPage() {
           {!canApprove && (
             <p className="mt-2 text-[11px] text-muted">Your room role cannot approve deliverables.</p>
           )}
-        </SectionCard>
-      )}
+    </SectionCard>
+  )
 
+  const overviewTab = room && (
+    <div className="space-y-4">
       {activeRun?.status === 'failed' && (
         <SectionCard title="Last attempt failed" icon={AlertTriangle}>
           <p className="text-xs leading-5 text-ink-2">
@@ -933,6 +954,9 @@ export default function WorkroomsPage() {
           <ul className="space-y-2">
             {room.tasks.map((task, index) => {
               const runs = room.runs.filter((run) => run.task_id === task.id)
+              const blockedBy = task.depends_on.filter(
+                (dependency) => !completedTaskIds.has(dependency),
+              )
               return (
                 <li key={task.id} className="rounded-lg border border-line bg-paper-2 px-3 py-2">
                   <div className="flex items-start gap-2">
@@ -949,7 +973,9 @@ export default function WorkroomsPage() {
                         </Badge>
                         {task.depends_on.length > 0 && (
                           <Badge className="border-line bg-white text-[9px] text-muted">
-                            {task.depends_on.length} dependency
+                            {blockedBy.length > 0
+                              ? `Waiting for ${blockedBy.length}`
+                              : `${task.depends_on.length} dependencies ready`}
                           </Badge>
                         )}
                         {runs.length > 0 && (
@@ -979,8 +1005,14 @@ export default function WorkroomsPage() {
                   </div>
                   {task.assignee_type === 'agent' && task.status !== 'completed' && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <Button size="sm" variant="subtle" onClick={() => void startAgent(task.id)} disabled={working || !canEdit}>
-                        <Play /> Run this task
+                      <Button
+                        size="sm"
+                        variant="subtle"
+                        onClick={() => void startAgent(task.id)}
+                        disabled={working || !canEdit || blockedBy.length > 0}
+                      >
+                        {blockedBy.length > 0 ? <Clock3 /> : <Play />}
+                        {blockedBy.length > 0 ? 'Waiting for dependencies' : 'Run this task'}
                       </Button>
                     </div>
                   )}
@@ -1406,7 +1438,14 @@ export default function WorkroomsPage() {
                         onClick={() => void (activeRun && activeRunStatuses.includes(activeRun.status)
                           ? redirectAgent()
                           : startAgent())}
-                        disabled={working || (!direction.trim() && !!activeRun)}
+                        disabled={
+                          working
+                          || (!direction.trim() && !!activeRun)
+                          || (
+                            (!activeRun || !activeRunStatuses.includes(activeRun.status))
+                            && runnableAgentTasks.length === 0
+                          )
+                        }
                       >
                         {activeRun && activeRunStatuses.includes(activeRun.status)
                           ? <><RotateCcw /> Redirect</>
@@ -1415,6 +1454,12 @@ export default function WorkroomsPage() {
                     </div>
                   )}
                 </header>
+
+                {approvalPanel && (
+                  <div className="border-b-2 border-ink bg-warning-soft p-3 sm:px-6 sm:py-4">
+                    {approvalPanel}
+                  </div>
+                )}
 
                 <nav
                   className="grid grid-cols-3 border-b-2 border-ink bg-white px-2 sm:flex sm:gap-1 sm:overflow-x-auto sm:px-4"

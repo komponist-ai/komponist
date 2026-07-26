@@ -507,6 +507,18 @@ async def approve_draft(
             if task.client_key and task.client_key not in planned_keys:
                 task.archived_at = now
                 task.updated_at = now
+            # A newly created room contains one temporary quick-start task so
+            # it works before a plan exists. Once an approved plan takes over,
+            # keeping that generic task would duplicate the first planned
+            # research step and make progress counts misleading.
+            elif (
+                not task.client_key
+                and task.title == "Research and prepare a grounded briefing"
+                and task.status == "todo"
+                and task.artifact_id is None
+            ):
+                task.archived_at = now
+                task.updated_at = now
 
         version.status = "approved"
         version.approved_by_user_id = user_id

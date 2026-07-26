@@ -93,7 +93,7 @@ NORTHSTAR_COMMAND_CENTER: dict[str, Any] = {
             "id": "milestones",
             "type": "timeline",
             "title": "Milestones",
-            "description": "Confirmed events, most recent first.",
+            "description": "Confirmed events in chronological order.",
             "narrative": "",
             "position": {"row": 2, "column": 0, "width": 7},
             "binding": _binding("timeline_events", limit=12),

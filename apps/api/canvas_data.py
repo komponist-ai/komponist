@@ -26,6 +26,8 @@ cannot verify.
 
 import asyncio
 import re
+import unicodedata
+from datetime import datetime
 from typing import Any, Optional
 
 from core.graph import GraphClient
@@ -54,6 +56,56 @@ _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ].*)?$")
 # A whole canvas must not be able to pull an unbounded slice of the graph.
 CANVAS_ROW_BUDGET = 400
 
+_TOKEN_PATTERN = re.compile(r"[a-z0-9äöüß]+")
+_FACT_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in",
+    "is", "of", "on", "or", "the", "to", "with", "der", "die", "das", "den",
+    "dem", "des", "ein", "eine", "einer", "einem", "einen", "und", "oder",
+}
+_FIELD_ALIASES = {
+    "date": {
+        "date", "dated", "deadline", "scheduled", "schedule", "timing", "when",
+        "held", "takes", "place", "occurs", "event", "termin", "datum", "frist",
+    },
+    "venue": {
+        "venue", "location", "room", "hall", "site", "where", "ort", "raum",
+        "veranstaltungsort",
+    },
+    "sponsor": {
+        "sponsor", "sponsors", "sponsorship", "partnership", "funded",
+        "funds", "backed", "secured", "förderer", "kooperation",
+    },
+    "budget": {
+        "budget", "cost", "costs", "price", "amount", "funding", "spend",
+        "expense", "expenses", "euro", "eur", "kosten", "betrag",
+    },
+    "owner": {
+        "owner", "responsible", "lead", "contact", "assignee", "owned",
+        "verantwortlich", "zuständig",
+    },
+    "status": {
+        "status", "state", "progress", "ready", "readiness", "blocked",
+        "confirmed", "approved", "stand", "fortschritt",
+    },
+}
+_MONTHS = {
+    "january": 1, "jan": 1, "januar": 1,
+    "february": 2, "feb": 2, "februar": 2,
+    "march": 3, "mar": 3, "märz": 3, "maerz": 3,
+    "april": 4, "apr": 4,
+    "may": 5, "mai": 5,
+    "june": 6, "jun": 6, "juni": 6,
+    "july": 7, "jul": 7, "juli": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sep": 9, "sept": 9,
+    "october": 10, "oct": 10, "oktober": 10, "okt": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "dec": 12, "dezember": 12, "dez": 12,
+}
+_MONTH_PATTERN = "|".join(
+    sorted((re.escape(month) for month in _MONTHS), key=len, reverse=True)
+)
+
 
 def _scope_params(user: dict) -> dict[str, Any]:
     """Department scope taken from the caller, never from the spec."""
@@ -61,6 +113,172 @@ def _scope_params(user: dict) -> dict[str, Any]:
         "access_all_departments": bool(user.get("access_all_departments")),
         "department_ids": user.get("department_ids") or [],
     }
+
+
+def _tokens(value: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", value or "").casefold()
+    return {
+        token for token in _TOKEN_PATTERN.findall(normalized)
+        if len(token) > 1 and token not in _FACT_STOPWORDS
+    }
+
+
+def _expanded_field_tokens(field: str) -> set[str]:
+    tokens = _tokens(field)
+    concepts: set[str] = set()
+    for concept, aliases in _FIELD_ALIASES.items():
+        if concept in tokens or tokens & aliases:
+            concepts.add(concept)
+    if not concepts:
+        return tokens
+    # Once a known concept is recognized, generic modifiers from the label
+    # (for example "approved" in "Approved date") must not count as semantic
+    # evidence. Otherwise any approved fact about the same project could win.
+    return {
+        alias
+        for concept in concepts
+        for alias in _FIELD_ALIASES[concept]
+    }
+
+
+def _fact_relevance(record: dict, subject: str, field: str) -> float:
+    """Score a candidate without letting a shared project name win alone.
+
+    A fact must cover the subject and, when supplied, at least one semantic
+    alias of the requested field. This makes "Campus Forum — admission is
+    free" ineligible for a Venue metric even though both facts name the same
+    event.
+    """
+    haystack = " ".join(filter(None, [
+        record.get("statement"), record.get("detail"),
+        " ".join(
+            str(item.get("excerpt") or "")
+            for item in (record.get("evidence") or [])
+        ),
+    ]))
+    haystack_tokens = _tokens(haystack)
+    subject_tokens = _tokens(subject)
+    field_tokens = _expanded_field_tokens(field)
+
+    if subject_tokens:
+        subject_matches = len(subject_tokens & haystack_tokens)
+        required = max(1, (len(subject_tokens) + 1) // 2)
+        if subject_matches < required:
+            return -1.0
+        subject_score = subject_matches / len(subject_tokens)
+    else:
+        subject_score = 0.0
+
+    if field_tokens:
+        field_matches = len(field_tokens & haystack_tokens)
+        if field_matches == 0:
+            return -1.0
+        # One precise semantic match is enough; repeated generic words should
+        # not outweigh the subject match.
+        field_score = min(1.0, field_matches / 2)
+    else:
+        field_score = 0.0
+
+    exact_subject = 1.0 if subject.casefold() in haystack.casefold() else 0.0
+    return subject_score * 0.55 + field_score * 0.35 + exact_subject * 0.10
+
+
+def _deduplicate_records(records: list[dict]) -> list[dict]:
+    """Drop repeated or near-identical extracted statements deterministically."""
+    kept: list[dict] = []
+    fingerprints: list[tuple[str, set[str]]] = []
+    for record in records:
+        entity_type = str(record.get("entity_type") or "Fact").casefold()
+        statement_tokens = _tokens(str(record.get("statement") or ""))
+        duplicate = False
+        for known_type, known_tokens in fingerprints:
+            if entity_type != known_type or not statement_tokens or not known_tokens:
+                continue
+            overlap = len(statement_tokens & known_tokens)
+            similarity = overlap / max(len(statement_tokens), len(known_tokens))
+            if similarity >= 0.9:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(record)
+            fingerprints.append((entity_type, statement_tokens))
+    return kept
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    text = str(value).replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _explicit_fact_date(record: dict) -> Optional[str]:
+    """Extract the date asserted by the fact, never its review timestamp."""
+    evidence = record.get("evidence") or []
+    text = " ".join(filter(None, [
+        str(record.get("statement") or ""),
+        str(record.get("detail") or ""),
+        " ".join(str(item.get("excerpt") or "") for item in evidence),
+    ]))
+    source_dates = [
+        parsed for parsed in (
+            _parse_datetime(item.get("source_date")) for item in evidence
+        ) if parsed is not None
+    ]
+    fallback_year = max(source_dates).year if source_dates else datetime.utcnow().year
+
+    iso = re.search(r"\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b", text)
+    if iso:
+        year, month, day = map(int, iso.groups())
+        try:
+            return datetime(year, month, day).isoformat()
+        except ValueError:
+            pass
+
+    day_first = re.search(
+        rf"\b(0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th|\.)?\s+({_MONTH_PATTERN})"
+        r"(?:\s*,?\s*(20\d{2}))?\b",
+        text.casefold(),
+    )
+    if day_first:
+        day = int(day_first.group(1))
+        month = _MONTHS[day_first.group(2)]
+        year = int(day_first.group(3) or fallback_year)
+        try:
+            return datetime(year, month, day).isoformat()
+        except ValueError:
+            pass
+
+    month_first = re.search(
+        rf"\b({_MONTH_PATTERN})\s+(0?[1-9]|[12]\d|3[01])"
+        r"(?:st|nd|rd|th)?(?:\s*,?\s*(20\d{2}))?\b",
+        text.casefold(),
+    )
+    if month_first:
+        month = _MONTHS[month_first.group(1)]
+        day = int(month_first.group(2))
+        year = int(month_first.group(3) or fallback_year)
+        try:
+            return datetime(year, month, day).isoformat()
+        except ValueError:
+            pass
+
+    month_only = re.search(
+        rf"\b({_MONTH_PATTERN})(?:\s+(20\d{{2}}))?\b",
+        text.casefold(),
+    )
+    if month_only:
+        month = _MONTHS[month_only.group(1)]
+        # "may" is commonly a modal verb; without a year it is not reliable
+        # enough to turn into a milestone.
+        if month_only.group(1) == "may" and not month_only.group(2):
+            return None
+        year = int(month_only.group(2) or fallback_year)
+        return datetime(year, month, 1).isoformat()
+    return None
 
 
 def _knowledge_scope(alias: str) -> str:
@@ -257,6 +475,7 @@ async def _entity_list(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
         },
     )
 
+    records = _deduplicate_records(records)
     rows = [_entity_row(record) for record in records]
     sources: dict[str, dict] = {}
     for record in records:
@@ -316,42 +535,48 @@ async def _entity_fact(org_id: str, user: dict, binding: Any) -> dict[str, Any]:
     statements, so inventing a `duration` field would return nothing useful.
     """
     where, params = _entity_where(binding, "e")
-    terms = " ".join(part for part in [binding.entity_name, binding.field] if part)
+    id_clause = "AND e.id IN $entity_ids" if binding.entity_ids else ""
     records = await _run(
         f"""
         MATCH (e:Entity)
         WHERE e.org_id = $org_id AND e.status = 'confirmed'
           AND {_knowledge_scope('e')}
-          AND toLower(coalesce(e.statement, '')) CONTAINS toLower($subject)
           {where}
+          {id_clause}
         OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
         WHERE ev.org_id = $org_id AND {_evidence_scope('ev')}
-        WITH e, collect(DISTINCT ev) AS evidence,
-             CASE WHEN toLower(coalesce(e.statement, '')) CONTAINS toLower($terms)
-                  THEN 1 ELSE 0 END AS exact
+        WITH e, collect(DISTINCT ev) AS evidence
         WHERE size(evidence) > 0
-        ORDER BY exact DESC, e.confirmed_at DESC
-        LIMIT 1
+        ORDER BY e.confirmed_at DESC, e.updated_at DESC
+        LIMIT 100
         RETURN e.id AS id, e.entity_type AS entity_type, e.statement AS statement,
                e.detail AS detail, e.confidence AS confidence,
                e.department_ids AS department_ids, e.created_at AS created_at,
+               e.confirmed_at AS confirmed_at,
                [item IN evidence WHERE item IS NOT NULL | item.id] AS source_ids,
                {_EVIDENCE_PROJECTION} AS evidence
         """,
         {
             "org_id": org_id,
-            "subject": binding.entity_name,
-            "terms": terms,
+            "entity_ids": binding.entity_ids,
             **_scope_params(user),
             **params,
         },
     )
-    if not records:
+    ranked = sorted(
+        (
+            (_fact_relevance(record, binding.entity_name, binding.field), index, record)
+            for index, record in enumerate(records)
+        ),
+        key=lambda item: (-item[0], item[1]),
+    )
+    if not ranked or ranked[0][0] < 0:
         return {"value": None, "rows": [], "sources": []}
-    row = _entity_row(records[0])
+    selected = ranked[0][2]
+    row = _entity_row(selected)
     sources = [
         _source_row(item, org_id)
-        for item in (records[0].get("evidence") or [])
+        for item in (selected.get("evidence") or [])
         if item and item.get("id")
     ]
     return {"value": row["statement"], "rows": [row], "sources": sources}
@@ -477,19 +702,22 @@ async def _timeline_events(org_id: str, user: dict, binding: Any) -> dict[str, A
         MATCH (e:Entity)
         WHERE e.org_id = $org_id AND e.status = 'confirmed'
           AND {_knowledge_scope('e')}
-          AND coalesce(e.confirmed_at, e.created_at) IS NOT NULL
           {where}
         OPTIONAL MATCH (e)-[:CITED_BY]->(ev:Evidence)
         WHERE ev.org_id = $org_id AND {_evidence_scope('ev')}
-        WITH e, collect(DISTINCT ev) AS evidence,
-             coalesce(e.confirmed_at, e.created_at) AS occurred_at
+        WITH e, collect(DISTINCT ev) AS evidence
         WHERE size(evidence) > 0
-        ORDER BY occurred_at DESC
+        ORDER BY e.updated_at DESC, e.confirmed_at DESC
         LIMIT $limit
         RETURN e.id AS id, e.entity_type AS entity_type, e.statement AS statement,
-               occurred_at AS occurred_at,
+               e.detail AS detail,
                [item IN evidence WHERE item IS NOT NULL | item.id] AS source_ids,
-               {_EVIDENCE_PROJECTION} AS evidence
+               [item IN evidence WHERE item IS NOT NULL | {{
+                   id: item.id, title: item.title, reference: item.reference,
+                   excerpt: item.excerpt, page: item.page,
+                   line_start: item.line_start, line_end: item.line_end,
+                   source_date: item.source_date
+               }}] AS evidence
         """,
         {
             "org_id": org_id,
@@ -498,18 +726,29 @@ async def _timeline_events(org_id: str, user: dict, binding: Any) -> dict[str, A
             **params,
         },
     )
+    dated_records = [
+        (record, _explicit_fact_date(record))
+        for record in _deduplicate_records(records)
+    ]
+    dated_records = [
+        (record, occurred_at)
+        for record, occurred_at in dated_records
+        if occurred_at is not None
+    ]
+    dated_records.sort(key=lambda item: item[1])
     rows = [
         {
             "id": record["id"],
             "entity_type": record["entity_type"] or "Fact",
             "statement": record["statement"] or "",
-            "occurred_at": str(record["occurred_at"]) if record["occurred_at"] else None,
+            "occurred_at": occurred_at,
+            "date_kind": "asserted",
             "source_ids": [item for item in (record.get("source_ids") or []) if item],
         }
-        for record in records
+        for record, occurred_at in dated_records
     ]
     sources: dict[str, dict] = {}
-    for record in records:
+    for record, _ in dated_records:
         for item in record.get("evidence") or []:
             if item and item.get("id"):
                 sources.setdefault(item["id"], _source_row(item, org_id))

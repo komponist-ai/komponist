@@ -698,6 +698,14 @@ async def create_run(
         return run_dict(run)
 
 
+async def get_task(org_id: str, task_id: str) -> Optional[dict[str, Any]]:
+    async with async_session() as session:
+        task = await session.get(WorkroomTask, task_id)
+        if task is None or task.org_id != org_id or task.archived_at is not None:
+            return None
+        return task_dict(task)
+
+
 async def get_run(org_id: str, run_id: str) -> Optional[dict[str, Any]]:
     async with async_session() as session:
         run = await session.get(WorkroomRun, run_id)

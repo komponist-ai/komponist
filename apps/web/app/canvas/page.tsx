@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, Archive, ChevronDown, Clock3, FileText, LayoutDashboard,
-  Loader2, Lock, Quote, RotateCcw, Send, ShieldCheck, Sparkles, X,
+  Loader2, Lock, Plus, Quote, RotateCcw, Send, ShieldCheck, Sparkles, X,
 } from 'lucide-react'
 import AppLayout from '../../components/AppLayout'
 import StudioTopbar from '../../components/StudioTopbar'
@@ -775,6 +775,17 @@ export default function CanvasPage() {
     }
   }
 
+  const startNewCanvas = () => {
+    setSelectedId(null)
+    setCanvas(null)
+    setViewingVersion(null)
+    setPrompt('')
+    setChange('')
+    setFilters(emptyFilters)
+    setMobileTab('view')
+    setShowPicker(false)
+  }
+
   const ordered = useMemo(() => {
     if (!canvas) return []
     return [...canvas.spec.components].sort(
@@ -1044,6 +1055,11 @@ export default function CanvasPage() {
         title="Canvas"
         description="Describe a view of your company knowledge and get a cited, working one"
         icon={LayoutDashboard}
+        actions={
+          <Button size="sm" onClick={startNewCanvas}>
+            <Plus /> New view
+          </Button>
+        }
       />
 
       <main className="min-h-[calc(100vh-78px)] bg-paper">

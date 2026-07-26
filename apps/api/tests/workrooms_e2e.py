@@ -374,10 +374,24 @@ async def run() -> None:
             assert finalize_jobs[0].status == "completed", finalize_jobs[0].status
 
             # Cancelling at a safe boundary stops the run and frees the task.
+            cancel_task_response = await owner_client.post(
+                f"/workrooms/{room_id}/tasks",
+                params={"org_id": owner["org_id"]},
+                json={
+                    "title": "Recheck the launch date",
+                    "description": "Check the confirmed launch date again.",
+                    "assignee_type": "agent",
+                },
+            )
+            assert cancel_task_response.status_code == 201, cancel_task_response.text
+            cancel_task_id = cancel_task_response.json()["id"]
             cancel_start = await owner_client.post(
                 f"/workrooms/{room_id}/runs",
                 params={"org_id": owner["org_id"]},
-                json={"task_id": task_id, "instruction": "Check the launch date."},
+                json={
+                    "task_id": cancel_task_id,
+                    "instruction": "Check the launch date.",
+                },
             )
             assert cancel_start.status_code == 202, cancel_start.text
             cancel_run_id = cancel_start.json()["id"]

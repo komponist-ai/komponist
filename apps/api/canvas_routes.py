@@ -186,7 +186,9 @@ async def create_canvas_from_example(
     return created
 
 
-async def _scope_summary(org_id: str, user: dict) -> tuple[list[str], list[str]]:
+async def _scope_summary(
+    org_id: str, user: dict, topic: str
+) -> tuple[list[str], list[str]]:
     """A short, permission-scoped picture of what this user can actually see.
 
     Only what the caller may already read reaches the prompt, so the model
@@ -195,19 +197,24 @@ async def _scope_summary(org_id: str, user: dict) -> tuple[list[str], list[str]]
     import main
 
     try:
-        entities, _ = await main._artifact_context(org_id, user, "company overview")
+        relevant, _ = await main._artifact_context(org_id, user, topic)
+        broad, _ = await main._artifact_context(org_id, user, "company overview")
     except Exception:  # noqa: BLE001 - a bare canvas beats a broken request
         return [], []
 
     lines: list[str] = []
     types: list[str] = []
-    for entity in entities[:20]:
+    entities = list({
+        entity["id"]: entity for entity in [*relevant, *broad]
+        if entity.get("id")
+    }.values())
+    for entity in entities[:48]:
         statement = entity.get("statement") or entity.get("detail")
         entity_type = entity.get("entity_type") or "Fact"
         if entity_type not in types:
             types.append(entity_type)
         if statement:
-            lines.append(f"{entity_type}: {statement}")
+            lines.append(f"[entity_id={entity['id']}] {entity_type}: {statement}")
     return lines, types
 
 
@@ -228,7 +235,9 @@ async def generate_canvas_view(
             detail="Choose at least one department for a department-scoped Canvas",
         )
 
-    context_lines, entity_types = await _scope_summary(org_id, user)
+    context_lines, entity_types = await _scope_summary(
+        org_id, user, payload.prompt
+    )
     try:
         spec, metadata = await generate_canvas(
             request=payload.prompt,
@@ -274,7 +283,15 @@ async def refine_canvas_view(
     if current is None:
         raise HTTPException(status_code=404, detail="Canvas version not found")
 
-    context_lines, entity_types = await _scope_summary(org_id, user)
+    current_spec = current.spec or {}
+    context_topic = " ".join(filter(None, [
+        current_spec.get("title", ""),
+        current_spec.get("description", ""),
+        payload.instruction,
+    ]))
+    context_lines, entity_types = await _scope_summary(
+        org_id, user, context_topic
+    )
     try:
         spec, metadata = await refine_canvas(
             instruction=payload.instruction,

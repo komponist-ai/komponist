@@ -30,6 +30,7 @@ from workrooms import (
     append_event,
     get_room_record,
     get_run,
+    get_task,
     transition_run,
     update_run,
     update_task,
@@ -53,6 +54,24 @@ RUN_STATES = {
 }
 
 TERMINAL_STATES = {"completed", "cancelled", "failed", "redirected"}
+
+
+def _task_topic(room: Any, run: dict, task: Optional[dict]) -> str:
+    """Put the selected task ahead of the broad room objective for retrieval."""
+    return " ".join(value for value in [
+        task.get("title") if task else None,
+        task.get("description") if task else None,
+        run.get("instruction"),
+        getattr(room, "objective", None),
+    ] if value)
+
+
+def _deliverable_topic(room: Any, task: Optional[dict]) -> str:
+    return " — ".join(filter(None, [
+        task.get("title") if task else None,
+        task.get("description") if task else None,
+        getattr(room, "objective", None),
+    ]))
 
 # A run may only move along these edges. Transitions are applied with an
 # atomic conditional UPDATE, so a stale client loses the race and gets a 409.
@@ -188,6 +207,7 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
     room = await get_room_record(org_id, run["workroom_id"])
     if room is None:
         return
+    task = await get_task(org_id, run["task_id"]) if run.get("task_id") else None
 
     signal = await _control_signal(org_id, run_id)
     if signal == "gone":
@@ -224,9 +244,7 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
         "access_all_departments": False,
         "department_ids": room.department_ids or [],
     }
-    topic = " ".join(
-        value for value in [room.objective, run["instruction"]] if value
-    )
+    topic = _task_topic(room, run, task)
 
     entities, sources = await main._artifact_context(org_id, scoped_user, topic)
     for source in sources:
@@ -284,6 +302,12 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
             "access_all_departments": False,
         },
     )
+    if task:
+        snapshot["task"] = {
+            "id": task["id"],
+            "title": task["title"],
+            "description": task["description"],
+        }
     findings = snapshot["findings"]
     snapshot_sources = snapshot["sources"]
     lead_findings = [
@@ -301,6 +325,7 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
         "finding_count": len(entities),
         "source_count": len(sources),
         "suggested_output": "briefing",
+        "task_title": task.get("title") if task else None,
     }
 
     # Safe boundary: the external retrieval finished, so a pause or cancel
@@ -359,7 +384,8 @@ async def handle_research(job: dict[str, Any], keep_lease: Callable[[], bool]) -
         room.id,
         (
             f"I found {len(entities)} confirmed facts across {len(sources)} cited "
-            "passages for this objective. I need approval before turning them "
+            f"passages for {task['title'] if task else 'this objective'}. "
+            "I need approval before turning them "
             "into a shared briefing."
         ),
         references=[{"kind": "run", "id": run_id, "label": "Research attempt"}],
@@ -380,6 +406,7 @@ async def handle_finalize(job: dict[str, Any], keep_lease: Callable[[], bool]) -
     room = await get_room_record(org_id, run["workroom_id"])
     if room is None:
         return
+    task = await get_task(org_id, run["task_id"]) if run.get("task_id") else None
 
     # At-least-once delivery means this job can arrive twice. One approved run
     # yields one deliverable, so an existing artifact ends the job quietly.
@@ -409,10 +436,15 @@ async def handle_finalize(job: dict[str, Any], keep_lease: Callable[[], bool]) -
         org_id=org_id,
         user=scoped_user,
         artifact_type="briefing",
-        topic=room.objective,
+        topic=_deliverable_topic(room, task),
         audience="Project team",
         instructions=(
-            f"Workroom direction: {run['instruction']}. "
+            (
+                f"Task to complete: {task['title']}. "
+                f"Task requirements: {task['description']}. "
+                if task else ""
+            )
+            + f"Workroom direction: {run['instruction']}. "
             "Produce an action-oriented handoff brief with open questions, "
             "constraints, decisions, and next steps only when supported."
         ),
