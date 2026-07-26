@@ -25,7 +25,7 @@ import {
 } from 'reagraph'
 import type { Theme } from '../ThemeProvider'
 import { FOCUS_RING_COLOR, SELECTION_RING_COLOR, graphTheme } from './graph-theme'
-import { normalizeStatus } from './graph-transform'
+import { normalizeStatus, typeColor } from './graph-transform'
 import type {
   GraphCanvasHandle,
   GraphNode,
@@ -112,19 +112,24 @@ export default function ReagraphCanvas({
    * have to be told apart by hue alone.
    */
   const renderNode = useCallback((props: NodeRendererProps) => {
+    const node = props.node.data as GraphNode | undefined
     const proposed = statusOf(props.node) === 'proposed'
     const focused = props.node.id === focusNodeId
+    // The per-theme colour is resolved here rather than baked into the node, so
+    // switching themes restyles the graph instead of rebuilding it.
+    const fill = typeColor(node?.type, theme)
     const ringColor = focused
       ? FOCUS_RING_COLOR[theme]
       : props.selected
         ? SELECTION_RING_COLOR[theme]
-        : props.color
+        : fill
     const highlighted = props.selected || focused
 
     return (
       <>
         <Sphere
           {...props}
+          color={fill}
           selected={false}
           size={proposed ? props.size * 0.58 : props.size}
         />

@@ -51,6 +51,32 @@ textarea::placeholder { color: var(--color-faint); }
   min-height: 100vh;
 }
 
+/*
+ * The graph is the one Studio page whose controls float over a canvas, so a
+ * missed tap costs the reader their place. On a touch screen every control on
+ * the page gets a finger-sized target regardless of how small its icon is.
+ */
+@media (pointer: coarse), (max-width: 640px) {
+  .graph-page-body button,
+  .graph-page-body [role='button'] {
+    min-height: 44px;
+  }
+
+  .graph-canvas-container button {
+    min-width: 44px;
+  }
+}
+
+/*
+ * Selection inside the canvas is drawn in WebGL, where a focus ring cannot
+ * reach. Everything around it is ordinary DOM, and keyboard users need to see
+ * where they are.
+ */
+.graph-page-body :is(button, a, input, select):focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 /* Typography */
 h1 {
   font-family: var(--font-display);

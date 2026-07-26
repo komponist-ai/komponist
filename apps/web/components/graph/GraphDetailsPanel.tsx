@@ -202,7 +202,11 @@ export default function GraphDetailsPanel({
   }, [nodesById, selectedEdge])
 
   return (
-    <aside className="graph-side-panel min-h-0 overflow-y-auto bg-white" aria-label="Graph details">
+    <aside
+      id="graph-details"
+      className="graph-side-panel min-h-0 overflow-y-auto bg-white"
+      aria-label="Graph details"
+    >
       <div className="border-b-2 border-ink p-5">
         <div className="flex items-center justify-between">
           <SectionHeading>Graph overview</SectionHeading>

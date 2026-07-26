@@ -266,9 +266,12 @@ export default function GraphPage() {
     }
   }, [allEdges, allNodes, focusNodeId])
 
+  // Theme is deliberately absent: the view model must not change identity when
+  // the reader switches light/dark, or Reagraph rebuilds the graph and the
+  // layout restarts under them.
   const view = useMemo(
-    () => toGraphView(visibleNodes, visibleEdges, theme),
-    [visibleNodes, visibleEdges, theme],
+    () => toGraphView(visibleNodes, visibleEdges),
+    [visibleNodes, visibleEdges],
   )
 
   const nodesById = useMemo(
@@ -481,6 +484,20 @@ export default function GraphPage() {
     else await container.requestFullscreen()
   }
 
+  /**
+   * On narrow screens the details panel is stacked under the canvas, so
+   * selecting a node would otherwise change something the reader cannot see.
+   * Bringing the panel into view is what "opens" it on those layouts.
+   */
+  useEffect(() => {
+    if (!selection || !detailsOpen) return
+    if (window.matchMedia('(min-width: 1024px)').matches) return
+    document.getElementById('graph-details')?.scrollIntoView({
+      behavior: reducedMotion ? 'auto' : 'smooth',
+      block: 'start',
+    })
+  }, [selection, detailsOpen, reducedMotion])
+
   // Escape clears the selection, matching the background click.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -668,18 +685,19 @@ export default function GraphPage() {
                   </div>
                 )}
 
-                <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-col gap-2">
+                <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap items-start gap-2 pr-3 lg:flex-col lg:flex-nowrap">
                   <div className="pointer-events-auto flex overflow-hidden rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]">
-                    <button type="button" className="grid size-9 place-items-center hover:bg-paper-2" onClick={() => canvasHandle.current?.zoomIn()} aria-label="Zoom in"><Plus className="size-4" /></button>
-                    <button type="button" className="grid size-9 place-items-center border-l border-line hover:bg-paper-2" onClick={() => canvasHandle.current?.zoomOut()} aria-label="Zoom out"><Minus className="size-4" /></button>
-                    <button type="button" className="grid size-9 place-items-center border-l border-line hover:bg-paper-2" onClick={() => canvasHandle.current?.fitView()} aria-label="Fit graph to view"><Focus className="size-4" /></button>
-                    <button type="button" className="grid size-9 place-items-center border-l border-line hover:bg-paper-2" onClick={() => void toggleFullscreen()} aria-label="Toggle fullscreen"><Maximize2 className="size-4" /></button>
+                    <button type="button" className="grid size-9 place-items-center hover:bg-paper-2" onClick={() => canvasHandle.current?.zoomIn()} aria-label="Zoom in" title="Zoom in"><Plus className="size-4" aria-hidden /></button>
+                    <button type="button" className="grid size-9 place-items-center border-l border-line hover:bg-paper-2" onClick={() => canvasHandle.current?.zoomOut()} aria-label="Zoom out" title="Zoom out"><Minus className="size-4" aria-hidden /></button>
+                    <button type="button" className="grid size-9 place-items-center border-l border-line hover:bg-paper-2" onClick={() => canvasHandle.current?.fitView()} aria-label="Fit graph to view" title="Fit graph to view"><Focus className="size-4" aria-hidden /></button>
+                    <button type="button" className="grid size-9 place-items-center border-l border-line hover:bg-paper-2" onClick={() => void toggleFullscreen()} aria-label="Toggle fullscreen" title="Toggle fullscreen"><Maximize2 className="size-4" aria-hidden /></button>
                   </div>
                   <button
                     type="button"
                     className="pointer-events-auto flex h-9 items-center gap-2 rounded-lg border-2 border-ink bg-white px-3 text-[10px] font-bold shadow-[2px_2px_0_#201c15]"
                     onClick={() => setShowLabels(value => !value)}
                     aria-pressed={showLabels}
+                    title={showLabels ? 'Hide node labels' : 'Show node labels'}
                   >
                     {showLabels ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
                     Labels
@@ -696,7 +714,7 @@ export default function GraphPage() {
                 </div>
 
                 {hoveredLabel && (
-                  <div className="pointer-events-none absolute right-3 top-3 z-10 max-w-[60%] truncate rounded-lg border-2 border-ink bg-white px-3 py-1.5 text-[11px] font-semibold shadow-[2px_2px_0_#201c15]">
+                  <div className="pointer-events-none absolute right-3 top-3 z-10 max-w-[50%] truncate rounded-lg border-2 border-ink bg-white px-3 py-1.5 text-[11px] font-semibold shadow-[2px_2px_0_#201c15]">
                     {hoveredLabel}
                   </div>
                 )}

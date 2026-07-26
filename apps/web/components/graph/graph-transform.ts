@@ -175,18 +175,25 @@ export function truncateLabel(name: string): string {
   return `${collapsed.slice(0, MAX_LABEL_LENGTH - 1).trimEnd()}…`
 }
 
-export function toViewNode(node: GraphNode, theme: Theme): GraphViewNode {
+/**
+ * Build a renderable node. Deliberately theme-free: `fill` is the canonical
+ * colour for the entity type, and the renderer picks the per-theme variant when
+ * it draws. Baking the theme in here would give every node a new identity on a
+ * light/dark switch, which Reagraph reads as a new graph — rebuilding it and
+ * throwing away a layout the reader was in the middle of using.
+ */
+export function toViewNode(node: GraphNode): GraphViewNode {
   return {
     id: node.id,
     label: truncateLabel(node.name),
     data: node,
-    fill: typeColor(node.type, theme),
+    fill: typeColor(node.type, 'light'),
     size: nodeSize(node.degree),
   }
 }
 
-export function toViewNodes(nodes: GraphNode[], theme: Theme): GraphViewNode[] {
-  return nodes.map(node => toViewNode(node, theme))
+export function toViewNodes(nodes: GraphNode[]): GraphViewNode[] {
+  return nodes.map(toViewNode)
 }
 
 /**
@@ -221,13 +228,9 @@ export function toViewEdges(edges: GraphEdge[], nodeIds: Set<string>): GraphView
   return result
 }
 
-export function toGraphView(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-  theme: Theme,
-): GraphView {
+export function toGraphView(nodes: GraphNode[], edges: GraphEdge[]): GraphView {
   const ids = new Set(nodes.map(node => node.id))
-  return { nodes: toViewNodes(nodes, theme), edges: toViewEdges(edges, ids) }
+  return { nodes: toViewNodes(nodes), edges: toViewEdges(edges, ids) }
 }
 
 /**
