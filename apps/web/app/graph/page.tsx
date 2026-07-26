@@ -221,8 +221,8 @@ export default function GraphPage() {
         ) : (
           <div className="graph-workspace flex h-full gap-4 overflow-hidden px-4 sm:px-6">
             {/* Graph visualization */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-              <div ref={graphContainerRef} className="card p-0 overflow-hidden" style={{ height: 'calc(100% - 60px)' }}>
+            <div className="graph-visualization flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div ref={graphContainerRef} className="graph-canvas-container card min-h-0 flex-1 overflow-hidden p-0">
                 {graphSize.width > 0 && graphSize.height > 0 && <ForceGraph2D
                   width={graphSize.width}
                   height={graphSize.height}

@@ -39,6 +39,10 @@ textarea::placeholder { color: var(--color-faint); }
   padding: 0;
 }
 
+.graph-canvas-container {
+  min-height: 360px;
+}
+
 /* Typography */
 h1 {
   font-family: var(--font-display);
@@ -564,13 +568,22 @@ h3 {
   }
 
   .graph-workspace {
-    min-height: 720px;
     flex-direction: column;
     overflow: visible;
     padding-bottom: var(--space-6);
   }
 
-  .graph-workspace > div:first-child { min-height: 560px; }
+  .graph-visualization {
+    flex: none;
+    overflow: visible;
+  }
+
+  .graph-canvas-container {
+    flex: none;
+    height: clamp(420px, 65dvh, 620px);
+    min-height: 0;
+  }
+
   .graph-side-panel { width: 100%; height: auto; overflow: visible; }
 }
 
