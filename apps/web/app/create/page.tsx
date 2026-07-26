@@ -13,7 +13,9 @@ import AppLayout from '../../components/AppLayout'
 import StudioTopbar from '../../components/StudioTopbar'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
-import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
+import {
+  API_URL, apiFetch, getActiveOrgId, installCampusKollektivDemo,
+} from '../../lib/api'
 
 type ArtifactType = 'presentation' | 'briefing' | 'summary'
 type Language = 'english' | 'german'
@@ -101,6 +103,10 @@ const formats: Array<{
 ]
 
 const audienceOptions = [
+  'Initiative board',
+  'Department leads',
+  'Student members',
+  'Sponsors and partners',
   'Leadership team',
   'Client stakeholders',
   'Project team',
@@ -153,6 +159,7 @@ export default function CreatePage() {
   const [artifactOffset, setArtifactOffset] = useState(0)
   const [artifactsHaveMore, setArtifactsHaveMore] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [exampleLoading, setExampleLoading] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadFormat, setDownloadFormat] = useState<DownloadFormat>('pdf')
   const [error, setError] = useState<string | null>(null)
@@ -267,6 +274,26 @@ export default function CreatePage() {
     }
   }
 
+  const loadCampusKollektivExample = async () => {
+    setExampleLoading(true)
+    setError(null)
+    try {
+      await installCampusKollektivDemo()
+      setArtifactType('presentation')
+      setTopic('Campus Forum readiness, budget, volunteers, sponsors, and open constraints')
+      setAudience('Initiative board')
+      setInstructions(
+        'Create a decision-ready update with the approved plan, current targets, dependencies, and exact source citations.',
+      )
+    } catch (exampleError) {
+      setError(exampleError instanceof Error
+        ? exampleError.message
+        : 'Could not load the CampusKollektiv example')
+    } finally {
+      setExampleLoading(false)
+    }
+  }
+
   const download = async (artifact: Artifact, format: DownloadFormat) => {
     setDownloading(true)
     setError(null)
@@ -368,6 +395,25 @@ export default function CreatePage() {
               </div>
 
               <div className="space-y-5 p-5">
+                <button
+                  type="button"
+                  onClick={() => void loadCampusKollektivExample()}
+                  disabled={exampleLoading || generating}
+                  className="flex w-full items-center gap-3 rounded-xl border-2 border-ink bg-success-soft p-3 text-left transition hover:-translate-y-0.5 hover:shadow-[3px_3px_0_#201c15] disabled:cursor-wait disabled:opacity-60"
+                >
+                  <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-ink bg-white">
+                    {exampleLoading
+                      ? <LoaderCircle className="size-4 animate-spin" />
+                      : <Sparkles className="size-4 text-teal" />}
+                  </span>
+                  <span className="min-w-0">
+                    <strong className="block text-xs">Try the CampusKollektiv example</strong>
+                    <span className="mt-0.5 block text-[10px] leading-4 text-muted">
+                      Load a cited student-initiative workspace and prepare its board update.
+                    </span>
+                  </span>
+                </button>
+
                 <fieldset>
                   <legend className="mb-2 font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Format</legend>
                   <div className="grid grid-cols-3 gap-2">
@@ -397,7 +443,7 @@ export default function CreatePage() {
                     value={topic}
                     onChange={(event) => setTopic(event.target.value)}
                     rows={3}
-                    placeholder="e.g. Northstar pilot progress and constraints"
+                    placeholder="e.g. Campus Forum readiness, budget, and volunteer coverage"
                     className="w-full resize-none rounded-xl border-2 border-ink bg-paper px-3.5 py-3 text-sm font-semibold outline-none transition focus:bg-white focus:ring-2 focus:ring-orange/30"
                   />
                 </label>

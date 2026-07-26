@@ -392,34 +392,38 @@ def demo_document_versions() -> list[dict[str, Any]]:
     """A built-in, model-free cross-platform example for the Versions UI."""
     facts = [
         (
-            "demo-northstar-notion", "Northstar Pilot — Draft v1", "notion", "notion:northstar-v1",
+            "demo-campus-forum-notion", "Campus Forum Plan — Draft v1", "notion", "notion:campus-forum-v1",
             "Lena Hoffmann", "2026-07-02T09:30:00+00:00", "demo-hash-notion",
             [
-                ("project", "Project", "The Northstar design-partner pilot is planned for Q3."),
-                ("duration-v1", "Goal", "The Northstar pilot will run for six weeks."),
-                ("team-v1", "Decision", "The pilot starts with Marketing and Sales."),
-                ("budget-v1", "Constraint", "The pilot budget is capped at EUR 10,000."),
+                ("project", "Project", "The Campus Forum project ends with the event on 21 November 2026."),
+                ("duration-v1", "Goal", "The Campus Forum project runs for eight weeks."),
+                ("venue-v1", "Decision", "The draft Campus Forum venue is the University Auditorium."),
+                ("budget-v1", "Constraint", "The draft Campus Forum budget must not exceed EUR 4,000."),
+                ("attendance-v1", "Goal", "The Campus Forum welcomes 180 attendees and 12 nonprofit organizations."),
             ],
         ),
         (
-            "demo-northstar-slides", "Northstar Pilot FINAL v2", "google", "gdrive:northstar-slides",
+            "demo-campus-forum-slides", "Campus Forum Plan — Approved v2", "google", "gdrive:campus-forum-v2",
             "Alex Chen", "2026-07-09T14:15:00+00:00", "demo-hash-google",
             [
-                ("project", "Project", "The Northstar design-partner pilot is planned for Q3."),
-                ("duration-v2", "Goal", "The Northstar pilot will run for four weeks."),
-                ("team-v2", "Decision", "The pilot starts with Platform Engineering."),
-                ("budget-v1", "Constraint", "The pilot budget is capped at EUR 10,000."),
+                ("project-v2", "Project", "The Campus Forum project ends with the event on 14 November 2026."),
+                ("duration-v2", "Goal", "The Campus Forum project runs for six weeks."),
+                ("venue-v2", "Decision", "The approved Campus Forum venue is the Forum Hall."),
+                ("budget-v2", "Constraint", "The approved Campus Forum budget must not exceed EUR 4,800."),
+                ("attendance-v2", "Goal", "The Campus Forum welcomes 220 attendees and 15 nonprofit organizations."),
             ],
         ),
         (
-            "demo-northstar-upload", "Northstar Pilot — Board update", "upload", "upload:northstar-board.md:demo",
+            "demo-campus-forum-upload", "Campus Forum — Board Update", "upload", "upload:campus-forum-board.md:demo",
             "Priya Raman", "2026-07-14T08:45:00+00:00", "demo-hash-upload",
             [
-                ("project", "Project", "The Northstar design-partner pilot is planned for Q3."),
-                ("duration-v2", "Goal", "The Northstar pilot will run for four weeks."),
-                ("team-v2", "Decision", "The pilot starts with Platform Engineering."),
-                ("budget-v3", "Constraint", "The pilot budget is capped at EUR 8,000."),
-                ("success-v3", "Goal", "Success means at least 80% weekly active usage by the pilot team."),
+                ("project-v2", "Project", "The Campus Forum project ends with the event on 14 November 2026."),
+                ("duration-v2", "Goal", "The Campus Forum project runs for six weeks."),
+                ("venue-v2", "Decision", "The approved Campus Forum venue is the Forum Hall."),
+                ("budget-v2", "Constraint", "The approved Campus Forum budget must not exceed EUR 4,800."),
+                ("attendance-v2", "Goal", "The Campus Forum welcomes 220 attendees and 15 nonprofit organizations."),
+                ("admission-v3", "Decision", "Admission is free for students and partner organizations."),
+                ("volunteers-v3", "Goal", "Events recruits 24 volunteers by 5 November 2026."),
             ],
         ),
     ]
@@ -434,7 +438,7 @@ def demo_document_versions() -> list[dict[str, Any]]:
             "author": author,
             "source_date": source_date,
             "content_hash": content_hash,
-            "family_key": "northstar pilot",
+            "family_key": "campus forum plan",
             "department_id": None,
             "is_demo": True,
             "claims": [

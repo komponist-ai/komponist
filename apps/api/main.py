@@ -289,6 +289,73 @@ _DEMO_FACTS = [
         "source": "02-semester-strategy.md",
         "excerpt": "Goal: CampusKollektiv recruits 40 active student members by 31 December 2026.",
     },
+    {
+        "id": "demo-forum-venue",
+        "type": "Decision",
+        "statement": "The approved venue for the Campus Forum is the Forum Hall.",
+        "detail": "Campus Forum Plan v2 replaces the earlier University Auditorium draft.",
+        "source": "08-campus-forum-plan-v2.md",
+        "excerpt": "Decision: The approved venue for the Campus Forum is the Forum Hall.",
+    },
+    {
+        "id": "demo-forum-attendance",
+        "type": "Goal",
+        "statement": "The Campus Forum aims to welcome 220 attendees and 15 nonprofit organizations.",
+        "detail": "The approved plan increased the target from the earlier draft.",
+        "source": "08-campus-forum-plan-v2.md",
+        "excerpt": "Goal: The Campus Forum welcomes 220 attendees and 15 nonprofit organizations.",
+    },
+    {
+        "id": "demo-forum-budget",
+        "type": "Constraint",
+        "statement": "The approved Campus Forum budget must not exceed €4,800.",
+        "detail": "The board approved this ceiling on 2 October 2026.",
+        "source": "03-board-minutes-2026-10-02.md",
+        "excerpt": "Decision: The board approves a maximum Campus Forum budget of €4,800.",
+    },
+    {
+        "id": "demo-volunteer-goal",
+        "type": "Goal",
+        "statement": "Events recruits 24 volunteers for the Campus Forum by 5 November 2026.",
+        "detail": "Volunteer Operations owns recruitment, briefing, and shift coverage.",
+        "source": "12-volunteer-operations.md",
+        "excerpt": "Goal: Events recruits 24 volunteers for the Campus Forum by 5 November 2026.",
+    },
+    {
+        "id": "demo-sponsor-goal",
+        "type": "Goal",
+        "statement": "Partnerships secures three Campus Forum sponsors by 30 October 2026.",
+        "detail": "Sponsor outreach uses the approved €1,500 main package.",
+        "source": "06-sponsorship-policy.md",
+        "excerpt": "Goal: Partnerships secures three Campus Forum sponsors by 30 October 2026.",
+    },
+    {
+        "id": "demo-free-admission",
+        "type": "Decision",
+        "statement": "Admission to the Campus Forum is free for students and partner organizations.",
+        "detail": "The board confirmed the admission policy in its 2 October meeting.",
+        "source": "03-board-minutes-2026-10-02.md",
+        "excerpt": "Decision: Admission to the Campus Forum is free for students and partner organizations.",
+    },
+    {
+        "id": "demo-data-import-gate",
+        "type": "Constraint",
+        "statement": "The data-processing agreement must be signed before sponsor data can be imported.",
+        "detail": "The prerequisite is not yet claimed to be complete.",
+        "source": "10-crm-migration-dependency.md",
+        "excerpt": "Constraint: Sponsor data may only be imported after the data-processing agreement is signed.",
+    },
+]
+
+_DEMO_RELATIONSHIPS = [
+    ("demo-forum-venue", "AFFECTS", "demo-campus-forum"),
+    ("demo-forum-budget", "AFFECTS", "demo-campus-forum"),
+    ("demo-free-admission", "AFFECTS", "demo-campus-forum"),
+    ("demo-volunteer-goal", "ADVANCES", "demo-campus-forum"),
+    ("demo-sponsor-goal", "ADVANCES", "demo-campus-forum"),
+    ("demo-sponsor-package", "AFFECTS", "demo-sponsor-goal"),
+    ("demo-campus-forum", "ADVANCES", "demo-membership-goal"),
+    ("demo-data-import-gate", "BLOCKS", "demo-sponsor-goal"),
 ]
 
 _DEMO_STOP_WORDS = {
@@ -347,6 +414,98 @@ async def query_demo(payload: DemoQueryRequest):
         "answer": f"{matches[0]['statement']} {citations}",
         "sources": sources,
         "trace": ["Demo source matched", "Confirmed fact selected", "Citation attached"],
+    }
+
+
+@app.post("/demo/workspace", status_code=201)
+async def install_demo_workspace(
+    request: Request,
+    org_id: str = Query(...),
+):
+    """Install the shared CampusKollektiv example into one organization.
+
+    The operation is idempotent. It uses the same confirmed Entity/Evidence
+    shape as uploaded sources so every product surface exercises production
+    retrieval rather than a separate UI mock.
+    """
+    await _authorized_org_user(request, org_id, write=True)
+    existing = await GraphClient.run_query(
+        """
+        MATCH (entity:Entity {org_id: $org_id, demo_key: 'campuskollektiv'})
+        RETURN count(entity) AS count
+        """,
+        {"org_id": org_id},
+    )
+    existing_count = int(existing[0]["count"]) if existing else 0
+    facts = [
+        {
+            **fact,
+            "evidence_id": f"{fact['id']}-evidence",
+            "reference": f"demo:campuskollektiv:{fact['source']}",
+        }
+        for fact in _DEMO_FACTS
+    ]
+    await GraphClient.run_query(
+        """
+        UNWIND $facts AS fact
+        MERGE (entity:Entity {id: fact.id, org_id: $org_id})
+        SET entity.entity_type = fact.type,
+            entity.name = fact.statement,
+            entity.statement = fact.statement,
+            entity.detail = fact.detail,
+            entity.status = 'confirmed',
+            entity.confidence = 'high',
+            entity.department_ids = [],
+            entity.demo_key = 'campuskollektiv',
+            entity.is_demo = true,
+            entity.created_at = coalesce(entity.created_at, datetime()),
+            entity.confirmed_at = coalesce(entity.confirmed_at, datetime()),
+            entity.updated_at = datetime()
+        MERGE (evidence:Evidence {id: fact.evidence_id, org_id: $org_id})
+        SET evidence.source = 'demo',
+            evidence.title = fact.source,
+            evidence.reference = fact.reference,
+            evidence.excerpt = fact.excerpt,
+            evidence.department_ids = [],
+            evidence.demo_key = 'campuskollektiv',
+            evidence.is_demo = true,
+            evidence.source_date = datetime('2026-10-18T12:00:00Z')
+        MERGE (entity)-[:CITED_BY]->(evidence)
+        """,
+        {"org_id": org_id, "facts": facts},
+    )
+    for relationship_type in ("AFFECTS", "ADVANCES", "BLOCKS"):
+        relationships = [
+            {"source": source, "target": target}
+            for source, relation, target in _DEMO_RELATIONSHIPS
+            if relation == relationship_type
+        ]
+        if not relationships:
+            continue
+        await GraphClient.run_query(
+            f"""
+            UNWIND $relationships AS relationship
+            MATCH (source:Entity {{
+                id: relationship.source,
+                org_id: $org_id,
+                demo_key: 'campuskollektiv'
+            }})
+            MATCH (target:Entity {{
+                id: relationship.target,
+                org_id: $org_id,
+                demo_key: 'campuskollektiv'
+            }})
+            MERGE (source)-[edge:{relationship_type}]->(target)
+            SET edge.demo_key = 'campuskollektiv'
+            """,
+            {"org_id": org_id, "relationships": relationships},
+        )
+    return {
+        "key": "campuskollektiv",
+        "workspace": "CampusKollektiv demo workspace",
+        "installed": existing_count == 0,
+        "entities": len(facts),
+        "relationships": len(_DEMO_RELATIONSHIPS),
     }
 
 

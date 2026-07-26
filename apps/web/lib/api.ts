@@ -11,6 +11,19 @@ export function apiFetch(input: string, init: RequestInit = {}) {
   return fetch(input, { ...init, credentials: 'include' })
 }
 
+export async function installCampusKollektivDemo() {
+  const orgId = getActiveOrgId()
+  const response = await apiFetch(
+    `${API_URL}/demo/workspace?org_id=${encodeURIComponent(orgId)}`,
+    { method: 'POST' },
+  )
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(payload?.detail || 'Could not load the CampusKollektiv example')
+  }
+  return payload
+}
+
 export async function fetchQueue(options: {
   entityType?: string
   query?: string

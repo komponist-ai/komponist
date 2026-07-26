@@ -231,14 +231,14 @@ async def run() -> None:
             assert listing.status_code == 200, listing.text
             assert listing.json()["canvases"] == [], listing.json()
             assert any(
-                item["key"] == "northstar-command-center"
+                item["key"] == "campuskollektiv-command-center"
                 for item in listing.json()["examples"]
             ), listing.json()["examples"]
 
             created = await owner_c.post(
                 "/canvases/examples",
                 params={"org_id": org_id},
-                json={"example": "northstar-command-center", "visibility": "private"},
+                json={"example": "campuskollektiv-command-center", "visibility": "private"},
             )
             assert created.status_code == 201, created.text
             canvas_id = created.json()["id"]
@@ -379,7 +379,7 @@ async def run() -> None:
             scoped = await owner_c.post(
                 "/canvases/examples",
                 params={"org_id": org_id},
-                json={"example": "northstar-command-center", "visibility": "private"},
+                json={"example": "campuskollektiv-command-center", "visibility": "private"},
             )
             assert scoped.status_code == 201, scoped.text
             scoped_id = scoped.json()["id"]

@@ -13,7 +13,9 @@ import AppLayout from '../../components/AppLayout'
 import StudioTopbar from '../../components/StudioTopbar'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
-import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
+import {
+  API_URL, apiFetch, getActiveOrgId, installCampusKollektivDemo,
+} from '../../lib/api'
 
 // ---------------------------------------------------------------- types ----
 
@@ -565,6 +567,26 @@ export default function WorkroomsPage() {
       setNewVisibility('organization')
       setSelectedId(created.id)
       setTab('overview')
+    }
+  }
+
+  const loadCampusKollektivExample = async () => {
+    setWorking(true)
+    setError(null)
+    try {
+      await installCampusKollektivDemo()
+      setNewTitle('Campus Forum launch room')
+      setNewObjective(
+        'Prepare a cited board-ready readiness update for the Campus Forum covering the approved plan, budget, volunteers, sponsors, dependencies, and next decisions.',
+      )
+      setNewVisibility('organization')
+      setNewDepartments([])
+    } catch (exampleError) {
+      setError(exampleError instanceof Error
+        ? exampleError.message
+        : 'Could not load the CampusKollektiv example')
+    } finally {
+      setWorking(false)
     }
   }
 
@@ -1632,6 +1654,24 @@ export default function WorkroomsPage() {
               <p className="mt-1 text-xs text-muted">
                 Give it one outcome. People and agents will work from the same governed context.
               </p>
+              <button
+                type="button"
+                onClick={() => void loadCampusKollektivExample()}
+                disabled={working}
+                className="mt-4 flex w-full items-center gap-3 rounded-lg border-2 border-ink bg-success-soft p-3 text-left transition hover:shadow-[2px_2px_0_var(--color-ink)] disabled:cursor-wait disabled:opacity-60"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-ink bg-white">
+                  {working
+                    ? <Loader2 className="size-4 animate-spin" />
+                    : <Sparkles className="size-4 text-teal" />}
+                </span>
+                <span>
+                  <strong className="block text-xs">Use the CampusKollektiv example</strong>
+                  <span className="mt-0.5 block text-[10px] leading-4 text-muted">
+                    Load the fictional student initiative and prefill a real Campus Forum objective.
+                  </span>
+                </span>
+              </button>
               <div className="mt-4 space-y-3">
                 <div>
                   <label htmlFor="room-title" className="font-mono text-[10px] font-bold uppercase tracking-wide text-ink-2">Title</label>
@@ -1639,6 +1679,7 @@ export default function WorkroomsPage() {
                     id="room-title"
                     value={newTitle}
                     onChange={(event) => setNewTitle(event.target.value)}
+                    placeholder="e.g. Campus Forum launch room"
                     className="mt-1 w-full rounded-lg border border-line bg-paper-2 px-3 py-2 text-sm outline-none focus:border-orange"
                   />
                 </div>
@@ -1649,6 +1690,7 @@ export default function WorkroomsPage() {
                     value={newObjective}
                     onChange={(event) => setNewObjective(event.target.value)}
                     rows={3}
+                    placeholder="e.g. Prepare a cited readiness update for the initiative board"
                     className="mt-1 w-full resize-none rounded-lg border border-line bg-paper-2 px-3 py-2 text-sm outline-none focus:border-orange"
                   />
                 </div>

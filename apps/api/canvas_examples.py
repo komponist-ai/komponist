@@ -34,26 +34,26 @@ def _options(**overrides: Any) -> dict[str, Any]:
     }
 
 
-NORTHSTAR_COMMAND_CENTER: dict[str, Any] = {
+CAMPUSKOLLEKTIV_COMMAND_CENTER: dict[str, Any] = {
     "schema_version": "1",
-    "title": "Northstar Pilot Command Center",
+    "title": "Campus Forum Command Center",
     "description": (
-        "Milestones, decisions, constraints and the evidence behind them for "
-        "the Northstar pilot."
+        "Event readiness, decisions, goals, constraints and source evidence "
+        "for the CampusKollektiv student initiative."
     ),
     "components": [
         {
-            "id": "pilot-duration",
+            "id": "forum-duration",
             "type": "metric",
-            "title": "Pilot duration",
-            "description": "From the confirmed pilot scope.",
+            "title": "Project duration",
+            "description": "From the approved Campus Forum plan.",
             "narrative": "",
             "position": {"row": 0, "column": 0, "width": 4},
             "binding": _binding(
-                "entity_fact", entity_name="pilot", field="weeks duration"
+                "entity_fact", entity_name="Campus Forum", field="duration"
             ),
             "options": _options(
-                accent="info", empty_text="No confirmed pilot scope in your view."
+                accent="info", empty_text="No confirmed Campus Forum plan in your view."
             ),
         },
         {
@@ -152,14 +152,16 @@ NORTHSTAR_COMMAND_CENTER: dict[str, Any] = {
 
 
 EXAMPLES: dict[str, dict[str, Any]] = {
-    "northstar-command-center": NORTHSTAR_COMMAND_CENTER,
+    "campuskollektiv-command-center": CAMPUSKOLLEKTIV_COMMAND_CENTER,
+    # Keep old links and API clients working while only advertising the new example.
+    "northstar-command-center": CAMPUSKOLLEKTIV_COMMAND_CENTER,
 }
 
 EXAMPLE_SUMMARIES = [
     {
-        "key": "northstar-command-center",
-        "title": NORTHSTAR_COMMAND_CENTER["title"],
-        "description": NORTHSTAR_COMMAND_CENTER["description"],
-        "component_count": len(NORTHSTAR_COMMAND_CENTER["components"]),
+        "key": "campuskollektiv-command-center",
+        "title": CAMPUSKOLLEKTIV_COMMAND_CENTER["title"],
+        "description": CAMPUSKOLLEKTIV_COMMAND_CENTER["description"],
+        "component_count": len(CAMPUSKOLLEKTIV_COMMAND_CENTER["components"]),
     },
 ]

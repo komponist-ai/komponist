@@ -11,7 +11,9 @@ import AppLayout from '../../components/AppLayout'
 import StudioTopbar from '../../components/StudioTopbar'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
-import { API_URL, apiFetch, getActiveOrgId } from '../../lib/api'
+import {
+  API_URL, apiFetch, getActiveOrgId, installCampusKollektivDemo,
+} from '../../lib/api'
 
 // ---------------------------------------------------------------- types ----
 
@@ -683,6 +685,9 @@ export default function CanvasPage() {
   const tryExample = async (key: string) => {
     setGenerating(true)
     try {
+      if (key === 'campuskollektiv-command-center') {
+        await installCampusKollektivDemo()
+      }
       const created = await mutate('/canvases/examples', {
         method: 'POST',
         body: JSON.stringify({ example: key, visibility: 'private' }),
@@ -692,6 +697,10 @@ export default function CanvasPage() {
         setViewingVersion(null)
         setSelectedId(created.id)
       }
+    } catch (exampleError) {
+      setError(exampleError instanceof Error
+        ? exampleError.message
+        : 'Could not load the CampusKollektiv example')
     } finally {
       setGenerating(false)
     }
@@ -1278,7 +1287,7 @@ export default function CanvasPage() {
               }}
               placeholder={canvas
                 ? 'Ask Komponist to change this view…'
-                : 'Describe the view you need…'}
+                : 'e.g. Campus Forum readiness, budget, volunteers, and decisions'}
               aria-label={canvas ? 'Change this view' : 'Describe a new view'}
               className="min-w-0 flex-1 rounded-lg border border-line bg-paper-2 px-3 py-2.5 text-xs outline-none focus:border-orange"
             />
