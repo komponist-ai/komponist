@@ -229,7 +229,7 @@ export default function LandingPage() {
             <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.55 }}>
               <Badge variant="orange" className="mb-7 normal-case tracking-normal">
                 <Music2 className="size-3.5" />
-                Company context, conducted
+                Score = shared, connected company context
               </Badge>
               <h1 className="max-w-3xl font-display text-[clamp(3.4rem,13vw,7.6rem)] font-bold leading-[0.84] tracking-[-0.07em] sm:text-[clamp(4.4rem,7.4vw,7.6rem)]">
                 Turn company
@@ -239,6 +239,15 @@ export default function LandingPage() {
               <p className="mt-8 max-w-xl text-lg font-semibold leading-8 text-ink-2 sm:text-xl">
                 Komponist connects what your company knows — so people and AI can finally work from the same context.
               </p>
+              <div className="mt-5 flex max-w-xl items-start gap-3 rounded-lg border-2 border-ink bg-white px-4 py-3 shadow-[3px_3px_0_#201c15]">
+                <span className="grid size-8 shrink-0 place-items-center rounded-md border border-ink bg-warning-soft">
+                  <Music2 className="size-4 text-orange" />
+                </span>
+                <p className="text-sm font-semibold leading-6 text-ink-2">
+                  <strong className="text-ink">The score is not a rating.</strong>{' '}
+                  It is your living map of reviewed facts, decisions, goals, projects, and evidence — connected in one place.
+                </p>
+              </div>
               <div className="mt-9 flex flex-col gap-3 min-[430px]:flex-row">
                 <Button asChild size="lg" variant="dark">
                   <Link href="/studio">Start composing <ArrowRight /></Link>
@@ -316,11 +325,11 @@ export default function LandingPage() {
                         <svg className="absolute inset-0 size-full" viewBox="0 0 300 140" aria-hidden="true">
                           <path d="M150 70 L48 28 M150 70 L252 28 M150 70 L48 115 M150 70 L252 115" fill="none" stroke="#655b4e" strokeWidth="2" />
                         </svg>
-                        <ScoreNode className="left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-orange text-white" label="Project" />
-                        <ScoreNode className="left-0 top-0 bg-[#f4d06f] text-ink" label="Decision" />
-                        <ScoreNode className="right-0 top-0 bg-teal text-white" label="Goal" />
-                        <ScoreNode className="bottom-0 left-0 bg-white text-ink" label="Evidence" />
-                        <ScoreNode className="bottom-0 right-0 bg-orange-light text-ink" label="Constraint" />
+                        <ScoreNode positionClassName="left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" toneClassName="bg-orange text-white" label="Project" />
+                        <ScoreNode positionClassName="left-0 top-0" toneClassName="bg-[#f4d06f] text-ink" label="Decision" />
+                        <ScoreNode positionClassName="right-0 top-0" toneClassName="bg-teal text-white" label="Goal" />
+                        <ScoreNode positionClassName="bottom-0 left-0" toneClassName="bg-white text-ink" label="Evidence" />
+                        <ScoreNode positionClassName="bottom-0 right-0" toneClassName="bg-orange-light text-ink" label="Constraint" />
                       </div>
                       <div className="mt-4 flex items-center gap-2 rounded-md border border-white/20 bg-white/5 p-2.5">
                         <CircleCheck className="size-4 shrink-0 text-teal-light" />
@@ -631,15 +640,25 @@ function SourceChip({
   )
 }
 
-function ScoreNode({ className, label }: { className: string; label: string }) {
+function ScoreNode({
+  positionClassName,
+  toneClassName,
+  label,
+}: {
+  positionClassName: string
+  toneClassName: string
+  label: string
+}) {
   return (
-    <motion.div
-      animate={{ y: [0, -3, 0] }}
-      transition={{ duration: 3, repeat: Infinity, delay: label.length * 0.07 }}
-      className={`absolute grid min-h-8 min-w-[70px] place-items-center rounded-full border-2 border-ink px-2 font-mono text-[8px] font-bold uppercase shadow-[2px_2px_0_#100e0b] ${className}`}
-    >
-      {label}
-    </motion.div>
+    <div className={`absolute ${positionClassName}`}>
+      <motion.div
+        animate={{ y: [0, -3, 0] }}
+        transition={{ duration: 3, repeat: Infinity, delay: label.length * 0.07 }}
+        className={`grid min-h-8 min-w-[70px] place-items-center rounded-full border-2 border-ink px-2 font-mono text-[8px] font-bold uppercase shadow-[2px_2px_0_#100e0b] ${toneClassName}`}
+      >
+        {label}
+      </motion.div>
+    </div>
   )
 }
 
