@@ -156,6 +156,38 @@ async def run() -> None:
                 {"org_id": user.org_id},
             )
 
+            filtered_graph = await client.get(
+                "/graph",
+                params={
+                    "org_id": user.org_id,
+                    "entity_types": "Decision",
+                    "status": "confirmed",
+                    "query": "ApiNebula",
+                },
+            )
+            assert filtered_graph.status_code == 200, filtered_graph.text
+            filtered_payload = filtered_graph.json()
+            assert filtered_payload["total"] == 2, filtered_graph.text
+            assert {node["id"] for node in filtered_payload["nodes"]} == {
+                "api-e2e-scoped",
+                "api-e2e-global",
+            }
+            assert all("degree" in node for node in filtered_payload["nodes"])
+            assert all(node["evidence_count"] == 1 for node in filtered_payload["nodes"])
+
+            proposed_graph = await client.get(
+                "/graph",
+                params={
+                    "org_id": user.org_id,
+                    "status": "proposed",
+                    "query": "ApiNebula",
+                },
+            )
+            assert proposed_graph.status_code == 200, proposed_graph.text
+            assert [node["id"] for node in proposed_graph.json()["nodes"]] == [
+                "api-e2e-proposed"
+            ]
+
             api_headers = {"Authorization": f"Bearer {key}"}
             context = await client.get(
                 "/v1/context",

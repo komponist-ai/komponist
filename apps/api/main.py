@@ -3123,7 +3123,9 @@ async def get_graph(
     request: Request,
     org_id: str = Query(...),
     limit: int = Query(200, ge=1, le=500, description="Max nodes to return"),
-    entity_types: Optional[str] = Query(None, description="Comma-separated entity types to filter")
+    entity_types: Optional[str] = Query(None, description="Comma-separated entity types to filter"),
+    status: str = Query("all", description="all, confirmed, or proposed"),
+    query: Optional[str] = Query(None, max_length=160, description="Search entity text"),
 ):
     """
     Get the knowledge graph for visualization.
@@ -3138,37 +3140,84 @@ async def get_graph(
             status_code=400,
             detail=f"Unsupported entity types: {', '.join(invalid_types)}",
         )
+    normalized_status = status.strip().lower()
+    if normalized_status not in {"all", "confirmed", "proposed"}:
+        raise HTTPException(
+            status_code=400,
+            detail="status must be one of: all, confirmed, proposed",
+        )
+    normalized_query = (query or "").strip().lower()
 
     # Get nodes
     nodes_query = f"""
     MATCH (e:Entity {{org_id: $org_id}})
     WHERE e.status IN ['proposed', 'confirmed']
       AND (size($entity_types) = 0 OR e.entity_type IN $entity_types)
+      AND ($status = 'all' OR e.status = $status)
+      AND (
+        $query = ''
+        OR toLower(coalesce(e.name, '')) CONTAINS $query
+        OR toLower(coalesce(e.statement, '')) CONTAINS $query
+        OR toLower(coalesce(e.detail, '')) CONTAINS $query
+      )
       AND {_knowledge_scope('e')}
+    CALL {{
+      WITH e
+      OPTIONAL MATCH (e)-[relationship]-(neighbor:Entity {{org_id: $org_id}})
+      WHERE NOT type(relationship) = 'CITED_BY'
+      RETURN count(DISTINCT neighbor) AS degree
+    }}
+    CALL {{
+      WITH e
+      OPTIONAL MATCH (e)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+      RETURN count(DISTINCT evidence) AS evidence_count
+    }}
     RETURN
         e.id as id,
         coalesce(e.name, e.statement) as name,
         e.entity_type as type,
         e.detail as description,
         e.status as status,
-        e.confidence as confidence
-    ORDER BY e.created_at DESC
+        e.confidence as confidence,
+        degree,
+        evidence_count
+    ORDER BY degree DESC, e.created_at DESC
     LIMIT $limit
     """
 
     nodes = await GraphClient.run_query(
         nodes_query,
-        _scoped_params(org_id, user, limit=limit, entity_types=types),
+        _scoped_params(
+            org_id,
+            user,
+            limit=limit,
+            entity_types=types,
+            status=normalized_status,
+            query=normalized_query,
+        ),
     )
     total_rows = await GraphClient.run_query(
         f"""
         MATCH (e:Entity {{org_id: $org_id}})
         WHERE e.status IN ['proposed', 'confirmed']
           AND (size($entity_types) = 0 OR e.entity_type IN $entity_types)
+          AND ($status = 'all' OR e.status = $status)
+          AND (
+            $query = ''
+            OR toLower(coalesce(e.name, '')) CONTAINS $query
+            OR toLower(coalesce(e.statement, '')) CONTAINS $query
+            OR toLower(coalesce(e.detail, '')) CONTAINS $query
+          )
           AND {_knowledge_scope('e')}
         RETURN count(e) AS total
         """,
-        _scoped_params(org_id, user, entity_types=types),
+        _scoped_params(
+            org_id,
+            user,
+            entity_types=types,
+            status=normalized_status,
+            query=normalized_query,
+        ),
     )
     total = int(total_rows[0]["total"]) if total_rows else 0
 

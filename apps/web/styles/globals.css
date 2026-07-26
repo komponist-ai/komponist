@@ -34,13 +34,21 @@ textarea::placeholder { color: var(--color-faint); }
 :root[data-theme='dark'] .bg-\[\#eee9db\] { background-color: var(--color-paper-2) !important; }
 
 .graph-page-body {
-  height: calc(100vh - 180px);
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 78px);
   overflow: hidden;
   padding: 0;
 }
 
 .graph-canvas-container {
-  min-height: 360px;
+  min-height: 520px;
+}
+
+.graph-canvas-container:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
 }
 
 /* Typography */
@@ -562,6 +570,7 @@ h3 {
   .chat-composer-wrap::before { left: 0; }
 
   .graph-page-body {
+    display: block;
     height: auto;
     min-height: calc(100dvh - var(--mobile-appbar-height) - 70px);
     overflow: visible;
@@ -581,7 +590,7 @@ h3 {
   .graph-canvas-container {
     flex: none;
     height: clamp(420px, 65dvh, 620px);
-    min-height: 0;
+    min-height: 420px;
   }
 
   .graph-side-panel { width: 100%; height: auto; overflow: visible; }
