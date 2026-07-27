@@ -151,9 +151,9 @@ export default function LandingPage() {
 
       <header className="sticky top-0 z-40 border-b-2 border-ink bg-paper/95 backdrop-blur">
         <div className="mx-auto flex h-[72px] max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
-          <Link href="/" className="flex items-center gap-3 text-xl font-bold tracking-tight" aria-label="Komponist home">
-            <BrandMark />
-            <span>Komponist</span>
+          <Link href="/" className="sidebar-brand flex items-center gap-2" aria-label="Komponist home">
+            <BrandMark className="size-8 rounded-md shadow-[2px_2px_0_var(--color-shadow-strong)]" />
+            Komponist
           </Link>
           <nav className="hidden items-center gap-8 text-sm font-bold md:flex" aria-label="Main navigation">
             <a href="#score" className="transition hover:text-orange">How it works</a>
