@@ -79,6 +79,11 @@ _FIELD_ALIASES = {
         "budget", "cost", "costs", "price", "amount", "funding", "spend",
         "expense", "expenses", "euro", "eur", "kosten", "betrag",
     },
+    "duration": {
+        "duration", "runs", "run", "lasts", "lasting", "takes", "weeks",
+        "week", "months", "month", "days", "day", "dauer", "dauert", "wochen",
+        "woche", "monate", "monat", "tage", "tag",
+    },
     "owner": {
         "owner", "responsible", "lead", "contact", "assignee", "owned",
         "verantwortlich", "zuständig",

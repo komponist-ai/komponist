@@ -29,9 +29,15 @@ def check_semantic_fact_binding() -> None:
         "detail": "",
         "evidence": [{"excerpt": "Approved event date: 14 November 2026."}],
     }
+    duration = {
+        "statement": "The Campus Forum project runs for 6 weeks.",
+        "detail": "",
+        "evidence": [{"excerpt": "The project duration is six weeks."}],
+    }
 
     assert _fact_relevance(admission, "Campus Forum", "venue") < 0
     assert _fact_relevance(venue, "Campus Forum", "venue") > 0
+    assert _fact_relevance(duration, "Campus Forum", "duration") > 0
     assert _fact_relevance(admission, "Campus Forum", "approved date") < 0
     assert _fact_relevance(approved_date, "Campus Forum", "approved date") > 0
     assert _fact_relevance(
