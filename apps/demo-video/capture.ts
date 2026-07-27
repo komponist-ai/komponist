@@ -131,7 +131,13 @@ try {
     name: 'Campus Forum Command Center',
     exact: true,
   }).waitFor({ state: 'visible' })
-  await page.getByText(/6 weeks/i).first().waitFor({ state: 'visible' })
+  // Canvas renders separate desktop and mobile panel trees so every control
+  // stays reachable responsively. At desktop widths the first matching fact
+  // can therefore belong to the hidden mobile tree.
+  await page.getByText(/6 weeks/i)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ state: 'visible' })
   await capture(page, 'canvas')
 
   await page.goto(`${baseUrl}/workrooms`)
