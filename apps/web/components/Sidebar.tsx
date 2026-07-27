@@ -79,7 +79,7 @@ export default function Sidebar({
       <div className="sidebar-header">
         <div className="flex items-center justify-between gap-3">
           <Link href="/studio" className="sidebar-brand flex items-center gap-2" onClick={onMobileClose}>
-            <BrandMark className="size-8 rounded-md shadow-[2px_2px_0_var(--color-shadow-strong)]" />
+            <BrandMark size={32} className="size-8" />
             Komponist
           </Link>
           <button type="button" className="sidebar-close" onClick={onMobileClose} aria-label="Close navigation"><X /></button>

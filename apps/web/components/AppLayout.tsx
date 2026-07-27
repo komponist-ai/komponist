@@ -48,7 +48,7 @@ export default function AppLayout({
           <Menu aria-hidden="true" />
         </button>
         <Link href="/studio" className="mobile-app-brand" aria-label="Komponist Studio">
-          <BrandMark className="size-8 rounded-md shadow-none" />
+          <BrandMark size={32} className="size-8" />
           <span>Komponist</span>
         </Link>
         <ThemeToggle />

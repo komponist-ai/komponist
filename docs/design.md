@@ -57,7 +57,8 @@ Use the **K key** as the canonical compact mark: a bold `K` inside a rounded
 keycap. It represents the shortcut into the company brain and connects the
 Komponist name to the familiar `⌘K` interaction pattern.
 
-- the tile uses ink `#201c15` with a warm-white mark `#fffdf8`;
+- the front tile uses ink `#26201b` with a warm-white mark `#fffdf8`;
+- an orange `#e8641b` tile sits behind it as the canonical hard-shadow offset;
 - the bare mark inherits the surface color and can be ink or warm white;
 - use the supplied simplified geometry at favicon sizes—never typeset the `K`;
 - keep the wordmark `Komponist` in sentence case and semibold or bold;

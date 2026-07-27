@@ -11,14 +11,14 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: '/brand/icon.svg?v=3',
+        url: '/brand/icon.svg?v=4',
         type: 'image/svg+xml',
       },
-      { url: '/brand/favicon-32.png?v=3', type: 'image/png', sizes: '32x32' },
-      { url: '/brand/favicon-16.png?v=3', type: 'image/png', sizes: '16x16' },
+      { url: '/brand/favicon-32.png?v=4', type: 'image/png', sizes: '32x32' },
+      { url: '/brand/favicon-16.png?v=4', type: 'image/png', sizes: '16x16' },
     ],
-    shortcut: '/brand/favicon-32.png?v=3',
-    apple: [{ url: '/brand/apple-touch-icon.png?v=3', type: 'image/png', sizes: '180x180' }],
+    shortcut: '/brand/favicon-32.png?v=4',
+    apple: [{ url: '/brand/apple-touch-icon.png?v=4', type: 'image/png', sizes: '180x180' }],
   },
 }
 

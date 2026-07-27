@@ -152,7 +152,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-40 border-b-2 border-ink bg-paper/95 backdrop-blur">
         <div className="mx-auto flex h-[72px] max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
           <Link href="/" className="sidebar-brand flex items-center gap-2" aria-label="Komponist home">
-            <BrandMark className="size-8 rounded-md shadow-[2px_2px_0_var(--color-shadow-strong)]" />
+            <BrandMark size={32} className="size-8" />
             Komponist
           </Link>
           <nav className="hidden items-center gap-8 text-sm font-bold md:flex" aria-label="Main navigation">
@@ -320,7 +320,7 @@ export default function LandingPage() {
                         <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-wider text-orange-light">
                           <Network className="size-4" /> Shared score
                         </div>
-                        <BrandMark className="size-8 rounded-md shadow-none" />
+                        <BrandMark size={32} className="size-8" />
                       </div>
                       <div className="relative mt-5 h-36">
                         <svg className="absolute inset-0 size-full" viewBox="0 0 300 140" aria-hidden="true">

@@ -69,7 +69,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <div className="absolute -bottom-28 -left-28 size-80 rounded-full border-[56px] border-teal/70" />
 
             <Link className="relative z-10 inline-flex items-center gap-3 self-start font-display text-xl font-black" href="/">
-              <BrandMark className="shadow-[3px_3px_0_#fff]" />
+              <BrandMark />
               Komponist
             </Link>
 
