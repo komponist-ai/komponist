@@ -42,7 +42,7 @@ async function ready(page: Page, heading: string) {
   await page.evaluate(() => document.fonts.ready)
 }
 
-async function capture(page: Page, name: string) {
+async function capture(page: Page, name: string, extraStyles: string[] = []) {
   await page.screenshot({
     path: resolve(captureDirectory, `${name}.png`),
     animations: 'disabled',
@@ -51,6 +51,7 @@ async function capture(page: Page, name: string) {
       '[aria-label="Loading GitHub stars"], [aria-label$="GitHub stars"] { display: none !important; }',
       '[data-nextjs-toast], nextjs-portal { display: none !important; }',
       '* { caret-color: transparent !important; }',
+      ...extraStyles,
     ].join('\n'),
   })
 }
@@ -109,6 +110,11 @@ try {
   await sourceToggle.click()
   await page.getByText('Loading documents…', { exact: true }).waitFor({ state: 'hidden' })
   await page.getByText(`${showcase.documents} documents`, { exact: true }).first().waitFor({ state: 'visible' })
+  const firstDocumentRow = page.locator('[id^="source-document-"]').first()
+  await firstDocumentRow.waitFor({ state: 'visible' })
+  await firstDocumentRow.evaluate((element) => {
+    element.scrollIntoView({ block: 'center', inline: 'nearest' })
+  })
   await capture(page, 'sources')
 
   await page.goto(`${baseUrl}/studio`)
@@ -116,7 +122,9 @@ try {
   const newThread = page.getByRole('button', { name: 'New thread', exact: true })
   if (await newThread.count()) await newThread.click()
   await page.getByRole('heading', { name: /Ask the brain/i }).waitFor({ state: 'visible' })
-  await capture(page, 'chat-empty')
+  await capture(page, 'chat-empty', [
+    'textarea[aria-label="Ask Komponist"]::placeholder { color: transparent !important; opacity: 0 !important; }',
+  ])
   const conversation = page.locator('button').filter({ hasText: showcase.conversation }).first()
   await conversation.click()
   await page.locator('[data-chat-role="assistant"]').waitFor({ state: 'visible' })

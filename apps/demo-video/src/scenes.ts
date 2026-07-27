@@ -39,11 +39,11 @@ export const DEMO_SCENES: DemoScene[] = [
     beforeImage: 'sources-collapsed',
     swapAt: 0.27,
     camera: [
-      { at: 0, x: 0.52, y: 0.38, zoom: 0.94 },
-      { at: 0.18, x: 0.61, y: 0.44, zoom: 1.02 },
-      { at: 0.46, x: 0.68, y: 0.55, zoom: 1.1 },
-      { at: 0.82, x: 0.76, y: 0.64, zoom: 1.16 },
-      { at: 1, x: 0.74, y: 0.6, zoom: 1.12 },
+      { at: 0, x: 0.52, y: 0.4, zoom: 0.9 },
+      { at: 0.18, x: 0.58, y: 0.42, zoom: 0.94 },
+      { at: 0.46, x: 0.64, y: 0.44, zoom: 0.98 },
+      { at: 0.82, x: 0.67, y: 0.44, zoom: 1 },
+      { at: 1, x: 0.65, y: 0.44, zoom: 0.96 },
     ],
     cursor: [
       { at: 0, x: 0.78, y: 0.31 },

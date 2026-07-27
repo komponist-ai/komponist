@@ -245,8 +245,13 @@ const TypewriterPrompt: React.FC<{
   ))
   const opacity = interpolate(
     frame,
-    [start - 5, start + 4, swapAt * durationInFrames + 4],
-    [0, 1, 0],
+    [
+      start - 5,
+      start + 4,
+      swapAt * durationInFrames + 8,
+      swapAt * durationInFrames + 10,
+    ],
+    [0, 1, 1, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
   )
   const cursorVisible = Math.floor(frame / 9) % 2 === 0
