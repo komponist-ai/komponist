@@ -365,6 +365,22 @@ _DEMO_STOP_WORDS = {
 }
 
 
+def _scoped_demo_facts(org_id: str) -> list[dict[str, Any]]:
+    """Give the shared example globally unique, repeatable graph identifiers."""
+    return [
+        {
+            **fact,
+            "demo_id": fact["id"],
+            "id": f"demo:{org_id}:{fact['id'].removeprefix('demo-')}",
+            "evidence_id": (
+                f"demo:{org_id}:{fact['id'].removeprefix('demo-')}:evidence"
+            ),
+            "reference": f"upload:{fact['source']}:campuskollektiv-demo",
+        }
+        for fact in _DEMO_FACTS
+    ]
+
+
 async def _install_demo_showcase(
     org_id: str,
     user: dict,
@@ -397,7 +413,7 @@ async def _install_demo_showcase(
     )
 
     evidence_by_entity: dict[str, dict[str, Any]] = {
-        fact["id"]: {
+        fact["demo_id"]: {
             "id": fact["evidence_id"],
             "entity_id": fact["id"],
             "type": fact["type"],
@@ -419,7 +435,7 @@ async def _install_demo_showcase(
             "statement": fact["statement"],
             "detail": fact["detail"],
             "department_ids": [],
-            "evidence": [evidence_by_entity[fact["id"]]],
+            "evidence": [evidence_by_entity[fact["demo_id"]]],
         }
         for fact in facts
     ]
@@ -723,14 +739,7 @@ async def install_demo_workspace(
         {"org_id": org_id},
     )
     existing_count = int(existing[0]["count"]) if existing else 0
-    facts = [
-        {
-            **fact,
-            "evidence_id": f"{fact['id']}-evidence",
-            "reference": f"upload:{fact['source']}:campuskollektiv-demo",
-        }
-        for fact in _DEMO_FACTS
-    ]
+    facts = _scoped_demo_facts(org_id)
     await GraphClient.run_query(
         """
         UNWIND $facts AS fact
@@ -762,9 +771,13 @@ async def install_demo_workspace(
         """,
         {"org_id": org_id, "facts": facts},
     )
+    scoped_ids = {fact["demo_id"]: fact["id"] for fact in facts}
     for relationship_type in ("AFFECTS", "ADVANCES", "BLOCKS"):
         relationships = [
-            {"source": source, "target": target}
+            {
+                "source": scoped_ids[source],
+                "target": scoped_ids[target],
+            }
             for source, relation, target in _DEMO_RELATIONSHIPS
             if relation == relationship_type
         ]
