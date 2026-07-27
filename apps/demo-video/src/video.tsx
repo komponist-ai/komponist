@@ -46,22 +46,29 @@ const wordmark: React.CSSProperties = {
   letterSpacing: '-0.055em',
 }
 
-const Monogram: React.FC<{ inverted?: boolean }> = ({ inverted = false }) => (
-  <div
+const VideoBrandMark: React.FC<{
+  inverted?: boolean
+  size?: number
+}> = ({ inverted = false, size = 86 }) => (
+  <Img
+    src={staticFile(inverted ? 'brand/logo-invers.svg' : 'brand/logo.svg')}
     style={{
-      width: 82,
-      height: 82,
-      border: `4px solid ${inverted ? paper : ink}`,
-      borderRadius: 20,
-      display: 'grid',
-      placeItems: 'center',
-      color: inverted ? paper : ink,
-      fontSize: 45,
-      ...wordmark,
+      width: size,
+      height: size,
+      objectFit: 'contain',
     }}
-  >
-    K
-  </div>
+  />
+)
+
+const VideoBrandTile: React.FC<{ size?: number }> = ({ size = 31 }) => (
+  <Img
+    src={staticFile('brand/icon.svg')}
+    style={{
+      width: size,
+      height: size,
+      borderRadius: Math.round(size * 0.25),
+    }}
+  />
 )
 
 const IntroGraph: React.FC<{ frame: number }> = ({ frame }) => {
@@ -140,7 +147,7 @@ const Intro: React.FC = () => {
     >
       <IntroGraph frame={frame} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 28, opacity: enter }}>
-        <Monogram inverted />
+        <VideoBrandMark inverted />
         <div style={{ fontSize: 58, ...wordmark }}>Komponist</div>
       </div>
       <div
@@ -596,21 +603,17 @@ const VoiceoverSubtitles: React.FC<{ captions: VoiceoverCaption[] }> = ({ captio
       >
         <span
           style={{
-          width: 31,
-          height: 31,
-          marginRight: 7,
-          display: 'grid',
-          placeItems: 'center',
-          border: `2px solid ${orange}`,
-          borderRadius: 8,
-          color: orange,
-            fontFamily: 'monospace',
-          fontSize: 15,
-            fontWeight: 900,
-            letterSpacing: '0.13em',
+            width: 31,
+            height: 31,
+            marginRight: 7,
+            display: 'grid',
+            placeItems: 'center',
+            borderRadius: 8,
+            boxShadow: `2px 2px 0 ${orange}`,
+            overflow: 'hidden',
           }}
         >
-          K
+          <VideoBrandTile />
         </span>
         {words.map((word, index) => {
           const isCurrent = index === currentWord
@@ -638,7 +641,7 @@ const Outro: React.FC = () => {
   return (
     <AbsoluteFill style={{ background: orange, color: ink, padding: 110 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <Monogram />
+        <VideoBrandMark />
         <div style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 700 }}>komponist.build</div>
       </div>
       <div style={{ marginTop: 'auto', opacity: appear, transform: `translateY(${interpolate(appear, [0, 1], [35, 0])}px)` }}>

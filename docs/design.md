@@ -53,16 +53,18 @@ Alternative supporting line:
 
 ### 2.4 Logo treatment
 
-Use a text-first wordmark:
+Use the **K key** as the canonical compact mark: a bold `K` inside a rounded
+keycap. It represents the shortcut into the company brain and connects the
+Komponist name to the familiar `⌘K` interaction pattern.
 
-- wordmark: `Komponist`;
-- sentence case, not all caps;
-- medium or semibold weight;
-- no gradient fill;
-- no glossy symbol;
-- no generic brain icon.
+- the tile uses ink `#201c15` with a warm-white mark `#fffdf8`;
+- the bare mark inherits the surface color and can be ink or warm white;
+- use the supplied simplified geometry at favicon sizes—never typeset the `K`;
+- keep the wordmark `Komponist` in sentence case and semibold or bold;
+- do not add gradients, gloss, a generic brain icon, or alternate symbols.
 
-An optional compact mark may be built from a monospaced `K`, a brace-like form, or intersecting lines that suggest orchestration. It must remain geometric and legible at 16 px.
+`apps/web/components/BrandMark.tsx` and
+`apps/web/public/brand/icon.svg` are the implementation sources of truth.
 
 ## 3. Design principles
 
