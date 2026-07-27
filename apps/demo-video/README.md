@@ -25,6 +25,22 @@ To reuse an existing Google Chrome installation instead of Playwright's
 Chromium, prefix the command with
 `KOMPONIST_DEMO_BROWSER_CHANNEL=chrome`.
 
+## Alternative floating-screen edit
+
+The package also includes a separate, Recordly-inspired composition. It keeps
+the same Komponist captures, narration, citations, and scene timing, but uses a
+floating browser window, soft moving gradients, cursor trails, glass captions,
+and smoother whole-screen zooms:
+
+```bash
+npm run capture
+npm run render:recordly
+```
+
+The alternative video is written to
+`apps/demo-video/out/komponist-yc-demo-recordly.mp4`. For a silent preview,
+run `npm run render:recordly:silent`.
+
 For a hosted deployment, provide a dedicated demo account:
 
 ```bash
