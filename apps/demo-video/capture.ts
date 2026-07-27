@@ -102,13 +102,21 @@ try {
   await ready(page, 'Connected Sources')
   const sourceToggle = page.getByRole('button', { name: /Show documents from CampusKollektiv demo documents/i })
   await sourceToggle.waitFor({ state: 'visible' })
-  if (await sourceToggle.getAttribute('aria-expanded') !== 'true') {
+  if (await sourceToggle.getAttribute('aria-expanded') === 'true') {
     await sourceToggle.click()
   }
+  await capture(page, 'sources-collapsed')
+  await sourceToggle.click()
+  await page.getByText('Loading documents…', { exact: true }).waitFor({ state: 'hidden' })
+  await page.getByText(`${showcase.documents} documents`, { exact: true }).first().waitFor({ state: 'visible' })
   await capture(page, 'sources')
 
   await page.goto(`${baseUrl}/studio`)
   await ready(page, 'Ask Komponist')
+  const newThread = page.getByRole('button', { name: 'New thread', exact: true })
+  if (await newThread.count()) await newThread.click()
+  await page.getByRole('heading', { name: /Ask the brain/i }).waitFor({ state: 'visible' })
+  await capture(page, 'chat-empty')
   const conversation = page.locator('button').filter({ hasText: showcase.conversation }).first()
   await conversation.click()
   await page.locator('[data-chat-role="assistant"]').waitFor({ state: 'visible' })
@@ -123,6 +131,7 @@ try {
     name: 'Campus Forum Command Center',
     exact: true,
   }).waitFor({ state: 'visible' })
+  await page.getByText(/6 weeks/i).first().waitFor({ state: 'visible' })
   await capture(page, 'canvas')
 
   await page.goto(`${baseUrl}/workrooms`)

@@ -1,9 +1,10 @@
 # Komponist YC demo video
 
 This package turns a real, authenticated CampusKollektiv workspace into a
-repeatable 88-second product demo. Playwright captures deterministic product
-states; Remotion adds the branded frame, motion, cursor, captions, intro, and
-end card.
+repeatable 88-second product demo. Playwright captures deterministic before
+and after product states; Remotion adds spring-driven camera paths, pans,
+typed chat interaction, click ripples, branded transitions, captions, intro,
+and end card.
 
 ## First setup
 
@@ -82,7 +83,8 @@ short pauses at scene changes, and give the punchlines a little room.
 ## Edit before rendering
 
 - Scene order and duration: `src/scenes.ts`
-- Visual treatment: `src/video.tsx`
+- Camera paths, cursor actions, and click timing: `src/scenes.ts`
+- Visual treatment and interaction choreography: `src/video.tsx`
 - Live capture behavior: `capture.ts`
 - Interactive preview: `npm run studio`
 
