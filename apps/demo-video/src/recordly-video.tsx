@@ -207,22 +207,30 @@ const CursorShape: React.FC<{
   scale?: number
   blur?: number
 }> = ({ x, y, opacity, scale = 1, blur = 0 }) => (
-  <div
+  <svg
+    aria-hidden
+    viewBox="0 0 32 44"
     style={{
       position: 'absolute',
       left: x,
       top: y,
-      width: 29,
-      height: 38,
-      background: '#fff',
-      border: `3px solid ${ink}`,
-      clipPath: 'polygon(0 0, 100% 65%, 58% 69%, 77% 100%, 57% 100%, 40% 72%, 0 100%)',
-      filter: `drop-shadow(2px 4px 0 rgba(18,19,24,.28)) blur(${blur}px)`,
+      width: 32,
+      height: 44,
+      overflow: 'visible',
+      filter: `drop-shadow(2px 4px 1px rgba(18,19,24,.32)) blur(${blur}px)`,
       opacity,
-      transform: `translate(-3px, -3px) scale(${scale})`,
+      transform: `translate(-3px, -2px) scale(${scale})`,
       transformOrigin: 'top left',
     }}
-  />
+  >
+    <path
+      d="M3.5 2.5 3.7 32l7.4-7.1 7.2 15.6 7-3.3-7.1-15.1 10.7-.9L3.5 2.5Z"
+      fill="#fff"
+      stroke={ink}
+      strokeLinejoin="round"
+      strokeWidth={2.6}
+    />
+  </svg>
 )
 
 const FloatingRecording: React.FC<{
