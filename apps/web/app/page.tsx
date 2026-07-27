@@ -144,7 +144,7 @@ export default function LandingPage() {
 
   return (
     <main className="min-h-screen overflow-hidden bg-paper text-ink">
-      <div className="border-b-2 border-ink bg-ink px-4 py-2 text-center font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white sm:text-xs">
+      <div className="border-b-2 border-ink bg-[#111214] px-4 py-2 text-center font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[#fffdf8] sm:text-xs">
         <span className="mr-2 inline-block size-2 rounded-full bg-orange" />
         Open-source company context · now playing
       </div>
@@ -171,7 +171,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
-              className="grid size-10 place-items-center rounded-md border-2 border-ink bg-white shadow-[2px_2px_0_#201c15] md:hidden"
+              className="grid size-10 place-items-center rounded-md border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)] md:hidden"
               aria-label={mobileMenuOpen ? 'Close navigation' : 'Open navigation'}
               aria-expanded={mobileMenuOpen}
               onClick={() => setMobileMenuOpen(current => !current)}
@@ -193,7 +193,7 @@ export default function LandingPage() {
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              className="absolute left-3 right-3 top-[calc(100%+8px)] rounded-xl border-2 border-ink bg-white p-2 text-sm font-bold shadow-[6px_6px_0_#201c15] md:hidden"
+              className="absolute left-3 right-3 top-[calc(100%+8px)] rounded-xl border-2 border-ink bg-white p-2 text-sm font-bold shadow-[6px_6px_0_var(--color-shadow-strong)] md:hidden"
               aria-label="Mobile navigation"
             >
               {[
@@ -224,7 +224,7 @@ export default function LandingPage() {
       </header>
 
       <section className="relative border-b-2 border-ink">
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(#d9cfbf44_1px,transparent_1px),linear-gradient(90deg,#d9cfbf44_1px,transparent_1px)] bg-[size:44px_44px] [mask-image:linear-gradient(to_bottom,black,transparent_90%)]" />
+        <div className="landing-grid pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,black,transparent_90%)]" />
         <div className="relative mx-auto max-w-[1440px] px-5 py-16 sm:px-8 sm:py-24 lg:px-12 lg:py-28">
           <div className="grid gap-14 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
             <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.55 }}>
@@ -240,7 +240,7 @@ export default function LandingPage() {
               <p className="mt-8 max-w-xl text-lg font-semibold leading-8 text-ink-2 sm:text-xl">
                 Komponist connects what your company knows — so people and AI can finally work from the same context.
               </p>
-              <div className="mt-5 flex max-w-xl items-start gap-3 rounded-lg border-2 border-ink bg-white px-4 py-3 shadow-[3px_3px_0_#201c15]">
+              <div className="mt-5 flex max-w-xl items-start gap-3 rounded-lg border-2 border-ink bg-white px-4 py-3 shadow-[3px_3px_0_var(--color-shadow-strong)]">
                 <span className="grid size-8 shrink-0 place-items-center rounded-md border border-ink bg-warning-soft">
                   <Music2 className="size-4 text-orange" />
                 </span>
@@ -270,13 +270,13 @@ export default function LandingPage() {
               transition={{ duration: 0.62, delay: 0.08 }}
               className="relative min-w-0"
             >
-              <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[8px_8px_0_#201c15]">
-                <div className="flex items-center justify-between border-b-2 border-ink bg-ink px-4 py-3 text-white">
+              <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[8px_8px_0_var(--color-shadow-strong)]">
+                <div className="flex items-center justify-between border-b-2 border-ink bg-[#111214] px-4 py-3 text-[#fffdf8]">
                   <div className="flex items-center gap-2">
                     <span className="size-2.5 rounded-full bg-orange" />
                     <span className="size-2.5 rounded-full bg-teal-light" />
-                    <span className="size-2.5 rounded-full bg-white/25" />
-                    <span className="ml-2 font-mono text-[9px] text-white/55">company-score.live</span>
+                    <span className="size-2.5 rounded-full bg-[#fffdf8]/25" />
+                    <span className="ml-2 font-mono text-[9px] text-[#fffdf8]/55">company-score.live</span>
                   </div>
                   <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-teal-light">
                     <Radio className="size-3" /> in sync
@@ -315,7 +315,7 @@ export default function LandingPage() {
                       ))}
                     </div>
 
-                    <div className="rounded-xl border-2 border-ink bg-ink p-4 text-white shadow-[4px_4px_0_#e8641b] sm:p-5">
+                    <div className="rounded-xl border-2 border-ink bg-[#111214] p-4 text-[#fffdf8] shadow-[4px_4px_0_var(--color-orange)] sm:p-5">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-wider text-orange-light">
                           <Network className="size-4" /> Shared score
@@ -324,15 +324,15 @@ export default function LandingPage() {
                       </div>
                       <div className="relative mt-5 h-36">
                         <svg className="absolute inset-0 size-full" viewBox="0 0 300 140" aria-hidden="true">
-                          <path d="M150 70 L48 28 M150 70 L252 28 M150 70 L48 115 M150 70 L252 115" fill="none" stroke="#655b4e" strokeWidth="2" />
+                          <path d="M150 70 L48 28 M150 70 L252 28 M150 70 L48 115 M150 70 L252 115" fill="none" stroke="var(--color-line)" strokeWidth="2" />
                         </svg>
-                        <ScoreNode positionClassName="left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" toneClassName="bg-orange text-white" label="Project" />
+                        <ScoreNode positionClassName="left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" toneClassName="bg-orange text-[#111214]" label="Project" />
                         <ScoreNode positionClassName="left-0 top-0" toneClassName="bg-[#f4d06f] text-ink" label="Decision" />
-                        <ScoreNode positionClassName="right-0 top-0" toneClassName="bg-teal text-white" label="Goal" />
+                        <ScoreNode positionClassName="right-0 top-0" toneClassName="bg-teal text-[#111214]" label="Goal" />
                         <ScoreNode positionClassName="bottom-0 left-0" toneClassName="bg-white text-ink" label="Evidence" />
                         <ScoreNode positionClassName="bottom-0 right-0" toneClassName="bg-orange-light text-ink" label="Constraint" />
                       </div>
-                      <div className="mt-4 flex items-center gap-2 rounded-md border border-white/20 bg-white/5 p-2.5">
+                      <div className="mt-4 flex items-center gap-2 rounded-md border border-[#fffdf8]/20 bg-[#fffdf8]/5 p-2.5">
                         <CircleCheck className="size-4 shrink-0 text-teal-light" />
                         <span className="text-[11px] font-semibold">24 reviewed facts · 17 relationships</span>
                       </div>
@@ -349,7 +349,7 @@ export default function LandingPage() {
                           type="button"
                           onClick={() => setActiveSurface(surface.id)}
                           className={`group rounded-lg border-2 border-ink p-2.5 text-left transition sm:p-3 ${
-                            active ? `${surface.color} ${surface.id === 'compose' ? 'text-ink' : 'text-white'} shadow-[3px_3px_0_#201c15] -translate-y-0.5` : 'bg-white hover:bg-paper'
+                            active ? `${surface.color} text-[#111214] shadow-[3px_3px_0_var(--color-shadow-strong)] -translate-y-0.5` : 'bg-white hover:bg-paper'
                           }`}
                           aria-pressed={active}
                         >
@@ -361,7 +361,7 @@ export default function LandingPage() {
                     })}
                   </div>
 
-                  <div className="relative mt-3 min-h-[190px] overflow-hidden rounded-xl border-2 border-ink bg-white p-4 shadow-[4px_4px_0_#d9cfbf] sm:p-5">
+                  <div className="relative mt-3 min-h-[190px] overflow-hidden rounded-xl border-2 border-ink bg-white p-4 shadow-[4px_4px_0_var(--color-shadow-soft)] sm:p-5">
                     <AnimatePresence mode="wait">
                       <motion.div
                         key={activeSurface}
@@ -378,7 +378,7 @@ export default function LandingPage() {
                   </div>
                 </div>
               </div>
-              <div className="absolute -bottom-6 -left-2 rotate-[-3deg] rounded-md border-2 border-ink bg-[#f4d06f] px-4 py-2.5 font-mono text-[10px] font-bold uppercase tracking-wider shadow-[3px_3px_0_#201c15] sm:left-6">
+              <div className="absolute -bottom-6 -left-2 rotate-[-3deg] rounded-md border-2 border-ink bg-[#f4d06f] px-4 py-2.5 font-mono text-[10px] font-bold uppercase tracking-wider shadow-[3px_3px_0_var(--color-shadow-strong)] sm:left-6">
                 Less archaeology. More action.
               </div>
             </motion.div>
@@ -386,13 +386,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="border-b-2 border-ink bg-orange px-5 py-5 text-white sm:px-8 lg:px-12">
+      <section className="border-b-2 border-ink bg-orange px-5 py-5 text-[#111214] sm:px-8 lg:px-12">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-center gap-x-9 gap-y-2 font-mono text-[10px] font-bold uppercase tracking-wider">
-          <span className="text-white/65">One score plays everywhere</span>
-          <span>Ask</span><span className="text-white/40">♪</span>
-          <span>Workrooms</span><span className="text-white/40">♪</span>
-          <span>Canvas</span><span className="text-white/40">♪</span>
-          <span>Compose</span><span className="text-white/40">♪</span>
+          <span className="text-[#111214]/65">One score plays everywhere</span>
+          <span>Ask</span><span className="text-[#111214]/45">♪</span>
+          <span>Workrooms</span><span className="text-[#111214]/45">♪</span>
+          <span>Canvas</span><span className="text-[#111214]/45">♪</span>
+          <span>Compose</span><span className="text-[#111214]/45">♪</span>
           <span>Agents</span>
         </div>
       </section>
@@ -421,7 +421,7 @@ export default function LandingPage() {
               >
                 <div className="flex items-start justify-between">
                   <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-orange-dark">{step.number} · {step.verb}</span>
-                  <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-white shadow-[3px_3px_0_#201c15] transition-transform group-hover:-rotate-6 group-hover:scale-105">
+                  <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-white shadow-[3px_3px_0_var(--color-shadow-strong)] transition-transform group-hover:-rotate-6 group-hover:scale-105">
                     <step.icon className="size-5" />
                   </span>
                 </div>
@@ -444,13 +444,13 @@ export default function LandingPage() {
           </motion.div>
 
           <div className="mt-14 grid gap-5 xl:grid-cols-3">
-            <motion.article {...reveal} className="group overflow-hidden rounded-xl border-2 border-ink bg-info-soft shadow-[6px_6px_0_#201c15]">
+            <motion.article {...reveal} className="group overflow-hidden rounded-xl border-2 border-ink bg-info-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
               <div className="flex items-center justify-between border-b-2 border-ink px-6 py-5">
                 <div>
                   <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">01 · Coordinate</p>
                   <h3 className="mt-1 text-3xl font-bold">Workrooms</h3>
                 </div>
-                <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-orange text-white transition-transform group-hover:-rotate-6"><UsersRound /></span>
+                <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-orange text-[#111214] transition-transform group-hover:-rotate-6"><UsersRound /></span>
               </div>
               <div className="p-5"><WorkroomPreview expanded /></div>
               <Link href="/workrooms" className="flex items-center justify-between border-t-2 border-ink bg-white px-6 py-4 text-sm font-bold hover:bg-paper-2">
@@ -458,13 +458,13 @@ export default function LandingPage() {
               </Link>
             </motion.article>
 
-            <motion.article {...reveal} transition={{ ...reveal.transition, delay: 0.08 }} className="group overflow-hidden rounded-xl border-2 border-ink bg-success-soft shadow-[6px_6px_0_#201c15]">
+            <motion.article {...reveal} transition={{ ...reveal.transition, delay: 0.08 }} className="group overflow-hidden rounded-xl border-2 border-ink bg-success-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
               <div className="flex items-center justify-between border-b-2 border-ink px-6 py-5">
                 <div>
                   <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">02 · Explore</p>
                   <h3 className="mt-1 text-3xl font-bold">Canvas</h3>
                 </div>
-                <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-teal text-white transition-transform group-hover:rotate-6"><LayoutDashboard /></span>
+                <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-teal text-[#111214] transition-transform group-hover:rotate-6"><LayoutDashboard /></span>
               </div>
               <div className="p-5"><CanvasPreview expanded /></div>
               <Link href="/canvas" className="flex items-center justify-between border-t-2 border-ink bg-white px-6 py-4 text-sm font-bold hover:bg-paper-2">
@@ -472,7 +472,7 @@ export default function LandingPage() {
               </Link>
             </motion.article>
 
-            <motion.article {...reveal} transition={{ ...reveal.transition, delay: 0.16 }} className="group overflow-hidden rounded-xl border-2 border-ink bg-warning-soft shadow-[6px_6px_0_#201c15]">
+            <motion.article {...reveal} transition={{ ...reveal.transition, delay: 0.16 }} className="group overflow-hidden rounded-xl border-2 border-ink bg-warning-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
               <div className="flex items-center justify-between border-b-2 border-ink px-6 py-5">
                 <div>
                   <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">03 · Present</p>
@@ -493,7 +493,7 @@ export default function LandingPage() {
                 key={surface.title}
                 {...reveal}
                 transition={{ ...reveal.transition, delay: index * 0.06 }}
-                className={`group rounded-xl border-2 border-ink p-6 shadow-[4px_4px_0_#201c15] ${surface.tone}`}
+                className={`group rounded-xl border-2 border-ink p-6 shadow-[4px_4px_0_var(--color-shadow-strong)] ${surface.tone}`}
               >
                 <div className="flex items-start justify-between">
                   <span className="grid size-10 place-items-center rounded-lg border-2 border-ink bg-white"><surface.icon className="size-4" /></span>
@@ -510,14 +510,14 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="border-y-2 border-ink bg-ink text-white">
+      <section className="border-y-2 border-ink bg-[#111214] text-[#fffdf8]">
         <div className="mx-auto grid max-w-[1440px] lg:grid-cols-[0.9fr_1.1fr]">
-          <motion.div {...reveal} className="border-b-2 border-white/20 p-8 sm:p-12 lg:border-b-0 lg:border-r-2 lg:p-16">
-            <Badge variant="dark" className="border-white/25"><ShieldCheck className="size-3.5" /> The trust layer</Badge>
+          <motion.div {...reveal} className="border-b-2 border-[#fffdf8]/20 p-8 sm:p-12 lg:border-b-0 lg:border-r-2 lg:p-16">
+            <Badge variant="dark" className="border-[#fffdf8]/25"><ShieldCheck className="size-3.5" /> The trust layer</Badge>
             <h2 className="mt-7 text-5xl font-bold leading-[0.92] tracking-[-0.055em] sm:text-7xl">
               Every note has a source.
             </h2>
-            <p className="mt-6 max-w-lg text-lg font-semibold leading-8 text-white/65">
+            <p className="mt-6 max-w-lg text-lg font-semibold leading-8 text-[#fffdf8]/65">
               AI can improvise. Company truth should not.
             </p>
           </motion.div>
@@ -533,11 +533,11 @@ export default function LandingPage() {
                 <motion.div
                   key={title as string}
                   {...reveal}
-                  className={`p-7 sm:p-9 ${index < 2 ? 'border-b-2 border-white/20' : ''} ${index % 2 === 0 ? 'sm:border-r-2 sm:border-white/20' : ''}`}
+                  className={`p-7 sm:p-9 ${index < 2 ? 'border-b-2 border-[#fffdf8]/20' : ''} ${index % 2 === 0 ? 'sm:border-r-2 sm:border-[#fffdf8]/20' : ''}`}
                 >
                   <TrustIcon className="size-6 text-orange-light" />
                   <h3 className="mt-8 text-2xl font-bold">{title as string}</h3>
-                  <p className="mt-2 max-w-xs text-sm font-semibold leading-6 text-white/55">{copy as string}</p>
+                  <p className="mt-2 max-w-xs text-sm font-semibold leading-6 text-[#fffdf8]/55">{copy as string}</p>
                 </motion.div>
               )
             })}
@@ -564,21 +564,21 @@ export default function LandingPage() {
           </Button>
         </motion.div>
 
-        <motion.div {...reveal} className="overflow-hidden rounded-xl border-2 border-ink bg-code-bg text-code-text shadow-[9px_9px_0_#0e8a7d]">
-          <div className="flex items-center justify-between border-b border-white/15 bg-code-surface px-5 py-3 font-mono text-xs text-code-muted">
+        <motion.div {...reveal} className="overflow-hidden rounded-xl border-2 border-ink bg-code-bg text-code-text shadow-[9px_9px_0_var(--color-teal)]">
+          <div className="flex items-center justify-between border-b border-[#fffdf8]/15 bg-code-surface px-5 py-3 font-mono text-xs text-code-muted">
             <span>play-the-score.ts</span><span>SDK · MCP</span>
           </div>
           <pre className="overflow-x-auto p-6 font-mono text-[13px] leading-7 sm:p-8"><code><span className="text-code-keyword">const</span> {'{'} data {'}'} = <span className="text-code-keyword">await</span> komponist.context.search({`\n`}  <span className="text-code-string">&quot;What is blocking Campus Forum?&quot;</span>,{`\n`}  {'{'} types: [<span className="text-code-string">&quot;Constraint&quot;</span>, <span className="text-code-string">&quot;Project&quot;</span>] {'}'}{`\n`}){`\n\n`}<span className="text-code-comment">{'// confirmed facts · exact evidence · correct scope'}</span>{`\n`}data.items[0].evidence</code></pre>
-          <div className="flex items-center gap-2 border-t border-white/15 bg-black/20 px-6 py-4 font-mono text-xs text-teal-light">
+          <div className="flex items-center gap-2 border-t border-[#fffdf8]/15 bg-black/20 px-6 py-4 font-mono text-xs text-teal-light">
             <Sparkles className="size-4" /> Context in tune.
           </div>
         </motion.div>
       </section>
 
-      <section className="border-y-2 border-ink bg-orange px-5 py-16 text-white sm:px-8 lg:px-12">
+      <section className="border-y-2 border-ink bg-orange px-5 py-16 text-[#111214] sm:px-8 lg:px-12">
         <div className="mx-auto flex max-w-[1440px] flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/65">The instruments are already playing</p>
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#111214]/65">The instruments are already playing</p>
             <h2 className="mt-3 max-w-4xl text-5xl font-bold leading-[0.92] tracking-[-0.055em] sm:text-7xl">
               Give the company a score.
             </h2>
@@ -632,7 +632,7 @@ function SourceChip({
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: 0.3 + delay }}
-      className={`flex min-w-0 items-center gap-2 rounded-lg border-2 border-ink p-2.5 shadow-[2px_2px_0_#201c15] ${tone}`}
+      className={`flex min-w-0 items-center gap-2 rounded-lg border-2 border-ink p-2.5 shadow-[2px_2px_0_var(--color-shadow-strong)] ${tone}`}
     >
       {sourceType ? (
         <SourceLogo type={sourceType} className="!size-8 !rounded-md !border !shadow-none" />
@@ -661,7 +661,7 @@ function ScoreNode({
       <motion.div
         animate={{ y: [0, -3, 0] }}
         transition={{ duration: 3, repeat: Infinity, delay: label.length * 0.07 }}
-        className={`grid min-h-8 min-w-[70px] place-items-center rounded-full border-2 border-ink px-2 font-mono text-[8px] font-bold uppercase shadow-[2px_2px_0_#100e0b] ${toneClassName}`}
+        className={`grid min-h-8 min-w-[70px] place-items-center rounded-full border-2 border-ink px-2 font-mono text-[8px] font-bold uppercase shadow-[2px_2px_0_var(--color-shadow-strong)] ${toneClassName}`}
       >
         {label}
       </motion.div>
@@ -679,7 +679,7 @@ function WorkroomPreview({ expanded = false }: { expanded?: boolean }) {
         </div>
         <div className="flex -space-x-2">
           {['SM', 'LK', 'AI'].map((initials, index) => (
-            <span key={initials} className={`grid size-8 place-items-center rounded-full border-2 border-ink text-[8px] font-black ${index === 2 ? 'bg-orange text-white' : 'bg-paper'}`}>{initials}</span>
+            <span key={initials} className={`grid size-8 place-items-center rounded-full border-2 border-ink text-[8px] font-black ${index === 2 ? 'bg-orange text-[#111214]' : 'bg-paper'}`}>{initials}</span>
           ))}
         </div>
       </div>
@@ -690,7 +690,7 @@ function WorkroomPreview({ expanded = false }: { expanded?: boolean }) {
           ['Draft cited briefing', 'next'],
         ].map(([task, state], index) => (
           <div key={task} className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-[10px] font-semibold ${state === 'active' ? 'border-orange bg-warning-soft' : 'border-line bg-paper'}`}>
-            <span className={`grid size-5 place-items-center rounded-full border ${state === 'done' ? 'border-teal bg-teal text-white' : 'border-ink bg-white'}`}>
+            <span className={`grid size-5 place-items-center rounded-full border ${state === 'done' ? 'border-teal bg-teal text-[#111214]' : 'border-ink bg-white'}`}>
               {state === 'done' ? <Check className="size-3" /> : index + 1}
             </span>
             <span className="min-w-0 flex-1 truncate">{task}</span>
@@ -699,7 +699,7 @@ function WorkroomPreview({ expanded = false }: { expanded?: boolean }) {
         ))}
       </div>
       {expanded && (
-        <div className="mt-4 flex items-center justify-between rounded-md border-2 border-ink bg-ink px-3 py-2.5 text-white">
+        <div className="mt-4 flex items-center justify-between rounded-md border-2 border-ink bg-[#111214] px-3 py-2.5 text-[#fffdf8]">
           <span className="flex items-center gap-2 text-[10px] font-semibold"><Bot className="size-3.5 text-orange-light" /> Analyst is researching</span>
           <span className="size-2 animate-pulse rounded-full bg-teal-light" />
         </div>
@@ -765,14 +765,14 @@ function ComposePreview({ expanded = false }: { expanded?: boolean }) {
         <div className="space-y-2">
           {[0, 1, 2].map(index => (
             <div key={index} className={`aspect-[4/3] rounded border-2 ${index === 0 ? 'border-orange bg-warning-soft' : 'border-line bg-paper'}`}>
-              <div className="m-1.5 h-1 w-6 rounded bg-ink/60" />
+              <div className="m-1.5 h-1 w-6 rounded bg-[#111214]/60" />
               <div className="mx-1.5 mt-1 h-0.5 rounded bg-line" />
             </div>
           ))}
         </div>
         <div className="rounded-md border-2 border-ink bg-paper p-3">
           <span className="rounded-full border border-orange/30 bg-warning-soft px-2 py-0.5 font-mono text-[7px] font-bold text-orange-dark">EXECUTIVE BRIEFING</span>
-          <div className="mt-3 h-2 w-3/4 rounded bg-ink" />
+          <div className="mt-3 h-2 w-3/4 rounded bg-[#111214]" />
           <div className="mt-2 h-1.5 w-1/2 rounded bg-muted/40" />
           <div className="mt-4 space-y-1.5">
             <div className="h-1 rounded bg-line" />

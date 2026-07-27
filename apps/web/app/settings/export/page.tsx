@@ -131,16 +131,16 @@ export default function ExportPage() {
         )}
 
         {!canManage ? (
-          <div className="grid min-h-[420px] place-items-center rounded-2xl border-2 border-ink bg-white p-8 text-center shadow-[6px_6px_0_#d9cfc0]">
+          <div className="grid min-h-[420px] place-items-center rounded-2xl border-2 border-ink bg-white p-8 text-center shadow-[6px_6px_0_var(--color-shadow-soft)]">
             <div className="max-w-md">
-              <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-warning-soft shadow-[3px_3px_0_#201c15]"><ShieldCheck className="size-6" /></span>
+              <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-warning-soft shadow-[3px_3px_0_var(--color-shadow-strong)]"><ShieldCheck className="size-6" /></span>
               <h2 className="mt-6 text-3xl font-bold tracking-tight">Admin access required</h2>
               <p className="mt-3 leading-7 text-muted">A workspace export can contain the organization&apos;s complete reviewed context. Only owners and admins can download it.</p>
             </div>
           </div>
         ) : (
           <>
-            <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15] lg:grid-cols-[0.9fr_1.1fr]">
+            <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-shadow-strong)] lg:grid-cols-[0.9fr_1.1fr]">
               <div className="relative overflow-hidden border-b-2 border-ink bg-ink p-7 text-white lg:border-b-0 lg:border-r-2 sm:p-9">
                 <div className="absolute -right-16 -top-16 size-52 rounded-full border-[34px] border-orange/80" />
                 <div className="relative">
@@ -173,7 +173,7 @@ export default function ExportPage() {
 
                 <div className="mt-7 rounded-xl border-2 border-ink bg-paper-2 p-4">
                   <div className="flex items-center gap-3">
-                    <span className="grid size-10 place-items-center rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]"><FileText className="size-5" /></span>
+                    <span className="grid size-10 place-items-center rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]"><FileText className="size-5" /></span>
                     <div className="min-w-0"><strong className="block text-sm">Komponist portable export</strong><span className="font-mono text-[10px] text-muted">.yaml · schema version 1.0</span></div>
                     <span className="ml-auto rounded-full bg-success-soft px-2 py-1 font-mono text-[9px] font-bold uppercase text-teal-dark">Recommended</span>
                   </div>
@@ -182,9 +182,9 @@ export default function ExportPage() {
             </section>
 
             <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_#d9cfc0] sm:p-8">
+              <div className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_var(--color-shadow-soft)] sm:p-8">
                 <div className="flex items-start gap-4">
-                  <span className="grid size-11 shrink-0 place-items-center rounded-xl border-2 border-ink bg-orange text-white shadow-[3px_3px_0_#201c15]"><Archive className="size-5" /></span>
+                  <span className="grid size-11 shrink-0 place-items-center rounded-xl border-2 border-ink bg-orange text-white shadow-[3px_3px_0_var(--color-shadow-strong)]"><Archive className="size-5" /></span>
                   <div><h3 className="text-2xl font-bold">Configure snapshot</h3><p className="mt-1 text-sm leading-6 text-muted">The default export is compact and excludes rejected knowledge.</p></div>
                 </div>
 
@@ -238,7 +238,7 @@ export default function ExportPage() {
 
 function Metric({ icon: Icon, label, value }: { icon: typeof Braces; label: string; value: string | number }) {
   return (
-    <div className="rounded-xl border-2 border-ink bg-white p-3 shadow-[2px_2px_0_#d9cfc0]">
+    <div className="rounded-xl border-2 border-ink bg-white p-3 shadow-[2px_2px_0_var(--color-shadow-soft)]">
       <Icon className="size-4 text-orange-dark" />
       <strong className="mt-3 block text-2xl">{value}</strong>
       <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">{label}</span>
@@ -250,7 +250,7 @@ function ExportOption({ title, description, checked, onChange }: { title: string
   return (
     <label className="flex cursor-pointer items-start gap-4 py-5">
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" />
-      <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border-2 border-ink bg-white shadow-[2px_2px_0_#201c15] peer-checked:bg-orange peer-checked:text-white">
+      <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)] peer-checked:bg-orange peer-checked:text-white">
         {checked && <Check className="size-4" />}
       </span>
       <span><strong className="block text-sm">{title}</strong><span className="mt-1 block text-xs leading-5 text-muted">{description}</span></span>

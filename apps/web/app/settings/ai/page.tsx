@@ -87,7 +87,7 @@ export default function AISettingsPage() {
       <div className="page-body max-w-6xl space-y-6">
         {message && <SettingsNotice message={message} />}
 
-        <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15] lg:grid-cols-[0.9fr_1.1fr]">
+        <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-shadow-strong)] lg:grid-cols-[0.9fr_1.1fr]">
           <div className="relative overflow-hidden border-b-2 border-ink bg-orange p-7 text-white lg:border-b-0 lg:border-r-2 sm:p-9">
             <div className="absolute -bottom-24 -right-20 size-64 rounded-full border-[38px] border-white/15" />
             <div className="relative">
@@ -127,7 +127,7 @@ export default function AISettingsPage() {
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_#d9cfc0]">
+          <div className="rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-soft)]">
             <div className="border-b-2 border-ink bg-paper-2 px-6 py-5 sm:px-8">
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-orange-dark">Runtime map</p>
               <h3 className="mt-2 text-2xl font-bold">How Komponist uses AI</h3>
@@ -151,7 +151,7 @@ export default function AISettingsPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-2xl border-2 border-ink bg-ink p-6 text-white shadow-[5px_5px_0_#e8641b] sm:p-8">
+            <div className="rounded-2xl border-2 border-ink bg-ink p-6 text-white shadow-[5px_5px_0_var(--color-orange)] sm:p-8">
               <span className="grid size-11 place-items-center rounded-xl border-2 border-white/70 bg-orange shadow-[3px_3px_0_#fff]"><KeyRound className="size-5" /></span>
               <h3 className="mt-5 text-2xl font-bold">Secrets stay server-side.</h3>
               <p className="mt-3 text-sm leading-6 text-white/65">Customers use Komponist without supplying an AI key. Provider credentials are read only by the backend deployment.</p>
@@ -179,7 +179,7 @@ function compactModel(model?: string) {
 
 function ProviderMetric({ icon: Icon, label, value }: { icon: typeof Bot; label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-xl border-2 border-ink bg-paper-2 p-3 shadow-[2px_2px_0_#d9cfc0]">
+    <div className="min-w-0 rounded-xl border-2 border-ink bg-paper-2 p-3 shadow-[2px_2px_0_var(--color-shadow-soft)]">
       <Icon className="size-4 text-orange-dark" />
       <strong className="mt-3 block truncate text-sm capitalize" title={value}>{value}</strong>
       <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">{label}</span>
@@ -196,7 +196,7 @@ function RuntimeCard({ icon: Icon, title, model, description, tasks }: {
 }) {
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="p-6 sm:p-8">
-      <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_#201c15]"><Icon className="size-5" /></span>
+      <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_var(--color-shadow-strong)]"><Icon className="size-5" /></span>
       <h4 className="mt-5 text-xl font-bold">{title}</h4>
       <Badge variant="orange" className="mt-3 normal-case tracking-normal">{model}</Badge>
       <p className="mt-4 text-sm leading-6 text-muted">{description}</p>

@@ -8,7 +8,7 @@ type SourceLogoProps = {
 }
 
 export default function SourceLogo({ type, className }: SourceLogoProps) {
-  const frame = cn('grid size-11 shrink-0 place-items-center rounded-xl border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]', className)
+  const frame = cn('grid size-11 shrink-0 place-items-center rounded-xl border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]', className)
 
   if (type === 'notion') {
     return (

@@ -104,7 +104,7 @@ export default function SettingsPage() {
       <div className="page-body max-w-6xl space-y-6">
         {message && <SettingsNotice message={message} />}
 
-        <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15] lg:grid-cols-[0.88fr_1.12fr]">
+        <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-shadow-strong)] lg:grid-cols-[0.88fr_1.12fr]">
           <div className="relative overflow-hidden border-b-2 border-ink bg-ink p-7 text-white lg:border-b-0 lg:border-r-2 sm:p-9">
             <div className="absolute -right-14 -top-16 size-48 rounded-full border-[32px] border-orange/80" />
             <div className="relative">
@@ -138,7 +138,7 @@ export default function SettingsPage() {
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-          <div className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_#d9cfc0]">
+          <div className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-soft)]">
             <div className="border-b-2 border-ink bg-paper-2 px-6 py-5 sm:px-8">
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-orange-dark">Extraction & sync</p>
               <h3 className="mt-2 text-2xl font-bold">Workspace behavior</h3>
@@ -167,7 +167,7 @@ export default function SettingsPage() {
                     >
                       <span
                         aria-hidden="true"
-                        className={`pointer-events-none absolute left-[3px] top-1/2 size-5 -translate-y-1/2 rounded-full border-2 border-ink bg-white shadow-[1px_1px_0_#201c15] transition-transform duration-200 ${settings.auto_confirm ? 'translate-x-7' : 'translate-x-0'}`}
+                        className={`pointer-events-none absolute left-[3px] top-1/2 size-5 -translate-y-1/2 rounded-full border-2 border-ink bg-white shadow-[1px_1px_0_var(--color-shadow-strong)] transition-transform duration-200 ${settings.auto_confirm ? 'translate-x-7' : 'translate-x-0'}`}
                       />
                     </button>
                   )}
@@ -198,13 +198,13 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-2xl border-2 border-ink bg-warning-soft p-6 shadow-[5px_5px_0_#d9cfc0]">
-              <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_#201c15]"><Info className="size-5 text-orange-dark" /></span>
+            <div className="rounded-2xl border-2 border-ink bg-warning-soft p-6 shadow-[5px_5px_0_var(--color-shadow-soft)]">
+              <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_var(--color-shadow-strong)]"><Info className="size-5 text-orange-dark" /></span>
               <h3 className="mt-5 text-xl font-bold">Why review-first?</h3>
               <p className="mt-3 text-sm leading-6 text-muted">Confirmed context is what chat, MCP, and the SDK can trust. Manual review prevents a weak extraction from silently becoming company truth.</p>
             </div>
 
-            <div className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_#d9cfc0]">
+            <div className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_var(--color-shadow-soft)]">
               <div className="flex items-start gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-success-soft"><UsersRound className="size-5 text-teal" /></span>
                 <div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">Organization</p><h3 className="mt-1 text-xl font-bold">{user?.organization.name}</h3></div>
@@ -223,7 +223,7 @@ export default function SettingsPage() {
 
 function StatusTile({ icon: Icon, label, value }: { icon: typeof Gauge; label: string; value: string }) {
   return (
-    <div className="rounded-xl border-2 border-ink bg-paper-2 p-4 shadow-[2px_2px_0_#d9cfc0]">
+    <div className="rounded-xl border-2 border-ink bg-paper-2 p-4 shadow-[2px_2px_0_var(--color-shadow-soft)]">
       <Icon className="size-4 text-orange-dark" />
       <span className="mt-3 block font-mono text-[9px] font-bold uppercase tracking-wider text-muted">{label}</span>
       <strong className="mt-1 block text-sm">{value}</strong>
@@ -241,7 +241,7 @@ function SettingRow({ icon: Icon, title, description, aside, children }: {
   return (
     <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="py-6">
       <div className="flex items-start gap-4">
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]"><Icon className="size-5" /></span>
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]"><Icon className="size-5" /></span>
         <div className="min-w-0 flex-1"><strong className="block text-sm">{title}</strong><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">{description}</p>{children}</div>
         {aside}
       </div>

@@ -51,7 +51,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <main className="grid min-h-screen place-items-center bg-paper px-5" aria-live="polite">
-        <div className="flex items-center gap-3 rounded-xl border-2 border-ink bg-white px-5 py-4 shadow-[4px_4px_0_#201c15]">
+        <div className="flex items-center gap-3 rounded-xl border-2 border-ink bg-white px-5 py-4 shadow-[4px_4px_0_var(--color-shadow-strong)]">
           <LoaderCircle className="size-5 animate-spin text-orange" />
           <p className="font-mono text-xs font-bold uppercase tracking-wider text-muted">Loading your workspace…</p>
         </div>
@@ -86,14 +86,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.15, duration: 0.4 }}
-                className="mt-10 overflow-hidden rounded-xl border-2 border-white bg-paper text-ink shadow-[8px_8px_0_#e8641b]"
+                className="mt-10 overflow-hidden rounded-xl border-2 border-white bg-paper text-ink shadow-[8px_8px_0_var(--color-orange)]"
               >
                 <div className="flex items-center justify-between border-b-2 border-ink bg-paper-2 px-4 py-3 font-mono text-[10px] font-bold uppercase tracking-wider">
                   <span>company-brain / ready</span>
                   <span className="text-teal-dark">● live</span>
                 </div>
                 <div className="grid grid-cols-[82px_1fr_82px] items-center gap-3 p-5 text-center">
-                  <div className="rounded-lg border-2 border-ink bg-white px-2 py-3 shadow-[2px_2px_0_#201c15]">
+                  <div className="rounded-lg border-2 border-ink bg-white px-2 py-3 shadow-[2px_2px_0_var(--color-shadow-strong)]">
                     <span className="font-mono text-[9px] uppercase text-muted">Source</span>
                     <strong className="mt-1 block text-xs">strategy.md</strong>
                   </div>
@@ -101,7 +101,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                     <div className="h-0.5 bg-ink" />
                     <span className="mt-2 block font-mono text-[9px] font-bold uppercase text-orange-dark">reviewed context</span>
                   </div>
-                  <div className="rounded-lg border-2 border-ink bg-teal-soft px-2 py-3 shadow-[2px_2px_0_#201c15]">
+                  <div className="rounded-lg border-2 border-ink bg-teal-soft px-2 py-3 shadow-[2px_2px_0_var(--color-shadow-strong)]">
                     <Network className="mx-auto size-4" />
                     <strong className="mt-1 block text-xs">Graph</strong>
                   </div>
@@ -147,7 +147,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 </p>
               </div>
 
-              <div className="mb-7 grid grid-cols-2 rounded-xl border-2 border-ink bg-paper-3 p-1 shadow-[3px_3px_0_#201c15]">
+              <div className="mb-7 grid grid-cols-2 rounded-xl border-2 border-ink bg-paper-3 p-1 shadow-[3px_3px_0_var(--color-shadow-strong)]">
                 <button
                   className={`rounded-lg px-4 py-2.5 text-sm font-bold transition ${mode === 'login' ? 'bg-ink text-white' : 'hover:bg-white/70'}`}
                   type="button"
@@ -169,7 +169,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                   <div>
                     <label className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-wider text-muted" htmlFor="auth-name">Full name</label>
                     <input
-                      className="w-full rounded-xl border-2 border-ink bg-white px-4 py-3.5 text-sm outline-none shadow-[3px_3px_0_#d9cfc0] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_#e8641b]"
+                      className="w-full rounded-xl border-2 border-ink bg-white px-4 py-3.5 text-sm outline-none shadow-[3px_3px_0_var(--color-shadow-soft)] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_var(--color-orange)]"
                       id="auth-name"
                       name="name"
                       autoComplete="name"
@@ -185,7 +185,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                   <div className="relative">
                     <Mail className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted" />
                     <input
-                      className="w-full rounded-xl border-2 border-ink bg-white py-3.5 pl-11 pr-4 text-sm outline-none shadow-[3px_3px_0_#d9cfc0] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_#e8641b]"
+                      className="w-full rounded-xl border-2 border-ink bg-white py-3.5 pl-11 pr-4 text-sm outline-none shadow-[3px_3px_0_var(--color-shadow-soft)] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_var(--color-orange)]"
                       id="auth-email"
                       name="email"
                       type="email"
@@ -202,7 +202,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                   <div className="relative">
                     <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted" />
                     <input
-                      className="w-full rounded-xl border-2 border-ink bg-white py-3.5 pl-11 pr-4 text-sm outline-none shadow-[3px_3px_0_#d9cfc0] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_#e8641b]"
+                      className="w-full rounded-xl border-2 border-ink bg-white py-3.5 pl-11 pr-4 text-sm outline-none shadow-[3px_3px_0_var(--color-shadow-soft)] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_var(--color-orange)]"
                       id="auth-password"
                       name="password"
                       type="password"

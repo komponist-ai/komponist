@@ -141,7 +141,7 @@ export default function FactCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: 28, scale: 0.98 }}
       transition={{ duration: 0.22 }}
-      className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[5px_5px_0_#d9cfc0]"
+      className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-soft)]"
     >
       <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-ink bg-paper-2 px-4 py-3 sm:px-5">
         <div className="flex items-center gap-3">
@@ -179,7 +179,7 @@ export default function FactCard({
               }}
               rows={4}
               autoFocus
-              className="w-full resize-y rounded-lg border-2 border-ink bg-white p-4 text-base font-semibold leading-6 outline-none shadow-[3px_3px_0_#e8641b] transition focus:-translate-y-0.5 focus:shadow-[5px_5px_0_#e8641b]"
+              className="w-full resize-y rounded-lg border-2 border-ink bg-white p-4 text-base font-semibold leading-6 outline-none shadow-[3px_3px_0_var(--color-orange)] transition focus:-translate-y-0.5 focus:shadow-[5px_5px_0_var(--color-orange)]"
             />
             <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-muted">
               <span>Keep the statement clear, atomic, and reusable.</span>

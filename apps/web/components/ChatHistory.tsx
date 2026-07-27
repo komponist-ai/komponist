@@ -133,7 +133,7 @@ function HistoryContent({
                   key={conversation.id}
                   className={cn(
                     'group relative overflow-hidden rounded-lg border-2 transition-colors',
-                    active ? 'border-ink bg-white shadow-[3px_3px_0_#e8641b]' : 'border-transparent hover:border-line hover:bg-white',
+                    active ? 'border-ink bg-white shadow-[3px_3px_0_var(--color-orange)]' : 'border-transparent hover:border-line hover:bg-white',
                   )}
                 >
                   {editing ? (

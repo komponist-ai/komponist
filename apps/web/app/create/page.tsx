@@ -385,7 +385,7 @@ export default function CreatePage() {
 
         <div className="mx-auto grid max-w-[1500px] gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
           <aside className="space-y-5">
-            <section className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_#201c15]">
+            <section className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-strong)]">
               <div className="border-b-2 border-ink bg-ink p-5 text-white">
                 <div className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-orange-light">
                   <Sparkles className="size-3.5" /> Compose from your brain
@@ -399,7 +399,7 @@ export default function CreatePage() {
                   type="button"
                   onClick={() => void loadCampusKollektivExample()}
                   disabled={exampleLoading || generating}
-                  className="flex w-full items-center gap-3 rounded-xl border-2 border-ink bg-success-soft p-3 text-left transition hover:-translate-y-0.5 hover:shadow-[3px_3px_0_#201c15] disabled:cursor-wait disabled:opacity-60"
+                  className="flex w-full items-center gap-3 rounded-xl border-2 border-ink bg-success-soft p-3 text-left transition hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--color-shadow-strong)] disabled:cursor-wait disabled:opacity-60"
                 >
                   <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-ink bg-white">
                     {exampleLoading
@@ -425,7 +425,7 @@ export default function CreatePage() {
                           key={format.value}
                           type="button"
                           onClick={() => setArtifactType(format.value)}
-                          className={`relative rounded-xl border-2 p-3 text-left transition ${active ? 'border-ink bg-warning-soft shadow-[3px_3px_0_#201c15]' : 'border-line bg-paper-2 hover:border-ink'}`}
+                          className={`relative rounded-xl border-2 p-3 text-left transition ${active ? 'border-ink bg-warning-soft shadow-[3px_3px_0_var(--color-shadow-strong)]' : 'border-line bg-paper-2 hover:border-ink'}`}
                           aria-pressed={active}
                         >
                           <Icon className={`size-5 ${active ? 'text-orange-dark' : 'text-muted'}`} />
@@ -495,7 +495,7 @@ export default function CreatePage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border-2 border-ink bg-white p-4 shadow-[4px_4px_0_#d9cfc0]">
+            <section className="rounded-2xl border-2 border-ink bg-white p-4 shadow-[4px_4px_0_var(--color-shadow-soft)]">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-sm font-bold">Recent deliverables</h3>
                 <Badge variant="default" className="px-2 py-0.5 text-[9px]">Private</Badge>
@@ -564,12 +564,12 @@ function GeneratingState({ type }: { type: ArtifactType }) {
   return (
     <motion.div
       key="generating" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="grid min-h-[680px] place-items-center rounded-2xl border-2 border-ink bg-white p-8 shadow-[6px_6px_0_#d9cfc0]"
+      className="grid min-h-[680px] place-items-center rounded-2xl border-2 border-ink bg-white p-8 shadow-[6px_6px_0_var(--color-shadow-soft)]"
     >
       <div className="max-w-md text-center">
         <motion.div
           animate={{ rotate: 360 }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-          className="mx-auto grid size-20 place-items-center rounded-2xl border-2 border-ink bg-orange text-white shadow-[5px_5px_0_#201c15]"
+          className="mx-auto grid size-20 place-items-center rounded-2xl border-2 border-ink bg-orange text-white shadow-[5px_5px_0_var(--color-shadow-strong)]"
         >
           <ArtifactIcon type={type} className="size-9" />
         </motion.div>
@@ -599,7 +599,7 @@ function EmptyState() {
       className="relative grid min-h-[680px] overflow-hidden rounded-2xl border-2 border-dashed border-ink/40 bg-white/60 p-8 text-center"
     >
       <div className="m-auto max-w-lg">
-        <span className="mx-auto grid size-16 place-items-center rounded-2xl border-2 border-ink bg-warning-soft shadow-[4px_4px_0_#201c15]"><WandSparkles className="size-7 text-orange-dark" /></span>
+        <span className="mx-auto grid size-16 place-items-center rounded-2xl border-2 border-ink bg-warning-soft shadow-[4px_4px_0_var(--color-shadow-strong)]"><WandSparkles className="size-7 text-orange-dark" /></span>
         <h2 className="mt-6 text-3xl font-bold tracking-tight">Your company context, presentation-ready.</h2>
         <p className="mt-3 leading-7 text-muted">Choose a format and topic. Komponist will build the first draft from confirmed graph knowledge and keep every claim connected to its source.</p>
         <div className="mt-7 flex flex-wrap justify-center gap-2">
@@ -631,11 +631,11 @@ function ArtifactPreview({
   return (
     <motion.section
       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-      className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[6px_6px_0_#201c15]"
+      className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[6px_6px_0_var(--color-shadow-strong)]"
     >
       <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-ink bg-paper-2 px-5 py-4">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]"><ArtifactIcon type={artifact.artifact_type} /></span>
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]"><ArtifactIcon type={artifact.artifact_type} /></span>
           <div className="min-w-0">
             <div className="flex items-center gap-2"><Badge variant="orange" className="px-2 py-0.5 text-[9px]">{artifact.artifact_type}</Badge><span className="font-mono text-[9px] text-muted">{formatDate(artifact.updated_at)}</span></div>
             <h2 className="mt-1 truncate text-lg font-bold">{artifact.title}</h2>
@@ -655,7 +655,7 @@ function ArtifactPreview({
             <DocumentPreview artifact={artifact} citations={citations} />
           )}
 
-          <section className="rounded-2xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_#d9cfc0] sm:p-7">
+          <section className="rounded-2xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_var(--color-shadow-soft)] sm:p-7">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-orange-dark">Evidence appendix</p>
@@ -725,7 +725,7 @@ function PresentationPreview({ artifact, citations }: { artifact: Artifact; cita
   ]
   return (
     <>
-      <div className="aspect-video overflow-hidden rounded-2xl border-2 border-ink bg-ink p-7 text-white shadow-[5px_5px_0_#e8641b] sm:p-12">
+      <div className="aspect-video overflow-hidden rounded-2xl border-2 border-ink bg-ink p-7 text-white shadow-[5px_5px_0_var(--color-orange)] sm:p-12">
         <div className="font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-orange-light">Composed from reviewed company context</div>
         <div className="flex h-full flex-col justify-center border-l-4 border-orange pl-6 sm:pl-10">
           <h1 className="max-w-3xl text-3xl font-bold leading-tight sm:text-5xl">{artifact.content.title}</h1>
@@ -734,7 +734,7 @@ function PresentationPreview({ artifact, citations }: { artifact: Artifact; cita
       </div>
       <div className="grid gap-5 lg:grid-cols-2">
         {slides.map((slide, index) => (
-          <article key={`${slide.title}-${index}`} className="relative flex aspect-video min-h-[300px] flex-col overflow-hidden rounded-2xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_#d9cfc0] sm:p-7">
+          <article key={`${slide.title}-${index}`} className="relative flex aspect-video min-h-[300px] flex-col overflow-hidden rounded-2xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_var(--color-shadow-soft)] sm:p-7">
             <div className="absolute inset-x-0 top-0 h-1.5 bg-orange" />
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -774,7 +774,7 @@ function PresentationPreview({ artifact, citations }: { artifact: Artifact; cita
 
 function DocumentPreview({ artifact, citations }: { artifact: Artifact; citations: (ids: string[]) => number[] }) {
   return (
-    <article className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_#d9cfc0] sm:p-10 lg:p-14">
+    <article className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_var(--color-shadow-soft)] sm:p-10 lg:p-14">
       <div className="border-b-2 border-ink pb-8">
         <Badge variant="orange">{artifact.artifact_type}</Badge>
         <h1 className="mt-5 max-w-3xl text-4xl font-bold leading-tight sm:text-5xl">{artifact.content.title}</h1>

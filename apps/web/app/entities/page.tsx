@@ -168,7 +168,7 @@ export default function EntitiesPage() {
           icon={Layers3}
           actions={
             <>
-              <div className="hidden rounded-lg border-2 border-ink bg-paper-2 px-3 py-1.5 shadow-[2px_2px_0_#201c15] sm:block">
+              <div className="hidden rounded-lg border-2 border-ink bg-paper-2 px-3 py-1.5 shadow-[2px_2px_0_var(--color-shadow-strong)] sm:block">
                 <span className="font-display text-lg font-bold">{isLoading ? '—' : data?.total ?? 0}</span>
                 <span className="ml-2 font-mono text-[9px] uppercase tracking-wider text-muted">{selectedStatusLabel}</span>
               </div>
@@ -212,7 +212,7 @@ export default function EntitiesPage() {
                   aria-pressed={active}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <span className={`grid size-11 place-items-center rounded-lg border-2 shadow-[2px_2px_0_#201c15] ${meta.tone}`}><Icon className="size-5" /></span>
+                    <span className={`grid size-11 place-items-center rounded-lg border-2 shadow-[2px_2px_0_var(--color-shadow-strong)] ${meta.tone}`}><Icon className="size-5" /></span>
                     <span className="font-mono text-[10px] text-muted">0{index + 1}</span>
                   </div>
                   <div className="mt-5 flex items-end justify-between gap-3">
@@ -227,7 +227,7 @@ export default function EntitiesPage() {
             })}
           </section>
 
-          <section className="mt-7 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[5px_5px_0_#d9cfc0]">
+          <section className="mt-7 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-soft)]">
             <div className="grid gap-4 border-b-2 border-ink bg-paper-2 p-4 lg:grid-cols-[minmax(260px,1fr)_auto] lg:items-center">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
@@ -236,7 +236,7 @@ export default function EntitiesPage() {
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search statements or details…"
                   aria-label="Search entities"
-                  className="h-11 w-full rounded-lg border-2 border-ink bg-white pl-10 pr-10 text-sm outline-none shadow-[2px_2px_0_#201c15] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_#e8641b]"
+                  className="h-11 w-full rounded-lg border-2 border-ink bg-white pl-10 pr-10 text-sm outline-none shadow-[2px_2px_0_var(--color-shadow-strong)] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_var(--color-orange)]"
                 />
                 {query && (
                   <button type="button" aria-label="Clear search" onClick={() => setQuery('')} className="absolute right-2.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md hover:bg-paper-2">
@@ -291,7 +291,7 @@ export default function EntitiesPage() {
             ) : entities.length === 0 ? (
               <div className="grid min-h-[360px] place-items-center p-8 text-center">
                 <div>
-                  <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-paper-2 shadow-[3px_3px_0_#201c15]"><Search className="size-5" /></span>
+                  <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-paper-2 shadow-[3px_3px_0_var(--color-shadow-strong)]"><Search className="size-5" /></span>
                   <h3 className="mt-5">No entities found</h3>
                   <p className="mt-2 max-w-md text-sm text-muted">
                     {query || typeFilter !== 'all'

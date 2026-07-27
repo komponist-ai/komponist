@@ -8,12 +8,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-orange text-white shadow-[4px_4px_0_#201c15] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#201c15] active:translate-x-1 active:translate-y-1 active:shadow-none',
-        dark: 'bg-ink text-white shadow-[4px_4px_0_#e8641b] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#e8641b]',
-        outline: 'bg-white text-ink shadow-[3px_3px_0_#201c15] hover:bg-paper-2 hover:-translate-y-0.5',
+        default: 'bg-orange text-white shadow-[4px_4px_0_var(--color-shadow-strong)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--color-shadow-strong)] active:translate-x-1 active:translate-y-1 active:shadow-none',
+        dark: 'bg-ink text-white shadow-[4px_4px_0_var(--color-orange)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--color-orange)]',
+        outline: 'bg-white text-ink shadow-[3px_3px_0_var(--color-shadow-strong)] hover:bg-paper-2 hover:-translate-y-0.5',
         ghost: 'border-transparent bg-transparent text-ink shadow-none hover:bg-paper-2',
         subtle: 'border-line bg-paper-2 text-ink shadow-none hover:border-ink',
-        destructive: 'border-danger bg-danger text-white shadow-[4px_4px_0_#201c15] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#201c15] active:translate-x-1 active:translate-y-1 active:shadow-none',
+        destructive: 'border-danger bg-danger text-white shadow-[4px_4px_0_var(--color-shadow-strong)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--color-shadow-strong)] active:translate-x-1 active:translate-y-1 active:shadow-none',
       },
       size: {
         default: 'h-11 px-5',

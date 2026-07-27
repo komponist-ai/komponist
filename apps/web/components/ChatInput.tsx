@@ -38,7 +38,7 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
   return (
     <div className="chat-input-shell relative z-10 shrink-0 border-t border-line bg-paper/90 px-4 pb-4 pt-3 backdrop-blur-xl">
       <div className="mx-auto max-w-[880px]">
-        <div className="chat-input-frame flex items-end gap-3 rounded-xl border-2 border-ink bg-white p-2.5 shadow-[5px_5px_0_#201c15] transition-shadow focus-within:shadow-[7px_7px_0_#e8641b]">
+        <div className="chat-input-frame flex items-end gap-3 rounded-xl border-2 border-ink bg-white p-2.5 shadow-[5px_5px_0_var(--color-shadow-strong)] transition-shadow focus-within:shadow-[7px_7px_0_var(--color-orange)]">
           <div className={`chat-input-mark grid size-10 shrink-0 place-items-center rounded-md border border-line bg-warning-soft text-orange-dark ${disabled ? 'animate-pulse' : ''}`}>
             <Sparkles className="size-4" />
           </div>
@@ -58,7 +58,7 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
             onClick={handleSend}
             disabled={disabled || !input.trim()}
             aria-label="Send message"
-            className="shrink-0 shadow-[2px_2px_0_#201c15]"
+            className="shrink-0 shadow-[2px_2px_0_var(--color-shadow-strong)]"
           >
             {disabled ? <LoaderCircle className="animate-spin" /> : <SendHorizontal />}
           </Button>

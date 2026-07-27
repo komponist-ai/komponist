@@ -79,7 +79,7 @@ export default function Sidebar({
       <div className="sidebar-header">
         <div className="flex items-center justify-between gap-3">
           <Link href="/studio" className="sidebar-brand flex items-center gap-2" onClick={onMobileClose}>
-            <BrandMark className="size-8 rounded-md shadow-[2px_2px_0_#201c15]" />
+            <BrandMark className="size-8 rounded-md shadow-[2px_2px_0_var(--color-shadow-strong)]" />
             Komponist
           </Link>
           <button type="button" className="sidebar-close" onClick={onMobileClose} aria-label="Close navigation"><X /></button>
@@ -145,9 +145,9 @@ export default function Sidebar({
           <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">Appearance</span>
           <ThemeToggle />
         </div>
-        <div className="sidebar-profile-card overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_#d9cfc0]">
+        <div className="sidebar-profile-card overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_var(--color-shadow-soft)]">
           <div className="sidebar-profile-main flex min-w-0 items-center gap-3 p-3">
-            <div className="sidebar-profile-avatar grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange font-display text-sm font-black text-white shadow-[2px_2px_0_#201c15]" aria-hidden="true">
+            <div className="sidebar-profile-avatar grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange font-display text-sm font-black text-white shadow-[2px_2px_0_var(--color-shadow-strong)]" aria-hidden="true">
               {user?.name?.slice(0, 1).toUpperCase() || '?'}
             </div>
             <div className="min-w-0 flex-1 leading-tight">

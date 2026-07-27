@@ -4,7 +4,7 @@
 
 @layer components {
   .settings-input {
-    @apply h-12 w-full rounded-xl border-2 border-ink bg-white px-4 text-sm outline-none shadow-[2px_2px_0_#d9cfc0] transition focus:shadow-[3px_3px_0_#e8641b];
+    @apply h-12 w-full rounded-xl border-2 border-ink bg-white px-4 text-sm outline-none shadow-[2px_2px_0_var(--color-shadow-soft)] transition focus:shadow-[3px_3px_0_var(--color-orange)];
   }
 }
 
@@ -32,6 +32,13 @@ textarea::placeholder { color: var(--color-faint); }
 :root[data-theme='dark'] .bg-\[\#fffaf0\] { background-color: var(--color-paper) !important; }
 :root[data-theme='dark'] .bg-\[\#f4d06f\] { background-color: var(--color-warning-soft) !important; }
 :root[data-theme='dark'] .bg-\[\#eee9db\] { background-color: var(--color-paper-2) !important; }
+
+.landing-grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-line) 48%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-line) 48%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
 
 .graph-page-body {
   display: flex;

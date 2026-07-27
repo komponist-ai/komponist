@@ -19,7 +19,7 @@ export default function StudioTopbar({
   return (
     <header className="studio-topbar flex min-h-[78px] items-center justify-between gap-4 border-b-2 border-ink bg-white px-4 py-3 sm:px-8 lg:px-10">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange text-white shadow-[2px_2px_0_#201c15]">
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-orange text-white shadow-[2px_2px_0_var(--color-shadow-strong)]">
           <Icon className="size-5" />
         </span>
         <div className="min-w-0">

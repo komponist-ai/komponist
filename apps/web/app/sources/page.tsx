@@ -519,7 +519,7 @@ export default function SourcesPage() {
           )}
 
           {passageLoading && (
-            <div className="mb-7 flex items-center gap-3 rounded-xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_#d9cfc0]">
+            <div className="mb-7 flex items-center gap-3 rounded-xl border-2 border-ink bg-white p-5 shadow-[4px_4px_0_var(--color-shadow-soft)]">
               <Loader2 className="size-5 animate-spin text-orange" />
               <div><p className="text-sm font-bold">Opening cited passage</p><p className="mt-1 text-xs text-muted">Checking your current source permissions…</p></div>
             </div>
@@ -529,7 +529,7 @@ export default function SourcesPage() {
             <motion.section
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
-              className="relative mb-7 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[6px_6px_0_#e8641b]"
+              className="relative mb-7 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[6px_6px_0_var(--color-orange)]"
               aria-label="Highlighted source passage"
             >
               <div className="absolute inset-y-0 left-0 w-2 bg-orange" />
@@ -589,9 +589,9 @@ export default function SourcesPage() {
           {loading ? (
             <div className="space-y-4">{[0, 1].map((index) => <div key={index} className="h-36 animate-pulse rounded-xl border-2 border-line bg-white" />)}</div>
           ) : sources.length === 0 ? (
-            <div className="grid min-h-[420px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[5px_5px_0_#d9cfc0]">
+            <div className="grid min-h-[420px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[5px_5px_0_var(--color-shadow-soft)]">
               <div>
-                <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-warning-soft text-orange-dark shadow-[4px_4px_0_#201c15]"><Database className="size-7" /></span>
+                <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-warning-soft text-orange-dark shadow-[4px_4px_0_var(--color-shadow-strong)]"><Database className="size-7" /></span>
                 <h2 className="mt-6 text-3xl">Bring in your first source.</h2>
                 <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">Upload documents, share selected Notion pages, or connect selected Slack channels.</p>
                 <Button asChild className="mt-6"><Link href="/onboard"><Plus /> Add source</Link></Button>
@@ -610,7 +610,7 @@ export default function SourcesPage() {
                 const isExpanded = expanded === source.id
                 const isSyncing = syncing === source.id
                 return (
-                  <motion.article id={`source-connection-${source.id}`} key={source.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: sourceIndex * 0.04 }} className="scroll-mt-24 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
+                  <motion.article id={`source-connection-${source.id}`} key={source.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: sourceIndex * 0.04 }} className="scroll-mt-24 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_var(--color-shadow-soft)]">
                     <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex min-w-0 items-center gap-4">
                         <SourceLogo type={source.type} />
@@ -801,7 +801,7 @@ export default function SourcesPage() {
       <AnimatePresence>
         {deleteModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] grid place-items-center bg-ink/60 p-4" onMouseDown={() => !deletingDocument && setDeleteModal(null)}>
-            <motion.div initial={{ opacity: 0, y: 14, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.98 }} className="w-full max-w-lg overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_#e8641b]" onMouseDown={(event) => event.stopPropagation()}>
+            <motion.div initial={{ opacity: 0, y: 14, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.98 }} className="w-full max-w-lg overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-orange)]" onMouseDown={(event) => event.stopPropagation()}>
               <div className="border-b-2 border-ink bg-danger-soft p-5"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-lg border-2 border-ink bg-white"><Trash2 className="size-5 text-danger" /></span><div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-danger">Remove from Komponist</p><h2 className="mt-1 text-xl">Delete synced document?</h2></div></div></div>
               <div className="p-5">
                 <p className="text-sm font-bold text-ink">{deleteModal.document.title}</p>
@@ -817,7 +817,7 @@ export default function SourcesPage() {
       <AnimatePresence>
         {disconnectModal.source && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] grid place-items-center bg-ink/60 p-4" onMouseDown={() => !disconnectModal.loading && setDisconnectModal({ source: null, loading: false })}>
-            <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-lg overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15]" onMouseDown={(event) => event.stopPropagation()}>
+            <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-lg overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-shadow-strong)]" onMouseDown={(event) => event.stopPropagation()}>
               <div className="flex items-center gap-4 border-b-2 border-ink p-5"><SourceLogo type={disconnectModal.source.type} /><div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">Disconnect source</p><h2 className="mt-1 text-xl">{disconnectModal.source.name}</h2></div></div>
               <div className="space-y-3 p-5">
                 <button type="button" className="w-full rounded-lg border-2 border-line p-4 text-left transition hover:border-ink" onClick={() => void handleDisconnect(false)} disabled={disconnectModal.loading}><p className="text-sm font-bold">Disconnect and keep knowledge</p><p className="mt-1 text-xs leading-5 text-muted">Stop future syncs while keeping extracted facts and evidence.</p></button>

@@ -123,6 +123,8 @@
   --radius-pill: 999px;
 
   /* Shadows */
+  --color-shadow-strong: #201c15;
+  --color-shadow-soft: #d9cfc0;
   --shadow-none: none;
   --shadow-subtle: 0 1px 3px rgb(32 28 21 / 0.08);
   --shadow-card: 0 2px 8px rgb(32 28 21 / 0.06);
@@ -137,41 +139,44 @@
 }
 
 :root[data-theme='dark'] {
-  --color-paper: #100e0b;
-  --color-paper-2: #181510;
-  --color-paper-3: #242019;
-  --color-white: #1d1914;
+  /* Neutral graphite surfaces; warmth belongs to the orange accent. */
+  --color-paper: #08090a;
+  --color-paper-2: #0f1113;
+  --color-paper-3: #17191c;
+  --color-white: #121417;
 
-  --color-ink: #f7efe2;
-  --color-ink-2: #d6cbbb;
-  --color-muted: #aba092;
-  --color-faint: #7d7468;
-  --color-line: #3b342b;
+  --color-ink: #f4f4f5;
+  --color-ink-2: #d4d4d8;
+  --color-muted: #a1a1aa;
+  --color-faint: #71717a;
+  --color-line: #2b2e33;
 
   --color-orange: #f47b35;
-  --color-orange-dark: #ff9a5f;
-  --color-orange-light: #f6aa78;
-  --color-teal: #43b9ac;
-  --color-teal-light: #83d1c7;
+  --color-orange-dark: #ff985c;
+  --color-orange-light: #ffb181;
+  --color-teal: #3bb7aa;
+  --color-teal-light: #78d0c6;
 
-  --color-success: #51c2b5;
-  --color-success-soft: #102d29;
+  --color-success: #4bc2b5;
+  --color-success-soft: #0b2724;
   --color-warning: #ff8a47;
-  --color-warning-soft: #352116;
-  --color-danger: #ff8b68;
-  --color-danger-soft: #351b16;
-  --color-info: #8baeff;
-  --color-info-soft: #192544;
+  --color-warning-soft: #29170f;
+  --color-danger: #ff8c73;
+  --color-danger-soft: #2a1413;
+  --color-info: #91afff;
+  --color-info-soft: #141d36;
 
-  --color-code-bg: #090806;
-  --color-code-surface: #15120f;
-  --color-code-text: #f7efe2;
-  --color-code-muted: #93887a;
-  --color-code-comment: #776d61;
-  --color-focus: #63c9bd;
-  --color-line-inverse: #51483c;
-  --color-accent-pressed: #d85d1c;
-  --color-on-accent: #140e09;
+  --color-code-bg: #050607;
+  --color-code-surface: #0d0f11;
+  --color-code-text: #f4f4f5;
+  --color-code-muted: #8b929b;
+  --color-code-comment: #69717c;
+  --color-focus: #60c9bd;
+  --color-line-inverse: #34383e;
+  --color-accent-pressed: #d95f20;
+  --color-on-accent: #090a0b;
+  --color-shadow-strong: #000000;
+  --color-shadow-soft: #25282d;
 
   --shadow-subtle: 0 1px 3px rgb(0 0 0 / 0.35);
   --shadow-card: 0 2px 10px rgb(0 0 0 / 0.28);

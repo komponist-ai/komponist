@@ -48,7 +48,7 @@ export default function ChatMessage({ role, content, sources, isStreaming }: Cha
       data-chat-role={role}
       className={isUser ? 'flex flex-row-reverse gap-3' : 'flex gap-3'}
     >
-      <div className={`relative grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink shadow-[2px_2px_0_#201c15] ${isUser ? 'bg-ink text-white' : 'bg-orange text-white'}`}>
+      <div className={`relative grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink shadow-[2px_2px_0_var(--color-shadow-strong)] ${isUser ? 'bg-ink text-white' : 'bg-orange text-white'}`}>
         {isThinking && (
           <motion.span
             className="absolute -inset-1.5 -z-10 rounded-xl border-2 border-orange/40"
@@ -60,7 +60,7 @@ export default function ChatMessage({ role, content, sources, isStreaming }: Cha
       </div>
       <div className={`min-w-0 ${isUser ? 'max-w-[78%]' : 'flex-1'}`}>
         <div className={`mb-1 font-mono text-[9px] font-bold uppercase tracking-wider text-muted ${isUser ? 'text-right' : ''}`}>{isUser ? 'You' : 'Komponist'}</div>
-        <div className={`overflow-hidden whitespace-pre-wrap rounded-xl border-2 border-ink leading-7 shadow-[3px_3px_0_#201c15] ${isUser ? 'rounded-tr-sm bg-ink px-4 py-3 text-white shadow-[3px_3px_0_#e8641b]' : isThinking ? 'rounded-tl-sm bg-paper-2' : 'rounded-tl-sm bg-white px-4 py-3 text-ink-2'}`}>
+        <div className={`overflow-hidden whitespace-pre-wrap rounded-xl border-2 border-ink leading-7 shadow-[3px_3px_0_var(--color-shadow-strong)] ${isUser ? 'rounded-tr-sm bg-ink px-4 py-3 text-white shadow-[3px_3px_0_var(--color-orange)]' : isThinking ? 'rounded-tl-sm bg-paper-2' : 'rounded-tl-sm bg-white px-4 py-3 text-ink-2'}`}>
           {isThinking ? (
             <ThinkingIndicator />
           ) : (
@@ -71,7 +71,7 @@ export default function ChatMessage({ role, content, sources, isStreaming }: Cha
           )}
         </div>
         {sources && sources.length > 0 && (
-          <div className="mt-3 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_#0e8a7d]">
+          <div className="mt-3 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[3px_3px_0_var(--color-teal)]">
             <div className="flex items-center justify-between border-b-2 border-ink bg-paper-2 px-4 py-3 font-mono text-[10px] font-bold uppercase tracking-wider text-muted">
               <span>Evidence bundle</span>
               <span>{sources.length} {sources.length === 1 ? 'source' : 'sources'}</span>
@@ -138,7 +138,7 @@ function ThinkingIndicator() {
   return (
     <div className="min-w-0 px-4 py-4 sm:min-w-[430px]" role="status" aria-live="polite" aria-label={THINKING_STEPS[activeStep].label}>
       <div className="flex items-center gap-3">
-        <span className="relative grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]">
+        <span className="relative grid size-9 shrink-0 place-items-center rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]">
           <motion.span
             className="absolute inset-1 rounded-full border-2 border-line border-t-orange"
             animate={reduceMotion ? undefined : { rotate: 360 }}

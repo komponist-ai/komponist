@@ -204,7 +204,7 @@ export default function QueuePage() {
           icon={ListChecks}
           actions={
             <>
-              <div className="hidden rounded-lg border-2 border-ink bg-paper-2 px-3 py-1.5 shadow-[2px_2px_0_#201c15] sm:block">
+              <div className="hidden rounded-lg border-2 border-ink bg-paper-2 px-3 py-1.5 shadow-[2px_2px_0_var(--color-shadow-strong)] sm:block">
                 <span className="font-display text-lg font-bold">{isLoading ? '—' : pendingTotal}</span>
                 <span className="ml-2 font-mono text-[9px] uppercase tracking-wider text-muted">Pending</span>
               </div>
@@ -297,7 +297,7 @@ export default function QueuePage() {
           )}
 
           {pendingTotal > 0 && (
-            <section className="mb-7 grid gap-3 rounded-xl border-2 border-ink bg-paper-2 p-3 shadow-[4px_4px_0_#d9cfc0] lg:grid-cols-[minmax(260px,1fr)_auto] lg:items-center">
+            <section className="mb-7 grid gap-3 rounded-xl border-2 border-ink bg-paper-2 p-3 shadow-[4px_4px_0_var(--color-shadow-soft)] lg:grid-cols-[minmax(260px,1fr)_auto] lg:items-center">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
                 <input
@@ -305,7 +305,7 @@ export default function QueuePage() {
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search facts, details, or sources…"
                   aria-label="Search review queue"
-                  className="h-11 w-full rounded-lg border-2 border-ink bg-white pl-10 pr-10 text-sm outline-none shadow-[2px_2px_0_#201c15] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_#e8641b]"
+                  className="h-11 w-full rounded-lg border-2 border-ink bg-white pl-10 pr-10 text-sm outline-none shadow-[2px_2px_0_var(--color-shadow-strong)] transition focus:-translate-y-0.5 focus:shadow-[4px_4px_0_var(--color-orange)]"
                 />
                 {query && (
                   <button type="button" onClick={() => setQuery('')} aria-label="Clear search" className="absolute right-2.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md hover:bg-paper-2"><X className="size-3.5" /></button>
@@ -341,9 +341,9 @@ export default function QueuePage() {
               {isLoading && items.length === 0 ? (
                 <QueueSkeleton />
               ) : items.length === 0 && !deferredQuery && filter === 'all' ? (
-                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid min-h-[460px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[5px_5px_0_#d9cfc0]">
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid min-h-[460px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[5px_5px_0_var(--color-shadow-soft)]">
                   <div>
-                    <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-success-soft text-teal shadow-[4px_4px_0_#201c15]"><CheckCircle2 className="size-7" /></span>
+                    <span className="mx-auto grid size-16 place-items-center rounded-xl border-2 border-ink bg-success-soft text-teal shadow-[4px_4px_0_var(--color-shadow-strong)]"><CheckCircle2 className="size-7" /></span>
                     <p className="mt-6 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-teal">Review complete</p>
                     <h2 className="mt-2 text-3xl">You are all caught up.</h2>
                     <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">New extracted facts will appear here after a source is uploaded or synced.</p>
@@ -351,7 +351,7 @@ export default function QueuePage() {
                   </div>
                 </motion.div>
               ) : items.length === 0 ? (
-                <div className="grid min-h-[360px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[4px_4px_0_#d9cfc0]">
+                <div className="grid min-h-[360px] place-items-center rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[4px_4px_0_var(--color-shadow-soft)]">
                   <div>
                     <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-paper-2"><Search className="size-5" /></span>
                     <h2 className="mt-5 text-2xl">No matching facts</h2>
@@ -397,7 +397,7 @@ export default function QueuePage() {
 
             {pendingTotal > 0 && (
               <aside className="space-y-4 xl:sticky xl:top-6">
-                <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
+                <div className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_var(--color-shadow-soft)]">
                   <div className="border-b-2 border-ink bg-ink px-4 py-3 text-white">
                     <div className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em]"><Sparkles className="size-3.5 text-orange" /> Queue health</div>
                   </div>

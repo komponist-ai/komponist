@@ -31,7 +31,7 @@ function CanvasNotice({
 }) {
   return (
     <div className="absolute inset-0 grid place-items-center p-6">
-      <div className="max-w-sm rounded-lg border-2 border-ink bg-white px-4 py-3 text-center shadow-[3px_3px_0_#201c15]">
+      <div className="max-w-sm rounded-lg border-2 border-ink bg-white px-4 py-3 text-center shadow-[3px_3px_0_var(--color-shadow-strong)]">
         <p className="flex items-center justify-center gap-2 font-mono text-xs font-semibold">
           {icon === 'spinner' ? (
             <RefreshCw className="size-4 animate-spin" aria-hidden />

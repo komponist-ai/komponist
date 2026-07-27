@@ -291,7 +291,7 @@ export default function TeamSettingsPage() {
       <div className="page-body max-w-7xl space-y-6">
         {message && <SettingsNotice message={message} />}
 
-        <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15] lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-shadow-strong)] lg:grid-cols-[1.1fr_0.9fr]">
           <div className="border-b-2 border-ink p-6 sm:p-9 lg:border-b-0 lg:border-r-2">
             <Badge variant="orange"><Building2 className="size-3.5" /> Organization structure</Badge>
             <h2 className="mt-6 max-w-2xl text-4xl font-bold leading-tight tracking-tight sm:text-5xl">One brain. Deliberate boundaries.</h2>
@@ -319,14 +319,14 @@ export default function TeamSettingsPage() {
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-          <div className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_#d9cfc0]">
+          <div className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-soft)]">
             <SectionHeading eyebrow="Structure" title="Departments" detail="Departments scope documents, graph entities, review, and chat." icon={Layers3} />
             {loading ? <LoadingRows /> : departments.length === 0 ? (
               <EmptyState icon={Layers3} title="No departments yet" detail="Create the first working group, committee, or functional department." />
             ) : (
               <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-7">
                 {departments.map(department => (
-                  <motion.button key={department.id} type="button" whileHover={{ y: -2 }} onClick={() => canManage && openDepartmentEditor(department)} className="rounded-xl border-2 border-ink bg-paper-2 p-4 text-left shadow-[3px_3px_0_#d9cfc0] transition hover:shadow-[4px_4px_0_#201c15] disabled:cursor-default">
+                  <motion.button key={department.id} type="button" whileHover={{ y: -2 }} onClick={() => canManage && openDepartmentEditor(department)} className="rounded-xl border-2 border-ink bg-paper-2 p-4 text-left shadow-[3px_3px_0_var(--color-shadow-soft)] transition hover:shadow-[4px_4px_0_var(--color-shadow-strong)] disabled:cursor-default">
                     <div className="flex items-start justify-between gap-3">
                       <DepartmentMark color={department.color} />
                       {canManage ? <Edit3 className="size-4 text-muted" /> : null}
@@ -340,8 +340,8 @@ export default function TeamSettingsPage() {
             )}
           </div>
 
-          <form className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_#d9cfc0] sm:p-8" onSubmit={createDepartment}>
-            <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-teal text-white shadow-[3px_3px_0_#201c15]"><Plus className="size-5" /></span>
+          <form className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_var(--color-shadow-soft)] sm:p-8" onSubmit={createDepartment}>
+            <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-teal text-white shadow-[3px_3px_0_var(--color-shadow-strong)]"><Plus className="size-5" /></span>
             <h3 className="mt-5 text-2xl font-bold">Create a department</h3>
             {canManage ? <>
               <p className="mt-2 text-sm leading-6 text-muted">Use departments for teams such as Events, Partnerships, Product, or Finance.</p>
@@ -356,14 +356,14 @@ export default function TeamSettingsPage() {
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-          <div className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_#d9cfc0]">
+          <div className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-soft)]">
             <SectionHeading eyebrow="Directory" title="Organization members" detail="Select a person to change their role or department access." icon={UsersRound} />
             {loading ? <LoadingRows /> : (
               <div className="divide-y-2 divide-line">
                 {members.map((member, index) => {
                   const editable = canManage && member.role !== 'owner' && !(user?.role === 'admin' && member.role === 'admin')
                   return <motion.button key={member.id} type="button" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.03, 0.18) }} onClick={() => editable && openMemberEditor(member)} className="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-paper-2 disabled:cursor-default sm:px-8">
-                    <div className="grid size-11 shrink-0 place-items-center rounded-xl border-2 border-ink bg-warning-soft font-display text-sm font-black shadow-[2px_2px_0_#201c15]">{(member.name || member.email).slice(0, 1).toUpperCase()}</div>
+                    <div className="grid size-11 shrink-0 place-items-center rounded-xl border-2 border-ink bg-warning-soft font-display text-sm font-black shadow-[2px_2px_0_var(--color-shadow-strong)]">{(member.name || member.email).slice(0, 1).toUpperCase()}</div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-bold">{member.name || member.email}{member.user_id === user?.id ? <span className="ml-2 text-xs font-normal text-muted">You</span> : null}</div>
                       <div className="mt-1 truncate text-xs text-muted">{member.email}</div>
@@ -378,8 +378,8 @@ export default function TeamSettingsPage() {
             )}
           </div>
 
-          <div className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_#d9cfc0] sm:p-8">
-            <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-orange text-white shadow-[3px_3px_0_#201c15]"><MailPlus className="size-5" /></span>
+          <div className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_var(--color-shadow-soft)] sm:p-8">
+            <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-orange text-white shadow-[3px_3px_0_var(--color-shadow-strong)]"><MailPlus className="size-5" /></span>
             <h3 className="mt-5 text-2xl font-bold">Invite a member</h3>
             {canManage ? <>
               <p className="mt-2 text-sm leading-6 text-muted">Choose governance and department access before they join.</p>
@@ -422,19 +422,19 @@ export default function TeamSettingsPage() {
 
 function roleLabel(role: MemberRole) { return role === 'admin' ? 'Board / admin' : role }
 
-function TeamMetric({ label, value }: { label: string; value: string | number }) { return <div className="rounded-xl border-2 border-ink bg-paper-2 p-3 shadow-[2px_2px_0_#d9cfc0]"><strong className="block text-2xl">{value}</strong><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">{label}</span></div> }
+function TeamMetric({ label, value }: { label: string; value: string | number }) { return <div className="rounded-xl border-2 border-ink bg-paper-2 p-3 shadow-[2px_2px_0_var(--color-shadow-soft)]"><strong className="block text-2xl">{value}</strong><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">{label}</span></div> }
 
 function RoleSummary({ icon: Icon, role, description }: { icon: typeof Crown; role: string; description: string }) { return <div className="flex gap-3 border-b border-white/15 pb-4 last:border-0 last:pb-0"><span className="grid size-9 shrink-0 place-items-center rounded-lg border border-white/25 bg-white/10"><Icon className="size-4 text-teal-light" /></span><div><strong className="block text-sm">{role}</strong><p className="mt-1 text-xs leading-5 text-white/55">{description}</p></div></div> }
 
-function SectionHeading({ eyebrow, title, detail, icon: Icon }: { eyebrow: string; title: string; detail: string; icon: typeof Layers3 }) { return <div className="flex items-center gap-4 border-b-2 border-ink bg-paper-2 px-5 py-5 sm:px-7"><span className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]"><Icon className="size-4" /></span><div><p className="font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-orange-dark">{eyebrow}</p><h3 className="mt-1 text-xl font-bold">{title}</h3><p className="mt-1 text-xs text-muted">{detail}</p></div></div> }
+function SectionHeading({ eyebrow, title, detail, icon: Icon }: { eyebrow: string; title: string; detail: string; icon: typeof Layers3 }) { return <div className="flex items-center gap-4 border-b-2 border-ink bg-paper-2 px-5 py-5 sm:px-7"><span className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]"><Icon className="size-4" /></span><div><p className="font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-orange-dark">{eyebrow}</p><h3 className="mt-1 text-xl font-bold">{title}</h3><p className="mt-1 text-xs text-muted">{detail}</p></div></div> }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">{label}</span><div className="mt-2">{children}</div></label> }
 
-function DepartmentChecklist({ departments, selected, onToggle, emptyLabel }: { departments: DepartmentSummary[]; selected: string[]; onToggle: (id: string) => void; emptyLabel: string }) { return <fieldset><legend className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Department access</legend>{departments.length ? <div className="mt-2 grid gap-2 sm:grid-cols-2">{departments.map(department => { const checked = selected.includes(department.id); return <button key={department.id} type="button" onClick={() => onToggle(department.id)} className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-left text-xs font-semibold transition ${checked ? 'border-ink bg-warning-soft shadow-[2px_2px_0_#201c15]' : 'border-line bg-white hover:border-ink'}`}><span className={`grid size-5 place-items-center rounded border-2 ${checked ? 'border-ink bg-teal text-white' : 'border-line bg-white'}`}>{checked && <Check className="size-3" />}</span><DepartmentMark color={department.color} small /><span className="truncate">{department.name}</span></button> })}</div> : <div className="mt-2 rounded-xl border-2 border-line bg-paper-2 p-3 text-xs leading-5 text-muted">{emptyLabel}</div>}</fieldset> }
+function DepartmentChecklist({ departments, selected, onToggle, emptyLabel }: { departments: DepartmentSummary[]; selected: string[]; onToggle: (id: string) => void; emptyLabel: string }) { return <fieldset><legend className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Department access</legend>{departments.length ? <div className="mt-2 grid gap-2 sm:grid-cols-2">{departments.map(department => { const checked = selected.includes(department.id); return <button key={department.id} type="button" onClick={() => onToggle(department.id)} className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-left text-xs font-semibold transition ${checked ? 'border-ink bg-warning-soft shadow-[2px_2px_0_var(--color-shadow-strong)]' : 'border-line bg-white hover:border-ink'}`}><span className={`grid size-5 place-items-center rounded border-2 ${checked ? 'border-ink bg-teal text-white' : 'border-line bg-white'}`}>{checked && <Check className="size-3" />}</span><DepartmentMark color={department.color} small /><span className="truncate">{department.name}</span></button> })}</div> : <div className="mt-2 rounded-xl border-2 border-line bg-paper-2 p-3 text-xs leading-5 text-muted">{emptyLabel}</div>}</fieldset> }
 
-function ColorPicker({ value, onChange }: { value: DepartmentSummary['color']; onChange: (value: DepartmentSummary['color']) => void }) { return <fieldset><legend className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Color</legend><div className="mt-2 flex gap-2">{DEPARTMENT_COLORS.map(color => <button key={color} type="button" aria-label={`${color} department color`} aria-pressed={value === color} onClick={() => onChange(color)} className={`grid size-9 place-items-center rounded-lg border-2 ${value === color ? 'border-ink shadow-[2px_2px_0_#201c15]' : 'border-line'}`}><DepartmentMark color={color} small /></button>)}</div></fieldset> }
+function ColorPicker({ value, onChange }: { value: DepartmentSummary['color']; onChange: (value: DepartmentSummary['color']) => void }) { return <fieldset><legend className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Color</legend><div className="mt-2 flex gap-2">{DEPARTMENT_COLORS.map(color => <button key={color} type="button" aria-label={`${color} department color`} aria-pressed={value === color} onClick={() => onChange(color)} className={`grid size-9 place-items-center rounded-lg border-2 ${value === color ? 'border-ink shadow-[2px_2px_0_var(--color-shadow-strong)]' : 'border-line'}`}><DepartmentMark color={color} small /></button>)}</div></fieldset> }
 
-function DepartmentMark({ color, small = false }: { color: DepartmentSummary['color']; small?: boolean }) { const tones: Record<DepartmentSummary['color'], string> = { orange: 'bg-orange', teal: 'bg-teal', blue: 'bg-blue-500', violet: 'bg-violet-500', rose: 'bg-rose-500', amber: 'bg-amber-400' }; return <span className={`${small ? 'size-3' : 'size-8'} shrink-0 rounded-lg border-2 border-ink ${tones[color]} ${small ? '' : 'shadow-[2px_2px_0_#201c15]'}`} /> }
+function DepartmentMark({ color, small = false }: { color: DepartmentSummary['color']; small?: boolean }) { const tones: Record<DepartmentSummary['color'], string> = { orange: 'bg-orange', teal: 'bg-teal', blue: 'bg-blue-500', violet: 'bg-violet-500', rose: 'bg-rose-500', amber: 'bg-amber-400' }; return <span className={`${small ? 'size-3' : 'size-8'} shrink-0 rounded-lg border-2 border-ink ${tones[color]} ${small ? '' : 'shadow-[2px_2px_0_var(--color-shadow-strong)]'}`} /> }
 
 function DepartmentPill({ department }: { department: Pick<DepartmentSummary, 'id' | 'name' | 'color'> }) { return <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-2 py-1 text-[10px] font-semibold"><DepartmentMark color={department.color} small />{department.name}</span> }
 
@@ -444,4 +444,4 @@ function EmptyState({ icon: Icon, title, detail }: { icon: typeof Layers3; title
 
 function AdminRequired() { return <div className="mt-6 rounded-xl border-2 border-ink bg-paper-2 p-4"><LockKeyhole className="size-5 text-orange-dark" /><strong className="mt-3 block text-sm">Board or admin access required</strong><p className="mt-1 text-xs leading-5 text-muted">Only organization leadership can change people and structure.</p></div> }
 
-function Modal({ children, onClose, title, eyebrow, icon: Icon }: { children: React.ReactNode; onClose: () => void; title: string; eyebrow: string; icon: typeof ArrowRightLeft }) { return <motion.div className="fixed inset-0 z-[100] grid place-items-center bg-ink/55 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}><motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.98 }} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border-2 border-ink bg-white shadow-[8px_8px_0_#201c15]"><div className="sticky top-0 z-10 flex items-center justify-between border-b-2 border-ink bg-paper-2 p-5"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl border-2 border-ink bg-orange text-white shadow-[2px_2px_0_#201c15]"><Icon className="size-4" /></span><div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-orange-dark">{eyebrow}</p><h3 className="mt-1 text-xl font-bold">{title}</h3></div></div><Button variant="subtle" size="icon" onClick={onClose} aria-label="Close"><X /></Button></div><div className="p-5 sm:p-6">{children}</div></motion.div></motion.div> }
+function Modal({ children, onClose, title, eyebrow, icon: Icon }: { children: React.ReactNode; onClose: () => void; title: string; eyebrow: string; icon: typeof ArrowRightLeft }) { return <motion.div className="fixed inset-0 z-[100] grid place-items-center bg-ink/55 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}><motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.98 }} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border-2 border-ink bg-white shadow-[8px_8px_0_var(--color-shadow-strong)]"><div className="sticky top-0 z-10 flex items-center justify-between border-b-2 border-ink bg-paper-2 p-5"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl border-2 border-ink bg-orange text-white shadow-[2px_2px_0_var(--color-shadow-strong)]"><Icon className="size-4" /></span><div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-orange-dark">{eyebrow}</p><h3 className="mt-1 text-xl font-bold">{title}</h3></div></div><Button variant="subtle" size="icon" onClick={onClose} aria-label="Close"><X /></Button></div><div className="p-5 sm:p-6">{children}</div></motion.div></motion.div> }

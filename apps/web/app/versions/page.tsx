@@ -256,7 +256,7 @@ export default function VersionsPage() {
 
           <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
             <aside>
-              <div className="sticky top-4 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
+              <div className="sticky top-4 overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_var(--color-shadow-soft)]">
                 <div className="border-b-2 border-ink p-4">
                   <div className="flex items-center justify-between">
                     <div>
@@ -293,7 +293,7 @@ export default function VersionsPage() {
                       </div>
                       <div className="mt-3 flex items-center justify-between">
                         <div className="flex -space-x-1.5">
-                          {family.sources.slice(0, 4).map((source) => <SourceLogo key={source} type={source} className="!size-7 !rounded-md !border !shadow-[1px_1px_0_#201c15]" />)}
+                          {family.sources.slice(0, 4).map((source) => <SourceLogo key={source} type={source} className="!size-7 !rounded-md !border !shadow-[1px_1px_0_var(--color-shadow-strong)]" />)}
                         </div>
                         <span className={`rounded-full px-2 py-1 font-mono text-[8px] font-bold uppercase ${family.truth_status === 'contested' ? 'bg-danger-soft text-danger' : family.truth_status === 'reviewed' ? 'bg-success-soft text-teal' : 'bg-paper-3 text-muted'}`}>
                           {family.truth_status}
@@ -317,7 +317,7 @@ export default function VersionsPage() {
             <AnimatePresence mode="wait">
               {selected && latest ? (
                 <motion.div key={selected.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className="min-w-0 space-y-6">
-                  <section className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[5px_5px_0_#d9cfc0]">
+                  <section className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-soft)]">
                     <div className="flex flex-col gap-5 border-b-2 border-ink p-5 sm:flex-row sm:items-start sm:justify-between lg:p-6">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -343,7 +343,7 @@ export default function VersionsPage() {
                       </div>
                       <div className="grid gap-3 lg:grid-cols-3">
                         {selected.versions.map((version, index) => (
-                          <motion.div key={version.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.05 }} className={`relative rounded-xl border-2 p-4 ${version.is_latest ? 'border-teal bg-success-soft shadow-[3px_3px_0_#0e8a7d]' : 'border-line bg-white'}`}>
+                          <motion.div key={version.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.05 }} className={`relative rounded-xl border-2 p-4 ${version.is_latest ? 'border-teal bg-success-soft shadow-[3px_3px_0_var(--color-teal)]' : 'border-line bg-white'}`}>
                             {index > 0 && <ArrowRight className="absolute -left-[18px] top-1/2 z-10 hidden size-5 -translate-y-1/2 rounded-full bg-paper-2 text-orange lg:block" />}
                             <div className="mb-4 flex items-center justify-between"><span className="font-mono text-[9px] font-bold text-muted">V{version.sequence}</span><GitCommitHorizontal className={`size-4 ${version.is_latest ? 'text-teal' : 'text-faint'}`} /></div>
                             <VersionSource version={version} compact />
@@ -361,7 +361,7 @@ export default function VersionsPage() {
                   </section>
 
                   <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,.8fr)]">
-                    <section className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
+                    <section className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_var(--color-shadow-soft)]">
                       <div className="flex items-center justify-between border-b-2 border-ink p-5">
                         <div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-orange-dark">Semantic diff</p><h3 className="mt-1 text-2xl">Base → latest candidate</h3></div>
                         <GitCompareArrows className="size-6 text-orange" />
@@ -391,7 +391,7 @@ export default function VersionsPage() {
                     </section>
 
                     <div className="space-y-6">
-                      <section className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
+                      <section className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_var(--color-shadow-soft)]">
                         <div className="border-b-2 border-ink bg-ink p-5 text-white">
                           <div className="flex items-center justify-between"><div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-orange-light">Latest candidate</p><h3 className="mt-1 text-xl text-white">{formatDate(latest.source_date, true)}</h3></div><FileCheck2 className="size-6 text-orange-light" /></div>
                         </div>
@@ -405,7 +405,7 @@ export default function VersionsPage() {
                         </div>
                       </section>
 
-                      <section className={`rounded-xl border-2 p-5 shadow-[4px_4px_0_#d9cfc0] ${selected.diff.conflicts.length ? 'border-danger bg-danger-soft' : 'border-teal bg-success-soft'}`}>
+                      <section className={`rounded-xl border-2 p-5 shadow-[4px_4px_0_var(--color-shadow-soft)] ${selected.diff.conflicts.length ? 'border-danger bg-danger-soft' : 'border-teal bg-success-soft'}`}>
                         <div className="flex items-start gap-3">
                           {selected.diff.conflicts.length ? <AlertTriangle className="mt-0.5 size-5 shrink-0 text-danger" /> : <ShieldCheck className="mt-0.5 size-5 shrink-0 text-teal" />}
                           <div><p className="font-mono text-[9px] font-bold uppercase tracking-wider">Conflict check</p><h3 className="mt-1 text-lg">{selected.diff.conflicts.length ? `${selected.diff.conflicts.length} unresolved changes` : 'Versions agree'}</h3><p className="mt-2 text-xs leading-5 text-muted">{selected.diff.conflicts.length ? 'Komponist preserves both claims and asks for review instead of silently overwriting history.' : 'No competing meaning was detected between the base and latest candidate.'}</p></div>
@@ -414,7 +414,7 @@ export default function VersionsPage() {
                     </div>
                   </div>
 
-                  <section className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_#d9cfc0]">
+                  <section className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[4px_4px_0_var(--color-shadow-soft)]">
                     <div className="flex flex-col gap-3 border-b-2 border-ink p-5 sm:flex-row sm:items-center sm:justify-between">
                       <div><p className="font-mono text-[9px] font-bold uppercase tracking-wider text-teal">Graph-backed state</p><h3 className="mt-1 text-2xl">What Komponist currently knows</h3></div>
                       <p className="max-w-md text-xs leading-5 text-muted">Claims from the newest candidate, aligned to the company ontology and retaining their review state.</p>

@@ -164,16 +164,16 @@ export default function ApiConnectPage() {
         {message && <SettingsNotice message={message} />}
 
         {!canManage ? (
-          <section className="grid min-h-[440px] place-items-center rounded-2xl border-2 border-ink bg-white p-8 text-center shadow-[7px_7px_0_#201c15]">
+          <section className="grid min-h-[440px] place-items-center rounded-2xl border-2 border-ink bg-white p-8 text-center shadow-[7px_7px_0_var(--color-shadow-strong)]">
             <div className="max-w-md">
-              <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-warning-soft shadow-[3px_3px_0_#201c15]"><LockKeyhole className="size-6" /></span>
+              <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-warning-soft shadow-[3px_3px_0_var(--color-shadow-strong)]"><LockKeyhole className="size-6" /></span>
               <h2 className="mt-6 text-3xl font-bold tracking-tight">Admin access required</h2>
               <p className="mt-3 leading-7 text-muted">API keys grant machine access to reviewed organization context. Only owners and admins can view, create, or revoke them.</p>
             </div>
           </section>
         ) : (
           <>
-            <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15] lg:grid-cols-[0.9fr_1.1fr]">
+            <section className="grid overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-shadow-strong)] lg:grid-cols-[0.9fr_1.1fr]">
               <div className="relative overflow-hidden border-b-2 border-ink bg-ink p-7 text-white lg:border-b-0 lg:border-r-2 sm:p-9">
                 <div className="absolute -right-16 -top-16 size-52 rounded-full border-[34px] border-orange/80" />
                 <div className="relative">
@@ -204,9 +204,9 @@ export default function ApiConnectPage() {
             </section>
 
             {newKey && (
-              <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-2xl border-2 border-teal bg-success-soft shadow-[5px_5px_0_#0e8a7d]">
+              <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-2xl border-2 border-teal bg-success-soft shadow-[5px_5px_0_var(--color-teal)]">
                 <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
-                  <span className="grid size-11 shrink-0 place-items-center rounded-xl border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]"><KeyRound className="size-5 text-teal" /></span>
+                  <span className="grid size-11 shrink-0 place-items-center rounded-xl border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]"><KeyRound className="size-5 text-teal" /></span>
                   <div className="min-w-0 flex-1"><p className="font-mono text-[10px] font-bold uppercase tracking-wider text-teal">One-time secret</p><code className="mt-2 block overflow-x-auto whitespace-nowrap rounded-lg border-2 border-ink bg-white px-3 py-2 text-xs">{newKey}</code></div>
                   <Button onClick={() => void copy(newKey, 'API key')}><Clipboard /> Copy key</Button>
                 </div>
@@ -214,14 +214,14 @@ export default function ApiConnectPage() {
             )}
 
             <section className="grid gap-6 lg:grid-cols-[0.82fr_1.18fr]">
-              <div className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_#d9cfc0] sm:p-8">
-                <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-orange text-white shadow-[3px_3px_0_#201c15]"><Plus className="size-5" /></span>
+              <div className="rounded-2xl border-2 border-ink bg-white p-6 shadow-[5px_5px_0_var(--color-shadow-soft)] sm:p-8">
+                <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-orange text-white shadow-[3px_3px_0_var(--color-shadow-strong)]"><Plus className="size-5" /></span>
                 <h3 className="mt-5 text-2xl font-bold">Create a key</h3>
                 <p className="mt-2 text-sm leading-6 text-muted">Name it after the exact agent, server, or environment that will use it.</p>
                 <label className="mt-6 block">
                   <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">Credential name</span>
                   <input
-                    className="mt-2 h-12 w-full rounded-xl border-2 border-ink bg-white px-4 text-sm outline-none shadow-[2px_2px_0_#d9cfc0] focus:shadow-[3px_3px_0_#e8641b]"
+                    className="mt-2 h-12 w-full rounded-xl border-2 border-ink bg-white px-4 text-sm outline-none shadow-[2px_2px_0_var(--color-shadow-soft)] focus:shadow-[3px_3px_0_var(--color-orange)]"
                     value={name}
                     maxLength={100}
                     onChange={event => setName(event.target.value)}
@@ -240,7 +240,7 @@ export default function ApiConnectPage() {
                 </Button>
               </div>
 
-              <div className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_#d9cfc0]">
+              <div className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[5px_5px_0_var(--color-shadow-soft)]">
                 <div className="flex items-center justify-between gap-4 border-b-2 border-ink bg-paper-2 px-6 py-5 sm:px-8">
                   <div><p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-orange-dark">Credentials</p><h3 className="mt-2 text-2xl font-bold">Organization keys</h3></div>
                   <Badge>{keys.length} total</Badge>
@@ -254,7 +254,7 @@ export default function ApiConnectPage() {
                     {keys.map(key => (
                       <div className={`px-6 py-5 sm:px-8 ${key.revoked_at ? 'bg-paper-2 opacity-65' : ''}`} key={key.id}>
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                          <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]"><KeyRound className="size-4" /></span>
+                          <span className="grid size-10 shrink-0 place-items-center rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]"><KeyRound className="size-4" /></span>
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2"><strong className="text-sm">{key.name}</strong><Badge variant={key.revoked_at ? 'default' : 'teal'} className="px-2 py-0.5 text-[9px]">{key.revoked_at ? 'Revoked' : 'Active'}</Badge></div>
                             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[9px] uppercase tracking-wider text-muted">
@@ -283,7 +283,7 @@ export default function ApiConnectPage() {
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_#201c15]">
+            <section className="overflow-hidden rounded-2xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-shadow-strong)]">
               <div className="grid border-b-2 border-ink bg-paper-2 sm:grid-cols-[auto_1fr]">
                 <div className="flex border-b-2 border-ink sm:border-b-0 sm:border-r-2">
                   {(['mcp', 'sdk', 'rest'] as IntegrationTab[]).map(tab => (
@@ -301,7 +301,7 @@ export default function ApiConnectPage() {
               </div>
               <div className="grid lg:grid-cols-[0.72fr_1.28fr]">
                 <div className="border-b-2 border-ink p-6 lg:border-b-0 lg:border-r-2 sm:p-8">
-                  <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-warning-soft shadow-[3px_3px_0_#201c15]">{activeTab === 'mcp' ? <Network className="size-5" /> : activeTab === 'sdk' ? <Braces className="size-5" /> : <TerminalSquare className="size-5" />}</span>
+                  <span className="grid size-11 place-items-center rounded-xl border-2 border-ink bg-warning-soft shadow-[3px_3px_0_var(--color-shadow-strong)]">{activeTab === 'mcp' ? <Network className="size-5" /> : activeTab === 'sdk' ? <Braces className="size-5" /> : <TerminalSquare className="size-5" />}</span>
                   <h3 className="mt-5 text-2xl font-bold">{example.title}</h3>
                   <p className="mt-3 text-sm leading-6 text-muted">{example.description}</p>
                   <Button variant="outline" className="mt-6" onClick={() => void copy(example.code, `${activeTab.toUpperCase()} configuration`)}><Clipboard /> Copy example</Button>
@@ -321,7 +321,7 @@ export default function ApiConnectPage() {
 
 function ApiMetric({ icon: Icon, label, value }: { icon: typeof KeyRound; label: string; value: string | number }) {
   return (
-    <div className="rounded-xl border-2 border-ink bg-white p-4 shadow-[2px_2px_0_#d9cfc0]">
+    <div className="rounded-xl border-2 border-ink bg-white p-4 shadow-[2px_2px_0_var(--color-shadow-soft)]">
       <Icon className="size-4 text-orange-dark" />
       <strong className="mt-3 block text-2xl">{value}</strong>
       <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">{label}</span>

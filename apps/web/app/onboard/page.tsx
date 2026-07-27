@@ -193,7 +193,7 @@ function OnboardContent() {
                 <Badge variant="orange"><Sparkles className="size-3" /> Compose your context</Badge>
                 <h2 className="mt-5 text-[clamp(2.7rem,5vw,4.7rem)] leading-[0.9]">Connect where<br />your company thinks.</h2>
               </div>
-              <div className="rounded-xl border-2 border-ink bg-ink p-5 text-white shadow-[5px_5px_0_#e8641b] sm:p-6">
+              <div className="rounded-xl border-2 border-ink bg-ink p-5 text-white shadow-[5px_5px_0_var(--color-orange)] sm:p-6">
                 <p className="text-sm leading-6 text-white/70">Komponist reads the sources you explicitly connect, extracts reusable facts, and sends them through human review before agents can rely on them.</p>
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
                   {[['01', 'Connect'], ['02', 'Review'], ['03', 'Use']].map(([number, label]) => <div key={number} className="border-t border-white/20 pt-3"><span className="font-mono text-[9px] text-orange">{number}</span><div className="mt-1 text-xs font-bold">{label}</div></div>)}
@@ -211,7 +211,7 @@ function OnboardContent() {
                   transition={{ delay: index * 0.04 }}
                   whileHover={{ y: -3 }}
                   onClick={() => setSelectedSource(source.type)}
-                  className="group min-h-[190px] rounded-xl border-2 border-ink bg-white p-5 text-left shadow-[4px_4px_0_#d9cfc0] transition hover:bg-[#fffaf0] hover:shadow-[6px_6px_0_#201c15]"
+                  className="group min-h-[190px] rounded-xl border-2 border-ink bg-white p-5 text-left shadow-[4px_4px_0_var(--color-shadow-soft)] transition hover:bg-[#fffaf0] hover:shadow-[6px_6px_0_var(--color-shadow-strong)]"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <SourceLogo type={source.type} />
@@ -259,8 +259,8 @@ function OnboardContent() {
 
       <main className="min-h-[calc(100vh-78px)] bg-paper px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
         <div className="mx-auto grid max-w-[1040px] gap-7 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <aside className="h-fit rounded-xl border-2 border-ink bg-ink p-5 text-white shadow-[5px_5px_0_#e8641b] lg:sticky lg:top-6">
-            <SourceLogo type={selectedSource} className="shadow-[3px_3px_0_#e8641b]" />
+          <aside className="h-fit rounded-xl border-2 border-ink bg-ink p-5 text-white shadow-[5px_5px_0_var(--color-orange)] lg:sticky lg:top-6">
+            <SourceLogo type={selectedSource} className="shadow-[3px_3px_0_var(--color-orange)]" />
             <p className="mt-6 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-orange">New connection</p>
             <h2 className="mt-2 text-2xl text-white">{SOURCE_TITLES[selectedSource]}</h2>
             <p className="mt-3 text-xs leading-5 text-white/65">Only content you explicitly connect becomes available to Komponist.</p>
@@ -271,7 +271,7 @@ function OnboardContent() {
             </div>
           </aside>
 
-          <div className="min-w-0 [&_.card]:border-2 [&_.card]:border-ink [&_.card]:bg-white [&_.card]:shadow-[4px_4px_0_#d9cfc0]">
+          <div className="min-w-0 [&_.card]:border-2 [&_.card]:border-ink [&_.card]:bg-white [&_.card]:shadow-[4px_4px_0_var(--color-shadow-soft)]">
           {/* Error message */}
           {error && (
             <div className="card mb-6" style={{ background: 'var(--color-danger-soft)', borderColor: 'var(--color-danger)' }}>

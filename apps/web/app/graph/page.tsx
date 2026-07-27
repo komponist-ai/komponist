@@ -576,7 +576,7 @@ export default function GraphPage() {
                 value={searchQuery}
                 onChange={event => setSearchQuery(event.target.value)}
                 placeholder="Search decisions, goals, constraints, projects…"
-                className="h-11 w-full rounded-lg border-2 border-ink bg-white pl-10 pr-10 text-sm font-semibold outline-none transition focus:shadow-[3px_3px_0_#e8641b]"
+                className="h-11 w-full rounded-lg border-2 border-ink bg-white pl-10 pr-10 text-sm font-semibold outline-none transition focus:shadow-[3px_3px_0_var(--color-orange)]"
                 aria-label="Search graph"
               />
               {searchQuery && (
@@ -601,7 +601,7 @@ export default function GraphPage() {
                     onClick={() => toggleType(type)}
                     aria-pressed={active}
                     className={`flex h-10 shrink-0 items-center gap-2 rounded-lg border-2 px-3 text-xs font-bold transition ${
-                      active ? 'border-ink bg-ink text-white shadow-[2px_2px_0_#e8641b]' : 'border-line bg-white hover:border-ink'
+                      active ? 'border-ink bg-ink text-white shadow-[2px_2px_0_var(--color-orange)]' : 'border-line bg-white hover:border-ink'
                     }`}
                   >
                     <span className="size-2.5 rounded-full" style={{ background: typeColor(type, theme) }} />
@@ -643,7 +643,7 @@ export default function GraphPage() {
 
         {!loading && !error && allNodes.length === 0 ? (
           <div className="grid min-h-[520px] place-items-center p-6">
-            <div className="max-w-md rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[6px_6px_0_#201c15]">
+            <div className="max-w-md rounded-xl border-2 border-ink bg-white p-8 text-center shadow-[6px_6px_0_var(--color-shadow-strong)]">
               <span className="mx-auto grid size-14 place-items-center rounded-xl border-2 border-ink bg-warning-soft">
                 <Network className="size-6" />
               </span>
@@ -685,14 +685,14 @@ export default function GraphPage() {
 
                 {loading && (
                   <div className="absolute inset-0 z-20 grid place-items-center bg-paper/70 backdrop-blur-sm">
-                    <div className="rounded-lg border-2 border-ink bg-white px-4 py-3 font-mono text-xs font-semibold shadow-[3px_3px_0_#201c15]">
+                    <div className="rounded-lg border-2 border-ink bg-white px-4 py-3 font-mono text-xs font-semibold shadow-[3px_3px_0_var(--color-shadow-strong)]">
                       <RefreshCw className="mr-2 inline size-4 animate-spin" /> Resolving visible graph…
                     </div>
                   </div>
                 )}
 
                 <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap items-start gap-2 pr-3 lg:flex-col lg:flex-nowrap">
-                  <div className="pointer-events-auto flex overflow-hidden rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_#201c15]">
+                  <div className="pointer-events-auto flex overflow-hidden rounded-lg border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)]">
                     <button type="button" className="grid size-9 place-items-center hover:bg-paper-2" onClick={() => canvasHandle.current?.zoomIn()} aria-label="Zoom in" title="Zoom in"><Plus className="size-4" aria-hidden /></button>
                     <button type="button" className="grid size-9 place-items-center border-l border-line hover:bg-paper-2" onClick={() => canvasHandle.current?.zoomOut()} aria-label="Zoom out" title="Zoom out"><Minus className="size-4" aria-hidden /></button>
                     <button type="button" className="grid size-9 place-items-center border-l border-line hover:bg-paper-2" onClick={() => canvasHandle.current?.fitView()} aria-label="Fit graph to view" title="Fit graph to view"><Focus className="size-4" aria-hidden /></button>
@@ -700,7 +700,7 @@ export default function GraphPage() {
                   </div>
                   <button
                     type="button"
-                    className="pointer-events-auto flex h-9 items-center gap-2 rounded-lg border-2 border-ink bg-white px-3 text-[10px] font-bold shadow-[2px_2px_0_#201c15]"
+                    className="pointer-events-auto flex h-9 items-center gap-2 rounded-lg border-2 border-ink bg-white px-3 text-[10px] font-bold shadow-[2px_2px_0_var(--color-shadow-strong)]"
                     onClick={() => setShowLabels(value => !value)}
                     aria-pressed={showLabels}
                     title={showLabels ? 'Hide node labels' : 'Show node labels'}
@@ -712,7 +712,7 @@ export default function GraphPage() {
                     <button
                       type="button"
                       onClick={backToOverview}
-                      className="pointer-events-auto flex h-9 items-center gap-2 rounded-lg border-2 border-ink bg-ink px-3 text-[10px] font-bold text-white shadow-[2px_2px_0_#e8641b]"
+                      className="pointer-events-auto flex h-9 items-center gap-2 rounded-lg border-2 border-ink bg-ink px-3 text-[10px] font-bold text-white shadow-[2px_2px_0_var(--color-orange)]"
                     >
                       <ArrowLeft className="size-3.5" /> Back to overview
                     </button>
@@ -720,12 +720,12 @@ export default function GraphPage() {
                 </div>
 
                 {hoveredLabel && (
-                  <div className="pointer-events-none absolute right-3 top-3 z-10 max-w-[50%] truncate rounded-lg border-2 border-ink bg-white px-3 py-1.5 text-[11px] font-semibold shadow-[2px_2px_0_#201c15]">
+                  <div className="pointer-events-none absolute right-3 top-3 z-10 max-w-[50%] truncate rounded-lg border-2 border-ink bg-white px-3 py-1.5 text-[11px] font-semibold shadow-[2px_2px_0_var(--color-shadow-strong)]">
                     {hoveredLabel}
                   </div>
                 )}
 
-                <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-lg border-2 border-ink bg-white/95 px-3 py-2 shadow-[2px_2px_0_#201c15] backdrop-blur">
+                <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-lg border-2 border-ink bg-white/95 px-3 py-2 shadow-[2px_2px_0_var(--color-shadow-strong)] backdrop-blur">
                   <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">
                     {coverage}
                   </span>

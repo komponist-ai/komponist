@@ -376,13 +376,13 @@ export default function ChatPage() {
                   <p className="mt-6 max-w-xl text-lg leading-8 text-ink-2">
                     Ask for a direct answer across your confirmed company knowledge. Suggested questions adapt to the graph and documents in this workspace.
                   </p>
-                  <div className="mt-7 flex items-center gap-3 rounded-lg border-2 border-ink bg-warning-soft p-3 text-sm font-semibold shadow-[4px_4px_0_#201c15] lg:max-w-sm">
+                  <div className="mt-7 flex items-center gap-3 rounded-lg border-2 border-ink bg-warning-soft p-3 text-sm font-semibold shadow-[4px_4px_0_var(--color-shadow-strong)] lg:max-w-sm">
                     <ShieldCheck className="size-5 shrink-0" />
                     Proposed facts stay out until you review them.
                   </div>
                 </motion.div>
 
-                <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.08 }} className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_#e8641b]">
+                <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.08 }} className="overflow-hidden rounded-xl border-2 border-ink bg-white shadow-[7px_7px_0_var(--color-orange)]">
                   <div className="flex items-center justify-between border-b-2 border-ink bg-ink px-4 py-3 text-white">
                     <span className="font-mono text-[10px] uppercase tracking-wider text-white/65">starter-queries.json</span>
                     <span className="flex items-center gap-2 font-mono text-[10px] text-teal-light"><span className="size-1.5 rounded-full bg-teal-light" /> live graph</span>
@@ -408,7 +408,7 @@ export default function ChatPage() {
                       disabled={isLoading}
                     >
                       <div className="flex items-start justify-between">
-                        <span className="grid size-10 place-items-center rounded-md border-2 border-ink bg-paper shadow-[2px_2px_0_#201c15]"><Icon className="size-4" /></span>
+                        <span className="grid size-10 place-items-center rounded-md border-2 border-ink bg-paper shadow-[2px_2px_0_var(--color-shadow-strong)]"><Icon className="size-4" /></span>
                         <span className="font-mono text-[10px] text-muted">{String(index + 1).padStart(2, '0')}</span>
                       </div>
                       <div className="mt-6 font-mono text-[9px] font-semibold uppercase tracking-wider text-orange-dark">{question.category}</div>
