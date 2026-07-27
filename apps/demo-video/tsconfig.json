@@ -11,5 +11,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["capture.ts", "src/**/*.ts", "src/**/*.tsx"]
+  "include": ["capture.ts", "generate-voiceover.ts", "src/**/*.ts", "src/**/*.tsx"]
 }

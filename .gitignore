@@ -33,6 +33,8 @@ out/
 apps/demo-video/public/captures/*
 !apps/demo-video/public/captures/.gitkeep
 apps/demo-video/public/voiceover.mp3
+apps/demo-video/public/voiceover-alignment.json
+apps/demo-video/voiceover-props.generated.json
 .turbo/
 .vercel/
 *.log

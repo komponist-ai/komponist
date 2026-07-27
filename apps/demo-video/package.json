@@ -6,10 +6,13 @@
   "description": "Repeatable YC product demo capture and branded video render",
   "scripts": {
     "capture": "node --import tsx capture.ts",
+    "voiceover:elevenlabs": "node --import tsx generate-voiceover.ts",
     "studio": "remotion studio src/index.ts",
     "render": "remotion render src/index.ts KomponistYC out/komponist-yc-demo.mp4",
     "render:voice": "remotion render src/index.ts KomponistYC out/komponist-yc-demo.mp4 --props=voiceover-props.json",
+    "render:elevenlabs": "remotion render src/index.ts KomponistYC out/komponist-yc-demo.mp4 --props=voiceover-props.generated.json",
     "demo": "npm run capture && npm run render",
+    "demo:elevenlabs": "npm run capture && npm run voiceover:elevenlabs && npm run render:elevenlabs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

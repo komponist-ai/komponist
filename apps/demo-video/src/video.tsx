@@ -19,9 +19,14 @@ import {
   TOTAL_SECONDS,
   type DemoScene,
 } from './scenes'
+import {
+  DEFAULT_VOICEOVER_CAPTIONS,
+  type VoiceoverCaption,
+} from './voiceover'
 
 export type KomponistYCDemoProps = {
   voiceover: string | null
+  captions?: VoiceoverCaption[]
 }
 
 const ink = '#201c15'
@@ -488,11 +493,6 @@ const ProductScene: React.FC<{ scene: DemoScene; index: number }> = ({ scene, in
   const frame = useCurrentFrame()
   const { durationInFrames } = useVideoConfig()
   const appear = spring({ frame, fps: FPS, config: { damping: 20 } })
-  const caption = spring({
-    frame: frame - 18,
-    fps: FPS,
-    config: { damping: 18, stiffness: 130, mass: 0.7 },
-  })
   const progress = interpolate(
     frame,
     [0, durationInFrames - 1],
@@ -522,39 +522,113 @@ const ProductScene: React.FC<{ scene: DemoScene; index: number }> = ({ scene, in
       <div
         style={{
           position: 'absolute',
-          left: 260,
-          right: 260,
-          bottom: 32,
-          minHeight: 82,
-          border: `3px solid ${ink}`,
-          borderRadius: 18,
-          background: '#fffdf8',
-          boxShadow: `7px 7px 0 ${teal}`,
-          display: 'flex',
-          alignItems: 'center',
-          padding: '15px 28px',
-          fontSize: 25,
-          lineHeight: 1.34,
-          fontWeight: 650,
-          opacity: caption,
-          transform: `translateY(${(1 - caption) * 36}px) scale(${0.97 + caption * 0.03})`,
+          left: 0,
+          bottom: 0,
+          width: `${progress * 100}%`,
+          height: 7,
+          background: accent,
         }}
-      >
-        {scene.caption}
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            bottom: -3,
-            width: `${progress * 100}%`,
-            height: 6,
-            borderRadius: 999,
-            background: accent,
-          }}
-        />
-      </div>
+      />
       <SceneWipe frame={frame} color={accent} />
     </AbsoluteFill>
+  )
+}
+
+const VoiceoverSubtitles: React.FC<{ captions: VoiceoverCaption[] }> = ({ captions }) => {
+  const frame = useCurrentFrame()
+  const time = frame / FPS
+  const cue = captions.find((caption) => time >= caption.start && time < caption.end)
+  if (!cue) return null
+
+  const cueFrame = frame - cue.start * FPS
+  const cueDuration = Math.max(1, (cue.end - cue.start) * FPS)
+  const enter = spring({
+    frame: cueFrame,
+    fps: FPS,
+    durationInFrames: 12,
+    config: { damping: 18, stiffness: 155, mass: 0.65 },
+  })
+  const exit = interpolate(
+    cueFrame,
+    [cueDuration - 7, cueDuration],
+    [1, 0],
+    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+  )
+  const words = cue.words || cue.text.split(/\s+/).map((word, index, all) => ({
+    text: word,
+    start: cue.start + (cue.end - cue.start) * index / all.length,
+    end: cue.start + (cue.end - cue.start) * (index + 1) / all.length,
+  }))
+  const currentWord = words.findIndex((word) => time >= word.start && time < word.end)
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        zIndex: 60,
+        left: '50%',
+        bottom: 34,
+        width: 'fit-content',
+        maxWidth: 1450,
+        transform: `translate(-50%, ${(1 - enter) * 34}px) scale(${0.96 + enter * 0.04})`,
+        opacity: enter * exit,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 9,
+          flexWrap: 'wrap',
+          border: `3px solid ${paper}`,
+          borderRadius: 22,
+          background: 'rgba(32,28,21,.95)',
+          boxShadow: `9px 9px 0 ${orange}`,
+          padding: '16px 28px 17px',
+          color: paper,
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          fontSize: 31,
+          fontWeight: 760,
+          lineHeight: 1.16,
+          textAlign: 'center',
+        }}
+      >
+        <span
+          style={{
+          width: 31,
+          height: 31,
+          marginRight: 7,
+          display: 'grid',
+          placeItems: 'center',
+          border: `2px solid ${orange}`,
+          borderRadius: 8,
+          color: orange,
+            fontFamily: 'monospace',
+          fontSize: 15,
+            fontWeight: 900,
+            letterSpacing: '0.13em',
+          }}
+        >
+          K
+        </span>
+        {words.map((word, index) => {
+          const isCurrent = index === currentWord
+          const isSpoken = time >= word.end
+          return (
+            <span
+              key={`${word.text}-${index}`}
+              style={{
+                color: isCurrent ? yellow : isSpoken ? paper : 'rgba(245,236,221,.5)',
+                transform: isCurrent ? 'translateY(-2px)' : undefined,
+              }}
+            >
+              {word.text}
+            </span>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -579,7 +653,10 @@ const Outro: React.FC = () => {
   )
 }
 
-export const KomponistYCDemo: React.FC<KomponistYCDemoProps> = ({ voiceover }) => {
+export const KomponistYCDemo: React.FC<KomponistYCDemoProps> = ({
+  voiceover,
+  captions = DEFAULT_VOICEOVER_CAPTIONS,
+}) => {
   let cursor = INTRO_SECONDS * FPS
   return (
     <AbsoluteFill>
@@ -600,6 +677,7 @@ export const KomponistYCDemo: React.FC<KomponistYCDemoProps> = ({ voiceover }) =
       <Sequence from={(TOTAL_SECONDS - OUTRO_SECONDS) * FPS} durationInFrames={OUTRO_SECONDS * FPS}>
         <Outro />
       </Sequence>
+      <VoiceoverSubtitles captions={captions} />
     </AbsoluteFill>
   )
 }
