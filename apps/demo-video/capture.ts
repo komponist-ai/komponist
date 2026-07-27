@@ -34,7 +34,11 @@ async function requestJson(response: APIResponse): Promise<any> {
 }
 
 async function ready(page: Page, heading: string) {
-  await page.getByRole('heading', { name: heading, exact: true }).waitFor({ state: 'visible' })
+  await page.getByRole('heading', {
+    level: 1,
+    name: heading,
+    exact: true,
+  }).waitFor({ state: 'visible' })
   await page.evaluate(() => document.fonts.ready)
 }
 
@@ -97,7 +101,8 @@ try {
   await page.goto(`${baseUrl}/sources`)
   await ready(page, 'Connected Sources')
   const sourceToggle = page.getByRole('button', { name: /Show documents from CampusKollektiv demo documents/i })
-  if (await sourceToggle.count() === 1 && await sourceToggle.getAttribute('aria-expanded') !== 'true') {
+  await sourceToggle.waitFor({ state: 'visible' })
+  if (await sourceToggle.getAttribute('aria-expanded') !== 'true') {
     await sourceToggle.click()
   }
   await capture(page, 'sources')
@@ -113,19 +118,31 @@ try {
   await ready(page, 'Canvas')
   const canvas = page.locator('button').filter({ hasText: 'Campus Forum Command Center' }).first()
   await canvas.click()
-  await page.getByRole('heading', { name: 'Campus Forum Command Center', exact: true }).waitFor({ state: 'visible' })
+  await page.getByRole('heading', {
+    level: 2,
+    name: 'Campus Forum Command Center',
+    exact: true,
+  }).waitFor({ state: 'visible' })
   await capture(page, 'canvas')
 
   await page.goto(`${baseUrl}/workrooms`)
   await ready(page, 'Workrooms')
   const room = page.locator('button').filter({ hasText: 'Campus Forum readiness room' }).first()
   await room.click()
-  await page.getByRole('heading', { name: 'Campus Forum readiness room', exact: true }).waitFor({ state: 'visible' })
+  await page.getByRole('heading', {
+    level: 2,
+    name: 'Campus Forum readiness room',
+    exact: true,
+  }).waitFor({ state: 'visible' })
   await capture(page, 'workrooms')
 
   await page.goto(`${baseUrl}/create?artifact=${encodeURIComponent(showcase.artifact_id)}`)
   await ready(page, 'Compose')
-  await page.getByRole('heading', { name: 'Campus Forum Launch Decision Brief', exact: true }).waitFor({ state: 'visible' })
+  await page.getByRole('heading', {
+    level: 1,
+    name: 'Campus Forum Launch Decision Brief',
+    exact: true,
+  }).waitFor({ state: 'visible' })
   await capture(page, 'compose')
 
   await writeFile(
