@@ -41,6 +41,15 @@ The alternative video is written to
 `apps/demo-video/out/komponist-yc-demo-recordly.mp4`. For a silent preview,
 run `npm run render:recordly:silent`.
 
+The capture uses a 2× device pixel ratio so UI text and icons remain sharp
+during camera zooms. Recordly renders also use lossless PNG frames and a
+high-quality H.264 encode instead of the default JPEG-frame pipeline. To
+produce a 4K master for platforms that heavily recompress uploads, run:
+
+```bash
+npm run render:recordly:4k
+```
+
 For a hosted deployment, provide a dedicated demo account:
 
 ```bash

@@ -37,6 +37,7 @@ const chromeHeight = 46
 const viewportHeight = windowHeight - chromeHeight
 const cameraEase = Easing.bezier(0.22, 1, 0.36, 1)
 const chatPrompt = 'What could block the Campus Forum launch, and who owns each blocker?'
+const uiType = 'Arial, Helvetica, sans-serif'
 
 const palettes = [
   ['#0879f9', '#5bc9ff', '#f7fbff'],
@@ -47,7 +48,7 @@ const palettes = [
 ] as const
 
 const brandType: React.CSSProperties = {
-  fontFamily: 'Arial, Helvetica, sans-serif',
+  fontFamily: uiType,
   fontWeight: 900,
   letterSpacing: '-0.055em',
 }
@@ -606,7 +607,20 @@ const RecordlyIntro: React.FC = () => {
         <div style={{ marginTop: 74, fontSize: 86, lineHeight: 0.98, ...brandType }}>
           One shared context<br />for people and AI.
         </div>
-        <div style={{ marginTop: 30, fontSize: 26, fontWeight: 700, color: 'rgba(255,255,255,.78)' }}>
+        <div
+          style={{
+            marginTop: 30,
+            color: 'rgba(255,255,255,.94)',
+            fontFamily: uiType,
+            fontSize: 28,
+            fontWeight: 800,
+            letterSpacing: '-0.022em',
+            lineHeight: 1.15,
+            textRendering: 'geometricPrecision',
+            WebkitFontSmoothing: 'antialiased',
+            textShadow: '0 2px 18px rgba(13,36,74,.18)',
+          }}
+        >
           Connected knowledge. Multiplayer agents. Dynamic interfaces.
         </div>
       </div>
@@ -688,7 +702,14 @@ export const KomponistRecordlyDemo: React.FC<KomponistYCDemoProps> = ({
 }) => {
   let cursor = INTRO_SECONDS * FPS
   return (
-    <AbsoluteFill style={{ background: ink }}>
+    <AbsoluteFill
+      style={{
+        background: ink,
+        fontFamily: uiType,
+        textRendering: 'geometricPrecision',
+        WebkitFontSmoothing: 'antialiased',
+      }}
+    >
       {voiceover ? <Html5Audio src={staticFile(voiceover)} /> : null}
       <Sequence durationInFrames={INTRO_SECONDS * FPS}>
         <RecordlyIntro />

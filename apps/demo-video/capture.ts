@@ -46,7 +46,7 @@ async function capture(page: Page, name: string, extraStyles: string[] = []) {
   await page.screenshot({
     path: resolve(captureDirectory, `${name}.png`),
     animations: 'disabled',
-    scale: 'css',
+    scale: 'device',
     style: [
       '[aria-label="Loading GitHub stars"], [aria-label$="GitHub stars"] { display: none !important; }',
       '[data-nextjs-toast], nextjs-portal { display: none !important; }',
@@ -63,6 +63,7 @@ const browser = await chromium.launch({
 })
 const context = await browser.newContext({
   viewport: { width: 1600, height: 1000 },
+  deviceScaleFactor: 2,
   colorScheme: 'light',
   reducedMotion: 'reduce',
   locale: 'en-US',

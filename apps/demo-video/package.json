@@ -11,8 +11,9 @@
     "render": "remotion render src/index.ts KomponistYC out/komponist-yc-demo.mp4",
     "render:voice": "remotion render src/index.ts KomponistYC out/komponist-yc-demo.mp4 --props=voiceover-props.json",
     "render:elevenlabs": "remotion render src/index.ts KomponistYC out/komponist-yc-demo.mp4 --props=voiceover-props.generated.json",
-    "render:recordly": "remotion render src/index.ts KomponistRecordly out/komponist-yc-demo-recordly.mp4 --props=voiceover-props.generated.json",
-    "render:recordly:silent": "remotion render src/index.ts KomponistRecordly out/komponist-yc-demo-recordly.mp4",
+    "render:recordly": "remotion render src/index.ts KomponistRecordly out/komponist-yc-demo-recordly.mp4 --props=voiceover-props.generated.json --codec=h264 --crf=10 --image-format=png --pixel-format=yuv420p --x264-preset=slow",
+    "render:recordly:silent": "remotion render src/index.ts KomponistRecordly out/komponist-yc-demo-recordly.mp4 --codec=h264 --crf=10 --image-format=png --pixel-format=yuv420p --x264-preset=slow",
+    "render:recordly:4k": "remotion render src/index.ts KomponistRecordly out/komponist-yc-demo-recordly-4k.mp4 --props=voiceover-props.generated.json --scale=2 --codec=h264 --crf=10 --image-format=png --pixel-format=yuv420p --x264-preset=slow",
     "demo": "npm run capture && npm run render",
     "demo:elevenlabs": "npm run capture && npm run voiceover:elevenlabs && npm run render:elevenlabs",
     "typecheck": "tsc --noEmit"
