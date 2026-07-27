@@ -648,7 +648,16 @@ const Outro: React.FC = () => {
         <div style={{ fontSize: 103, lineHeight: 0.95, maxWidth: 1500, ...wordmark }}>
           One shared, trusted context<br />for people and AI.
         </div>
-        <div style={{ marginTop: 38, fontSize: 30, fontWeight: 700 }}>
+        <div
+          style={{
+            marginTop: 38,
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: 29,
+            fontWeight: 750,
+            letterSpacing: '-0.015em',
+            lineHeight: 1.25,
+          }}
+        >
           Open source · permission-aware · cited by default
         </div>
       </div>
