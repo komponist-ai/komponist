@@ -249,12 +249,24 @@ export default function LandingPage() {
                   It is your living map of reviewed facts, decisions, goals, projects, and evidence — connected in one place.
                 </p>
               </div>
-              <div className="mt-9 flex flex-col gap-3 min-[430px]:flex-row">
+              <div className="mt-9 flex flex-col gap-3 min-[430px]:flex-row min-[430px]:flex-wrap">
                 <Button asChild size="lg" variant="dark">
                   <Link href="/studio">Start composing <ArrowRight /></Link>
                 </Button>
                 <Button asChild size="lg" variant="outline">
                   <a href="#surfaces">See what it creates <ChevronRight /></a>
+                </Button>
+                <Button asChild size="lg" variant="outline">
+                  <a
+                    href="https://github.com/komponist-ai/komponist"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="View Komponist on GitHub"
+                  >
+                    <GitHubMark className="size-4" />
+                    GitHub
+                    <GitHubStars />
+                  </a>
                 </Button>
               </div>
               <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted">
