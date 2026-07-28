@@ -3646,15 +3646,19 @@ async def get_graph(
         OR toLower(coalesce(e.detail, '')) CONTAINS $query
       )
       AND {_knowledge_scope('e')}
-    CALL {{
-      WITH e
+      AND EXISTS {{
+        MATCH (e)-[:CITED_BY]->(visible_evidence:Evidence {{org_id: $org_id}})
+        WHERE {_evidence_scope('visible_evidence')}
+      }}
+    CALL (e) {{
       OPTIONAL MATCH (e)-[relationship]-(neighbor:Entity {{org_id: $org_id}})
       WHERE NOT type(relationship) = 'CITED_BY'
+        AND {_knowledge_scope('neighbor')}
       RETURN count(DISTINCT neighbor) AS degree
     }}
-    CALL {{
-      WITH e
+    CALL (e) {{
       OPTIONAL MATCH (e)-[:CITED_BY]->(evidence:Evidence {{org_id: $org_id}})
+      WHERE {_evidence_scope('evidence')}
       RETURN count(DISTINCT evidence) AS evidence_count
     }}
     RETURN
@@ -3694,6 +3698,10 @@ async def get_graph(
             OR toLower(coalesce(e.detail, '')) CONTAINS $query
           )
           AND {_knowledge_scope('e')}
+          AND EXISTS {{
+            MATCH (e)-[:CITED_BY]->(visible_evidence:Evidence {{org_id: $org_id}})
+            WHERE {_evidence_scope('visible_evidence')}
+          }}
         RETURN count(e) AS total
         """,
         _scoped_params(
