@@ -106,7 +106,7 @@ def test_built_in_example_is_a_complete_cross_platform_family():
     assert family["version_count"] == 3
     assert family["sources"] == ["google", "notion", "upload"]
     assert family["contributors"] == ["Alex Chen", "Lena Hoffmann", "Priya Raman"]
-    assert family["latest_version_id"] == "demo-northstar-upload"
+    assert family["latest_version_id"] == "demo-campus-forum-upload"
     assert family["truth_status"] == "contested"
     assert family["diff"]["counts"] == {
         "added": 1, "removed": 0, "changed": 3, "unchanged": 1, "conflicts": 3,
