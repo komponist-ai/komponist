@@ -172,7 +172,8 @@ async def seed_graph(org_id: str, count: int, *, private_department_id: str) -> 
         )
 
     # One entity only the finance department may see, wired to a public node so
-    # neighbour expansion has a chance to leak it if scoping is wrong.
+    # neighbour expansion has a chance to leak it if scoping is wrong. The entity
+    # needs its own evidence to pass the "visible source evidence" filter.
     await GraphClient.run_query(
         """
         MATCH (public:Entity {id: 'gx-0', org_id: $org_id})
@@ -188,6 +189,19 @@ async def seed_graph(org_id: str, count: int, *, private_department_id: str) -> 
             created_at: datetime(),
             updated_at: datetime()
         })
+        CREATE (evidence:Evidence {
+            id: 'gx-evidence-confidential',
+            org_id: $org_id,
+            source: 'upload',
+            title: 'Confidential finance source',
+            reference: 'confidential-finance.md',
+            excerpt: 'Supporting passage for confidential entity',
+            line_start: 1,
+            line_end: 2,
+            department_id: $department_id,
+            source_date: datetime()
+        })
+        CREATE (secret)-[:CITED_BY]->(evidence)
         CREATE (public)-[:AFFECTS {description: 'Confidential link'}]->(secret)
         """,
         {"org_id": org_id, "department_id": private_department_id},
