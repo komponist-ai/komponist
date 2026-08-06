@@ -55,8 +55,8 @@ module.exports = {
         focus: 'var(--color-focus)',
       },
       fontFamily: {
-        display: ['Bricolage Grotesque', 'Arial Rounded MT Bold', 'Avenir Next', 'sans-serif'],
-        body: ['Instrument Sans', 'Avenir Next', 'Avenir', 'sans-serif'],
+        display: ['Arial Rounded MT Bold', 'Avenir Next Rounded', 'Nunito', 'sans-serif'],
+        body: ['Arial Rounded MT Bold', 'Avenir Next Rounded', 'Nunito', 'sans-serif'],
         mono: ['JetBrains Mono', 'SFMono-Regular', 'Consolas', 'monospace'],
       },
       fontSize: {
