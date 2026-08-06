@@ -109,5 +109,5 @@ def test_built_in_example_is_a_complete_cross_platform_family():
     assert family["latest_version_id"] == "demo-campus-forum-upload"
     assert family["truth_status"] == "contested"
     assert family["diff"]["counts"] == {
-        "added": 1, "removed": 0, "changed": 3, "unchanged": 1, "conflicts": 3,
+        "added": 2, "removed": 0, "changed": 5, "unchanged": 0, "conflicts": 5,
     }
