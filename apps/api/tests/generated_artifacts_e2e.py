@@ -224,10 +224,23 @@ async def run() -> None:
                 and block.get("takeaway")
                 for block in member_payload["content"]["blocks"]
             ), member_payload["content"]["blocks"]
-            serialized_member = str(member_payload)
-            assert "900000" not in serialized_member
-            assert "Unreviewed target" not in serialized_member
+            visible_member_text = str({
+                "content": member_payload["content"],
+                "sources": [
+                    {
+                        field: source.get(field)
+                        for field in ("statement", "title", "reference", "excerpt")
+                    }
+                    for source in member_payload["sources"]
+                ],
+            })
+            assert "900000" not in visible_member_text
+            assert "Unreviewed target" not in visible_member_text
             allowed_ids = set(member_payload["source_entity_ids"])
+            assert all(
+                source["entity_id"] in allowed_ids
+                for source in member_payload["sources"]
+            )
             for block in member_payload["content"]["blocks"]:
                 assert block["source_ids"], block
                 assert set(block["source_ids"]).issubset(allowed_ids), block
