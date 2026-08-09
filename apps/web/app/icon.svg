@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <rect x="2.5" y="2.5" width="21.5" height="21.5" rx="6" fill="#e8641b"></rect>
-  <rect x="0" y="0" width="21.5" height="21.5" rx="6" fill="#26201b"></rect>
-  <g transform="scale(0.8958333333333334)"><rect x="3" y="4" width="18" height="16" rx="4.5" fill="none" stroke="#fffdf8" stroke-width="1.8"></rect><path d="M8.2 8.1 H10.1 V11.4 L13.15 8.1 H15.6 L12.25 11.65 L15.8 15.9 H13.4 L10.9 12.75 L10.1 13.6 V15.9 H8.2 Z" fill="#fffdf8"></path></g>
+  <rect x="2.5" y="2.5" width="21.5" height="21.5" rx="6" fill="#e8641b"/>
+  <rect x="0" y="0" width="21.5" height="21.5" rx="6" fill="#26201b"/>
+  <rect x="3.25" y="3.25" width="15" height="15" rx="4" fill="none" stroke="#fffdf8" stroke-width="1.6"/>
+  <text x="10.75" y="14.5" text-anchor="middle" fill="#fffdf8" font-family="Arial Rounded MT Bold, Avenir Next Rounded, Nunito, sans-serif" font-size="11" font-weight="bold">K</text>
 </svg>
