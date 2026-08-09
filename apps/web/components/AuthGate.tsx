@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { FormEvent, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowRight, Bot, CheckCircle2, FileText, LoaderCircle, LockKeyhole, Mail, Network, ShieldCheck } from 'lucide-react'
+import { ArrowRight, FileText, LoaderCircle, LockKeyhole, Mail, Network, ShieldCheck } from 'lucide-react'
 import { useAuth } from './AuthProvider'
 import BrandMark from './BrandMark'
 import SourceLogo from './SourceLogo'
@@ -62,13 +62,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return (
-      <main className="relative min-h-screen bg-paper text-ink">
+      <main className="relative h-screen overflow-hidden bg-paper text-ink">
         <ThemeToggle className="fixed right-4 top-4 z-50 sm:right-6 sm:top-6" />
-        <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
-          <section className="relative hidden overflow-hidden border-r-2 border-ink bg-ink p-10 text-white lg:flex lg:flex-col xl:p-14">
-            <div className="absolute -right-32 top-16 size-72 rounded-full border-[48px] border-orange/90" />
-            <div className="absolute -bottom-40 -left-40 size-80 rounded-full border-[56px] border-teal/70" />
-
+        <div className="grid h-screen lg:grid-cols-[1.05fr_0.95fr]">
+          <section className="relative hidden h-screen overflow-hidden border-r-2 border-ink bg-ink p-10 text-white lg:flex lg:flex-col xl:p-14">
             <Link className="relative z-10 inline-flex items-center gap-3 self-start font-display text-xl font-black" href="/">
               <BrandMark />
               Komponist
@@ -158,14 +155,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
           </section>
 
-          <section className="flex min-h-screen items-center justify-center px-5 py-20 sm:px-8 lg:px-12">
-            <motion.div
-              key={mode}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.28 }}
-              className="w-full max-w-[500px]"
-            >
+          <section className="h-screen overflow-y-auto px-5 py-12 sm:px-8 lg:px-12">
+            <div className="flex min-h-full items-center justify-center">
+              <motion.div
+                key={mode}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28 }}
+                className="w-full max-w-[500px]"
+              >
               <Link className="mb-12 inline-flex items-center gap-3 font-display text-xl font-black lg:hidden" href="/">
                 <BrandMark />
                 Komponist
@@ -274,6 +272,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 Your account belongs to an organization. Members share its brain; other organizations stay isolated.
               </p>
             </motion.div>
+            </div>
           </section>
         </div>
       </main>

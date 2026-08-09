@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === 'true'
 
 export interface Organization {
   id: string
@@ -22,6 +23,22 @@ export interface AuthUser {
   access_all_departments: boolean
   organization: { id: string; name: string }
 }
+
+const DEMO_USER: AuthUser = {
+  id: 'demo-user-001',
+  org_id: 'demo-org-001',
+  email: 'demo@komponist.local',
+  name: 'Demo User',
+  avatar_url: null,
+  role: 'owner',
+  department_ids: [],
+  access_all_departments: true,
+  organization: { id: 'demo-org-001', name: 'Demo Organization' },
+}
+
+const DEMO_ORGANIZATIONS: Organization[] = [
+  { id: 'demo-org-001', name: 'Demo Organization', role: 'owner', active: true },
+]
 
 interface AuthContextValue {
   user: AuthUser | null
@@ -51,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const loadOrganizations = useCallback(async () => {
+    if (DEMO_MODE) return DEMO_ORGANIZATIONS
     const response = await fetch(`${API_URL}/auth/organizations`, {
       credentials: 'include',
       cache: 'no-store',
@@ -63,6 +81,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
+      if (DEMO_MODE) {
+        // In demo mode, check localStorage for demo session
+        const demoSession = localStorage.getItem('komponist_demo_session')
+        if (demoSession) {
+          storeActiveOrganization(DEMO_USER)
+          setUser(DEMO_USER)
+          setOrganizations(DEMO_ORGANIZATIONS)
+        } else {
+          storeActiveOrganization(null)
+          setUser(null)
+          setOrganizations([])
+        }
+        return
+      }
+
       const response = await fetch(`${API_URL}/auth/session`, {
         credentials: 'include',
         cache: 'no-store',
@@ -87,6 +120,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh])
 
   const login = useCallback(() => {
+    if (DEMO_MODE) {
+      localStorage.setItem('komponist_demo_session', 'true')
+      storeActiveOrganization(DEMO_USER)
+      setUser(DEMO_USER)
+      setOrganizations(DEMO_ORGANIZATIONS)
+      return
+    }
     const returnTo = `${window.location.pathname}${window.location.search}`
     window.location.href = `${API_URL}/auth/login/google?return_to=${encodeURIComponent(returnTo)}`
   }, [])
@@ -95,6 +135,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     path: '/auth/login/email' | '/auth/register',
     body: Record<string, string>,
   ) => {
+    if (DEMO_MODE) {
+      localStorage.setItem('komponist_demo_session', 'true')
+      storeActiveOrganization(DEMO_USER)
+      setUser(DEMO_USER)
+      setOrganizations(DEMO_ORGANIZATIONS)
+      return
+    }
+
     let response: Response
     try {
       response = await fetch(`${API_URL}${path}`, {
@@ -127,6 +175,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   )
 
   const logout = useCallback(async () => {
+    if (DEMO_MODE) {
+      localStorage.removeItem('komponist_demo_session')
+      storeActiveOrganization(null)
+      setUser(null)
+      setOrganizations([])
+      return
+    }
+
     await fetch(`${API_URL}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
@@ -137,6 +193,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const switchOrganization = useCallback(async (orgId: string) => {
+    if (DEMO_MODE) {
+      // In demo mode, just keep the same user/org
+      return
+    }
+
     const response = await fetch(`${API_URL}/auth/organizations/${orgId}/select`, {
       method: 'POST',
       credentials: 'include',

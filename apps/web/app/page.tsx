@@ -174,9 +174,6 @@ export default function LandingPage() {
               {mobileMenuOpen ? <X className="size-4" /> : <Menu className="size-4" />}
             </button>
             <ThemeToggle />
-            <Button asChild variant="ghost" className="hidden sm:inline-flex">
-              <Link href="/login">Sign in</Link>
-            </Button>
             <Button asChild size="sm">
               <Link href="/studio">Open Studio <ArrowRight /></Link>
             </Button>
@@ -220,13 +217,9 @@ export default function LandingPage() {
 
       <section className="relative border-b-2 border-ink pt-[76px]">
         <div className="landing-grid pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,black,transparent_90%)]" />
-        <div className="relative mx-auto max-w-[1440px] px-5 py-16 sm:px-8 sm:py-24 lg:px-12 lg:py-28">
+        <div className="relative mx-auto max-w-[1440px] px-5 py-10 sm:px-8 sm:py-16 lg:px-12 lg:py-20">
           <div className="grid gap-14 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
             <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.55 }}>
-              <Badge variant="orange" className="mb-7 normal-case tracking-normal">
-                <Music2 className="size-3.5" />
-                Score = shared, connected company context
-              </Badge>
               <h1 className="max-w-3xl font-display text-[clamp(3.4rem,13vw,7.6rem)] font-bold leading-[0.84] tracking-[-0.07em] sm:text-[clamp(4.4rem,7.4vw,7.6rem)]">
                 Turn company
                 <span className="relative mx-2 inline-block rotate-[-2deg] border-b-[0.12em] border-orange text-orange">noise</span>
@@ -280,8 +273,8 @@ export default function LandingPage() {
                     ))}
                   </div>
 
-                  <div className="relative grid gap-4 md:grid-cols-[0.8fr_70px_1fr] md:items-center">
-                    <div>
+                  <div className="relative grid gap-4 md:grid-cols-[0.8fr_70px_1fr] md:items-start">
+                    <div className="md:mt-4">
                       <p className="mb-3 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">The instruments</p>
                       <div className="grid grid-cols-3 gap-2 md:grid-cols-1">
                         <SourceChip icon={FileText} label="Documents" count="14" tone="bg-warning-soft" delay={0} />
