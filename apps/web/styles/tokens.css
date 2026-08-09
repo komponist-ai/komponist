@@ -283,12 +283,12 @@ code {
   border-radius: var(--radius-md);
   background: var(--color-white);
   color: var(--color-ink);
-  box-shadow: 2px 2px 0 var(--color-ink);
+  box-shadow: 3px 3px 0 var(--color-shadow-strong);
   cursor: pointer;
-  transition: transform var(--duration-fast), background var(--duration-fast), color var(--duration-fast);
+  transition: transform var(--duration-fast), box-shadow var(--duration-fast), background var(--duration-fast), color var(--duration-fast);
 }
 
-.theme-toggle:hover { transform: translateY(-1px); background: var(--color-paper-2); }
+.theme-toggle:hover { transform: translateY(-2px); box-shadow: 5px 5px 0 var(--color-shadow-strong); background: var(--color-paper-2); }
 .theme-toggle svg { position: absolute; width: 18px; height: 18px; transition: transform var(--duration-base), opacity var(--duration-base); }
 .theme-toggle-moon { transform: translateY(22px) rotate(-45deg); opacity: 0; }
 :root[data-theme='dark'] .theme-toggle-sun { transform: translateY(-22px) rotate(45deg); opacity: 0; }
