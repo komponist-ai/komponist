@@ -143,13 +143,8 @@ export default function LandingPage() {
   const [activeSurface, setActiveSurface] = useState<Surface>('workrooms')
 
   return (
-    <main className="min-h-screen overflow-hidden bg-paper text-ink">
-      <div className="border-b-2 border-ink bg-[#111214] px-4 py-2 text-center font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[#fffdf8] sm:text-xs">
-        <span className="mr-2 inline-block size-2 rounded-full bg-orange" />
-        Open-source company context · now playing
-      </div>
-
-      <header className="sticky top-0 z-40 border-b-2 border-ink bg-paper/95 backdrop-blur">
+    <main className="min-h-screen bg-paper text-ink">
+      <header className="fixed left-0 right-0 top-0 z-40 border-b-2 border-ink bg-paper/95 backdrop-blur">
         <div className="mx-auto flex h-[72px] max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
           <Link href="/" className="sidebar-brand flex items-center gap-2" aria-label="Komponist home">
             <BrandMark size={32} className="size-8" />
@@ -171,7 +166,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
-              className="grid size-10 place-items-center rounded-md border-2 border-ink bg-white shadow-[2px_2px_0_var(--color-shadow-strong)] md:hidden"
+              className="grid size-10 place-items-center rounded-md border-2 border-ink bg-white shadow-[3px_3px_0_var(--color-shadow-strong)] transition-all hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--color-shadow-strong)] md:hidden"
               aria-label={mobileMenuOpen ? 'Close navigation' : 'Open navigation'}
               aria-expanded={mobileMenuOpen}
               onClick={() => setMobileMenuOpen(current => !current)}
@@ -223,7 +218,7 @@ export default function LandingPage() {
         </AnimatePresence>
       </header>
 
-      <section className="relative border-b-2 border-ink">
+      <section className="relative border-b-2 border-ink pt-[76px]">
         <div className="landing-grid pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,black,transparent_90%)]" />
         <div className="relative mx-auto max-w-[1440px] px-5 py-16 sm:px-8 sm:py-24 lg:px-12 lg:py-28">
           <div className="grid gap-14 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
@@ -256,23 +251,6 @@ export default function LandingPage() {
                 <Button asChild size="lg" variant="outline">
                   <a href="#surfaces">See what it creates <ChevronRight /></a>
                 </Button>
-                <Button asChild size="lg" variant="outline">
-                  <a
-                    href="https://github.com/komponist-ai/komponist"
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="View Komponist on GitHub"
-                  >
-                    <GitHubMark className="size-4" />
-                    GitHub
-                    <GitHubStars />
-                  </a>
-                </Button>
-              </div>
-              <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted">
-                <span className="flex items-center gap-1.5"><Check className="size-3.5 text-teal" /> cited</span>
-                <span className="flex items-center gap-1.5"><Check className="size-3.5 text-teal" /> reviewed</span>
-                <span className="flex items-center gap-1.5"><Check className="size-3.5 text-teal" /> permission-aware</span>
               </div>
             </motion.div>
 
@@ -411,16 +389,11 @@ export default function LandingPage() {
 
       <section id="score" className="border-b-2 border-ink bg-white px-5 py-24 sm:px-8 lg:px-12 lg:py-28">
         <div className="mx-auto max-w-[1440px]">
-          <motion.div {...reveal} className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <Badge variant="teal"><Music2 className="size-3.5" /> Three movements</Badge>
-              <h2 className="mt-6 max-w-4xl font-display text-[clamp(3.2rem,6.4vw,6.5rem)] font-bold leading-[0.88] tracking-[-0.065em]">
-                From scattered notes to <span className="text-orange">coordinated work.</span>
-              </h2>
-            </div>
-            <p className="max-w-sm text-lg font-semibold leading-7 text-ink-2">
-              Sources enter once. Trusted context plays everywhere.
-            </p>
+          <motion.div {...reveal}>
+            <Badge variant="teal"><Music2 className="size-3.5" /> Three movements</Badge>
+            <h2 className="mt-6 max-w-4xl font-display text-[clamp(2.8rem,10vw,6.5rem)] font-bold leading-[0.88] tracking-[-0.065em] sm:text-[clamp(3.2rem,6.4vw,6.5rem)]">
+              From scattered notes to <span className="text-orange">coordinated work.</span>
+            </h2>
           </motion.div>
 
           <div className="mt-14 grid border-l-2 border-t-2 border-ink lg:grid-cols-3">
@@ -439,7 +412,6 @@ export default function LandingPage() {
                 </div>
                 <h3 className="mt-16 max-w-xs text-3xl font-bold leading-tight">{step.title}</h3>
                 <p className="mt-4 max-w-sm text-base font-semibold leading-7 text-ink-2">{step.copy}</p>
-                <span className="absolute bottom-6 right-7 font-display text-6xl font-black text-ink/5">♪</span>
               </motion.article>
             ))}
           </div>
@@ -448,15 +420,15 @@ export default function LandingPage() {
 
       <section id="surfaces" className="px-5 py-24 sm:px-8 lg:px-12 lg:py-28">
         <div className="mx-auto max-w-[1440px]">
-          <motion.div {...reveal} className="text-center">
+          <motion.div {...reveal}>
             <Badge variant="orange"><WandSparkles className="size-3.5" /> Context you can see</Badge>
-            <h2 className="mx-auto mt-6 max-w-5xl font-display text-[clamp(3.2rem,6.4vw,6.5rem)] font-bold leading-[0.88] tracking-[-0.065em]">
+            <h2 className="mt-6 max-w-5xl font-display text-[clamp(2.8rem,10vw,6.5rem)] font-bold leading-[0.88] tracking-[-0.065em] sm:text-[clamp(3.2rem,6.4vw,6.5rem)]">
               A company brain that actually <span className="text-orange">does things.</span>
             </h2>
           </motion.div>
 
           <div className="mt-14 grid gap-5 xl:grid-cols-3">
-            <motion.article {...reveal} className="group overflow-hidden rounded-xl border-2 border-ink bg-info-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
+            <motion.article {...reveal} className="group flex flex-col overflow-hidden rounded-xl border-2 border-ink bg-info-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
               <div className="flex items-center justify-between border-b-2 border-ink px-6 py-5">
                 <div>
                   <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">01 · Coordinate</p>
@@ -464,13 +436,13 @@ export default function LandingPage() {
                 </div>
                 <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-orange text-[#111214] transition-transform group-hover:-rotate-6"><UsersRound /></span>
               </div>
-              <div className="p-5"><WorkroomPreview expanded /></div>
+              <div className="flex-1 p-5"><WorkroomPreview expanded /></div>
               <Link href="/workrooms" className="flex items-center justify-between border-t-2 border-ink bg-white px-6 py-4 text-sm font-bold hover:bg-paper-2">
                 People + agents, one room <ArrowRight className="size-4" />
               </Link>
             </motion.article>
 
-            <motion.article {...reveal} transition={{ ...reveal.transition, delay: 0.08 }} className="group overflow-hidden rounded-xl border-2 border-ink bg-success-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
+            <motion.article {...reveal} transition={{ ...reveal.transition, delay: 0.08 }} className="group flex flex-col overflow-hidden rounded-xl border-2 border-ink bg-success-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
               <div className="flex items-center justify-between border-b-2 border-ink px-6 py-5">
                 <div>
                   <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">02 · Explore</p>
@@ -478,13 +450,13 @@ export default function LandingPage() {
                 </div>
                 <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-teal text-[#111214] transition-transform group-hover:rotate-6"><LayoutDashboard /></span>
               </div>
-              <div className="p-5"><CanvasPreview expanded /></div>
+              <div className="flex-1 p-5"><CanvasPreview expanded /></div>
               <Link href="/canvas" className="flex items-center justify-between border-t-2 border-ink bg-white px-6 py-4 text-sm font-bold hover:bg-paper-2">
                 Ask an interface into existence <ArrowRight className="size-4" />
               </Link>
             </motion.article>
 
-            <motion.article {...reveal} transition={{ ...reveal.transition, delay: 0.16 }} className="group overflow-hidden rounded-xl border-2 border-ink bg-warning-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
+            <motion.article {...reveal} transition={{ ...reveal.transition, delay: 0.16 }} className="group flex flex-col overflow-hidden rounded-xl border-2 border-ink bg-warning-soft shadow-[6px_6px_0_var(--color-shadow-strong)]">
               <div className="flex items-center justify-between border-b-2 border-ink px-6 py-5">
                 <div>
                   <p className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted">03 · Present</p>
@@ -492,7 +464,7 @@ export default function LandingPage() {
                 </div>
                 <span className="grid size-12 place-items-center rounded-lg border-2 border-ink bg-[#f4d06f] transition-transform group-hover:-rotate-6"><Presentation /></span>
               </div>
-              <div className="p-5"><ComposePreview expanded /></div>
+              <div className="flex-1 p-5"><ComposePreview expanded /></div>
               <Link href="/create" className="flex items-center justify-between border-t-2 border-ink bg-white px-6 py-4 text-sm font-bold hover:bg-paper-2">
                 From graph to deck <ArrowRight className="size-4" />
               </Link>
@@ -595,7 +567,7 @@ export default function LandingPage() {
               Give the company a score.
             </h2>
           </div>
-          <Button asChild size="lg" variant="dark" className="shrink-0 shadow-[6px_6px_0_#fff]">
+          <Button asChild size="lg" variant="dark" className="shrink-0 shadow-[6px_6px_0_#fff] hover:shadow-[8px_8px_0_#fff]">
             <Link href="/studio">Open Komponist <ArrowRight /></Link>
           </Button>
         </div>
@@ -604,7 +576,7 @@ export default function LandingPage() {
       <footer className="bg-paper px-5 py-12 sm:px-8 lg:px-12">
         <div className="mx-auto flex max-w-[1440px] flex-col justify-between gap-8 sm:flex-row sm:items-end">
           <div>
-            <div className="flex items-center gap-3 text-xl font-bold"><BrandMark /> Komponist</div>
+            <div className="flex items-center gap-3 font-display text-xl font-bold"><BrandMark /> Komponist</div>
             <p className="mt-4 max-w-md text-sm font-semibold text-muted">One shared score for people, products, and AI.</p>
           </div>
           <div className="flex flex-col items-start gap-4 sm:items-end">
@@ -683,7 +655,7 @@ function ScoreNode({
 
 function WorkroomPreview({ expanded = false }: { expanded?: boolean }) {
   return (
-    <div className={`rounded-lg border-2 border-ink bg-white ${expanded ? 'min-h-[280px] p-4' : 'p-3'}`}>
+    <div className={`rounded-lg border-2 border-ink bg-white ${expanded ? 'flex h-full flex-col p-4' : 'p-3'}`}>
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-mono text-[8px] font-bold uppercase tracking-wider text-orange-dark">Launch workroom</p>
@@ -711,7 +683,7 @@ function WorkroomPreview({ expanded = false }: { expanded?: boolean }) {
         ))}
       </div>
       {expanded && (
-        <div className="mt-4 flex items-center justify-between rounded-md border-2 border-ink bg-[#111214] px-3 py-2.5 text-[#fffdf8]">
+        <div className="mt-auto flex items-center justify-between rounded-md border-2 border-ink bg-[#111214] px-3 py-2.5 text-[#fffdf8]">
           <span className="flex items-center gap-2 text-[10px] font-semibold"><Bot className="size-3.5 text-orange-light" /> Analyst is researching</span>
           <span className="size-2 animate-pulse rounded-full bg-teal-light" />
         </div>
@@ -765,7 +737,7 @@ function CanvasPreview({ expanded = false }: { expanded?: boolean }) {
 
 function ComposePreview({ expanded = false }: { expanded?: boolean }) {
   return (
-    <div className={`rounded-lg border-2 border-ink bg-white ${expanded ? 'min-h-[280px] p-4' : 'p-3'}`}>
+    <div className={`rounded-lg border-2 border-ink bg-white ${expanded ? 'flex h-full flex-col p-4' : 'p-3'}`}>
       <div className="flex items-center justify-between">
         <div>
           <p className="font-mono text-[8px] font-bold uppercase tracking-wider text-orange-dark">Generated briefing</p>
@@ -795,7 +767,7 @@ function ComposePreview({ expanded = false }: { expanded?: boolean }) {
         </div>
       </div>
       {expanded && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-auto flex flex-wrap gap-2">
           {['PDF', 'PowerPoint', 'Markdown'].map(format => (
             <span key={format} className="flex items-center gap-1 rounded-full border border-ink bg-white px-2 py-1 font-mono text-[7px] font-bold"><Download className="size-2.5" />{format}</span>
           ))}
