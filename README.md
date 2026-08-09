@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/images/komponist_logo_dark.svg?v=2">
-    <source media="(prefers-color-scheme: light)" srcset="assets/images/komponist_logo_light.svg">
-    <img src="assets/images/komponist_logo_light.svg" alt="Komponist" width="400" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/komponist-ai/komponist/main/assets/images/komponist_logo_dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/komponist-ai/komponist/main/assets/images/komponist_logo_light.svg">
+    <img src="https://raw.githubusercontent.com/komponist-ai/komponist/main/assets/images/komponist_logo_light.svg" alt="Komponist" width="400" />
   </picture>
 </p>
 
