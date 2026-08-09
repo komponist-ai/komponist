@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="assets/images/komponist_logo_big.png" alt="Komponist" width="400" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/images/komponist_logo_dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/images/komponist_logo_light.png">
+    <img src="assets/images/komponist_logo_light.png" alt="Komponist" width="400" />
+  </picture>
 </p>
 
 <p align="center">
