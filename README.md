@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/images/komponist_logo_dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="assets/images/komponist_logo_light.png">
-    <img src="assets/images/komponist_logo_light.png" alt="Komponist" width="400" />
+    <source media="(prefers-color-scheme: dark)" srcset="assets/images/komponist_logo_dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/images/komponist_logo_light.svg">
+    <img src="assets/images/komponist_logo_light.svg" alt="Komponist" width="400" />
   </picture>
 </p>
 
