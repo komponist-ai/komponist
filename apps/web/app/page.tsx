@@ -173,8 +173,10 @@ export default function LandingPage() {
             >
               {mobileMenuOpen ? <X className="size-4" /> : <Menu className="size-4" />}
             </button>
-            <ThemeToggle />
-            <Button asChild size="sm">
+            <div className="hidden md:flex md:items-center">
+              <ThemeToggle />
+            </div>
+            <Button asChild size="sm" className="hidden md:inline-flex">
               <Link href="/studio">Open Studio <ArrowRight /></Link>
             </Button>
           </div>
@@ -208,8 +210,17 @@ export default function LandingPage() {
                 rel="noreferrer"
                 className="flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-paper-2"
               >
-                <GitHubMark className="size-4" /> Open source <GitHubStars className="ml-auto" />
+                <GitHubMark className="size-4" /> GitHub <GitHubStars className="ml-auto" />
               </a>
+              <div className="mt-2 border-t border-line pt-2">
+                <div className="flex min-h-11 items-center justify-between rounded-lg px-3">
+                  <span>Theme</span>
+                  <ThemeToggle />
+                </div>
+                <Button asChild size="sm" className="mt-2 w-full">
+                  <Link href="/studio" onClick={() => setMobileMenuOpen(false)}>Open Studio <ArrowRight /></Link>
+                </Button>
+              </div>
             </motion.nav>
           )}
         </AnimatePresence>
